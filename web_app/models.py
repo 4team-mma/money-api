@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Numeric, Date, Boolean, ForeignKey, DateTime, TIMESTAMP, func
 from .database import Base
 
+
 # 1. 會員中心 (Julia同學)
 class Member(Base):
     __tablename__ = "members"
@@ -8,6 +9,7 @@ class Member(Base):
     email = Column(String(100), nullable=False, unique=True)
     password = Column(String(300), nullable=False)
     username = Column(String(50), nullable=False)
+    name = Column(String(50), nullable=False)
     role = Column(String(10), server_default="user")
     status = Column(String(10), server_default="active")
     created_at = Column(DateTime, default=func.now())
@@ -16,6 +18,7 @@ class Member(Base):
     xp = Column(Integer, default=0)
     level = Column(Integer, default=1)
     points = Column(Integer, default=0)
+    job = Column(String(100), default='一般用戶')
 
 # 2. 帳戶管理 (育育同學)
 class Account(Base):
@@ -70,3 +73,25 @@ class Notification(Base):
 # 6. 成就收集 (沛青同學)
 # class Achievements(Base):
 #     __tablename__ = "Achievements"
+
+
+# 7. 忘記密碼表格 (白)
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    # 連結到 members 表的 user_id，並設定級聯刪除
+    user_id = Column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
+    # 這裡存入 email 是為了發信方便，不需每次都去 Join member 表
+    email = Column(String(100), nullable=False)
+    # 驗證碼建議維持 String 格式，防止 0 開頭的數字被截斷
+    otp_code = Column(String(6), nullable=False)
+    # 過期時間
+    expires_at = Column(DateTime, nullable=False)
+    # 狀態：0 為未使用 (False)，1 為已使用 (True)
+    is_used = Column(Boolean, nullable=False, default=False)
+    # 建立時間：使用 server_default=func.now() 讓資料庫自動產生時間
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    
+    
+# 8. 如果還有表格請往下加~
