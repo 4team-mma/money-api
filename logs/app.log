@@ -1,0 +1,12 @@
+2026-01-01 14:34:45,260 - root - INFO - 來自127.0.0.1訪客,訪問了首頁
+2026-01-01 14:38:32,964 - sqlalchemy.engine.Engine - INFO - SELECT DATABASE()
+2026-01-01 14:38:32,965 - sqlalchemy.engine.Engine - INFO - [raw sql] {}
+2026-01-01 14:38:32,969 - sqlalchemy.engine.Engine - INFO - SELECT @@sql_mode
+2026-01-01 14:38:32,969 - sqlalchemy.engine.Engine - INFO - [raw sql] {}
+2026-01-01 14:38:32,970 - sqlalchemy.engine.Engine - INFO - SELECT @@lower_case_table_names
+2026-01-01 14:38:32,970 - sqlalchemy.engine.Engine - INFO - [raw sql] {}
+2026-01-01 14:38:32,971 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2026-01-01 14:38:32,973 - sqlalchemy.engine.Engine - INFO - SELECT `Adds`.id AS `Adds_id`, `Adds`.user_id AS `Adds_user_id`, `Adds`.add_date AS `Adds_add_date`, `Adds`.add_amount AS `Adds_add_amount`, `Adds`.add_type AS `Adds_add_type`, `Adds`.add_class AS `Adds_add_class`, `Adds`.add_class_icon AS `Adds_add_class_icon`, `Adds`.account_id AS `Adds_account_id`, `Adds`.add_member AS `Adds_add_member`, `Adds`.add_tag AS `Adds_add_tag`, `Adds`.add_note AS `Adds_add_note` 
+FROM `Adds`
+2026-01-01 14:38:32,973 - sqlalchemy.engine.Engine - INFO - [generated in 0.00016s] {}
+2026-01-01 14:38:33,006 - sqlalchemy.engine.Engine - INFO - ROLLBACK
