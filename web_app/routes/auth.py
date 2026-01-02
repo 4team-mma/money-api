@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-
 from ..database import get_db
 from ..models import Member, PasswordReset  # 💡 確保導入了這兩個模型
 from ..schemas.member import MemberRegister, MemberLogin
@@ -10,7 +9,7 @@ from ..schemas.forgot_password import SendOTPRequest, VerifyOTPRequest, ResetPas
 from ..utils.otp import generate_otp
 from ..utils.email_utils import send_otp_email
 from ..utils.password import hash_password, verify_password
-
+from ..utils.jwt import create_access_token
 
 router = APIRouter()
 
@@ -51,10 +50,16 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
     
+    # 建立 Token (payload 中的 sub 放入 user_id)
+    access_token = create_access_token(data={"sub": str(user.user_id)})
+    
     # 這裡未來會回傳 JWT Token
     return {
         "msg": "登入成功",
+        "access_token": access_token, # 回傳給前端存入 localStorage
+        "token_type": "bearer",
         "user": {
+            "user_id": user.user_id,
             "username": user.username,
             "email": user.email,
             "role": user.role

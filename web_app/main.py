@@ -65,7 +65,7 @@ app.include_router(root.router)
 app.include_router(auth.router, prefix="/auth", tags=["認證"])
 app.include_router(users.router, prefix="/users", tags=["使用者"])
 app.include_router(accounts.router, prefix="/accounts", tags=["帳戶"])
-app.include_router(records.router, prefix="/records", tags=["收支紀錄"])
+app.include_router(records.router, prefix="/api/records", tags=["收支紀錄"])
 app.include_router(
     admin.router, 
     prefix="/admin", 
