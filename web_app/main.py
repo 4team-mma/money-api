@@ -62,15 +62,15 @@ app.include_router(root.router)
 
 # 
 # 分支_使用 prefix 
-app.include_router(auth.router, prefix="/auth", tags=["認證"])
-app.include_router(users.router, prefix="/users", tags=["使用者"])
-app.include_router(accounts.router, prefix="/accounts", tags=["帳戶"])
+app.include_router(auth.router, prefix="/api", tags=["認證與密碼管理"])
+app.include_router(users.router, prefix="/api/users", tags=["使用者"])
+app.include_router(accounts.router, prefix="/api/accounts", tags=["帳戶"])
 app.include_router(records.router, prefix="/api/records", tags=["收支紀錄"])
 app.include_router(
     admin.router, 
-    prefix="/admin", 
+    prefix="/api/admin", 
     tags=["系統管理後台"],
-    dependencies=[Depends(admin_required)] # 💡 這代表 admin/ 底下的所有網址都限管理員
+    dependencies=[Depends(admin_required)] #  admin/ 底下的所有網址都限管理員
 )
 
 @app.get("/favicon.ico")

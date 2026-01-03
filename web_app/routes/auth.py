@@ -21,13 +21,14 @@ async def admin_required():
 
 # ==================== 註冊與登入 ====================
 
-@router.post("/register")
+@router.post("/auth/register")
 async def register(data: MemberRegister, db: Session = Depends(get_db)):
     # 檢查 Email 是否已被註冊
     existing_user = db.query(Member).filter(Member.email == data.email).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="此電子郵件已被註冊")
     
+        raise HTTPException(status_code=400, detail="此電子郵件已被註冊")
+
     # 建立新會員 (記得加密密碼)
     new_user = Member(
         username=data.username,
@@ -40,23 +41,30 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
     db.commit()
     return {"msg": "註冊成功"}
 
-@router.post("/login")
+@router.post("/auth/login")
 async def login(data: MemberLogin, db: Session = Depends(get_db)):
-    # 支援「帳號」或「信箱」登入
+    # 🌟 1. 先從資料庫找人
     user = db.query(Member).filter(
         (Member.username == data.identifier) | (Member.email == data.identifier)
     ).first()
     
-    if not user or not verify_password(data.password, user.password):
+    if not user:
+        print(f"❌ 找不到使用者: {data.identifier}")
+        raise HTTPException(status_code=401, detail="帳號不存在或輸入錯誤")
+
+    # 🌟 2. 找到人後，才進行密碼比對並列印日誌
+    is_correct = verify_password(data.password, user.password)
+    print(f"🔍 比對密碼: 輸入={data.password}, 資料庫雜湊碼={user.password}, 結果={is_correct}")
+    
+    if not is_correct:
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
     
-    # 建立 Token (payload 中的 sub 放入 user_id)
+    # 🌟 3. 驗證通過，建立 Token
     access_token = create_access_token(data={"sub": str(user.user_id)})
     
-    # 這裡未來會回傳 JWT Token
     return {
         "msg": "登入成功",
-        "access_token": access_token, # 回傳給前端存入 localStorage
+        "access_token": access_token,
         "token_type": "bearer",
         "user": {
             "user_id": user.user_id,
@@ -68,7 +76,7 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
 
 # ==================== 忘記密碼邏輯 (新增) ====================
 
-@router.post("/forgot-password/send-otp")
+@router.post("/auth/forgot-password/send-otp")
 async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
     """步驟 1: 發送驗證碼到信箱"""
     # 1. 檢查使用者是否存在
@@ -97,7 +105,7 @@ async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
 
     return {"msg": "驗證碼已寄出，請檢查您的信箱"}
 
-@router.post("/forgot-password/verify-otp")
+@router.post("/auth/forgot-password/verify-otp")
 async def verify_otp(data: VerifyOTPRequest, db: Session = Depends(get_db)):
     """步驟 2: 驗證前端輸入的 Code 是否正確且有效"""
     # 查詢最新的一筆、未被使用過且未過期的紀錄
@@ -113,7 +121,7 @@ async def verify_otp(data: VerifyOTPRequest, db: Session = Depends(get_db)):
     
     return {"msg": "驗證通過，請重新設定新密碼"}
 
-@router.post("/forgot-password/reset")
+@router.post("/auth/forgot-password/reset")
 async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     """步驟 3: 正式更新資料庫密碼"""
     # 再次確認驗證碼紀錄有效性 (防止駭客直接呼叫此 API)
