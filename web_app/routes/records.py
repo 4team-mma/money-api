@@ -12,7 +12,7 @@ from sqlalchemy import func
 
 router = APIRouter()
 
-# 2. 💡 這是我們要測試「讀取假資料」的 API
+# 2. 測試「讀取假資料」的 API
 @router.get("/", response_model=List[AddRecordResponse])
 async def get_records(
     
@@ -25,11 +25,48 @@ async def get_records(
     try:
         # 執行：SELECT * FROM Adds;
         # records = db.query(AddRecord).all()
-        records = db.query(AddRecord).filter(AddRecord.user_id == user_id).all()
+        records = db.query(AddRecord)\
+        .filter(AddRecord.user_id == user_id)\
+        .order_by(AddRecord.add_date.desc(), AddRecord.id.desc())\
+        .all()
         return records
     except Exception as e:
         # 如果出錯，會回傳錯誤訊息，方便我們排錯
         raise HTTPException(status_code=500, detail=f"資料庫連線出錯：{str(e)}")
+
+
+@router.post("/", response_model=AddRecordResponse)
+async def create_record(
+    data: AddRecordCreate, 
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+    ):
+    try:
+        # 1. 建立資料庫物件
+        new_record = AddRecord(
+            user_id=user_id,
+            **data.dict()
+        )
+        db.add(new_record)
+
+        # 2. 連動更新帳戶餘額
+        account = db.query(Account).filter(Account.account_id == data.account_id).first()
+        if not account:
+            raise HTTPException(status_code=404, detail="找不到指定帳戶或權限不足")
+        
+        if data.add_type == False: # 支出
+            account.current_balance -= data.add_amount
+        else: # 收入
+            account.current_balance += data.add_amount
+
+        db.commit()
+        db.refresh(new_record)
+        return new_record
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
     
 @router.post("/transfer")
 async def create_transfer(from_id: int, 
