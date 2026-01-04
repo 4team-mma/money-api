@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import date
-from decimal import Decimal # 💡 Pydantic 可以直接用 Decimal，沒問題
+from decimal import Decimal
 from typing import Optional
 
 # 💡 確保有這個類別
