@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from ..database import get_db
@@ -136,6 +136,9 @@ async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_d
 
     # 1. 更新 Member 表的密碼
     user = db.query(Member).filter(Member.email == data.email).first()
+    if user is None:
+        # 理論上 record 存在則 user 應存在，但為了程式健壯性與消除警告，必須檢查
+        raise HTTPException(status_code=404, detail="找不到該使用者，無法重設密碼")
     user.password = hash_password(data.new_password)
     
     # 2. 將驗證碼設為已使用
