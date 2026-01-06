@@ -2,29 +2,35 @@
 [回首頁](../README.md)<br>
 本專案為後端 API 服務，主要採用 Python 開發，並使用 web_app 作為核心邏輯目錄。
 
-
     .
-    ├── .github/                # GitHub Actions CI/CD 工作流與 Issue 範本
-    ├── .vscode/                # VS Code 編輯器設定 (建議插件、Linter 設定)
-    ├── docs/                   # 專案相關說明文件
-    ├── public/                 # 靜態資源 (不經 Vite 編譯，放 favicon.ico)
-    ├── src/                    # 原始碼主目錄
-    │   ├── api/                # Axios 接口模組 (與後端溝通邏輯)
-    |   |   ├── service.js      # 封裝與後端 API 溝通的核心邏輯
-    |   |   ├── index.js        # 把 service + interceptors 組合成統一對外的 API 客戶端
-    |   |   └── interceptors.js # 集中管理 Axios 的 請求攔截器與回應攔截器，用來處理錯誤、Token 自動添加等
-    │   ├── assets/             # 靜態資源 (由 Vite 編譯，如圖片、 CSS )
-    │   ├── components/         # 全域共用 Vue 組件
-    │   ├── router/             # Vue Router 路由配置
-    │   ├── stores/             # Pinia 狀態管理 (數據中心)
-    │   ├── views/              # 頁面組件 (對應路由的視圖頁面)
-    │   ├── App.vue             # 根組件
-    │   └── main.js             # 前端入口檔案 (掛載外掛、樣式匯入)
-    ├── dev.sh                  # Mac 本地開發啟動腳本
+    ├── .github/                # GitHub Actions CI/CD 工作流配置
+    ├── .venv/                  # Python 虛擬環境目錄 (Virtual Environment)
+    ├── docs/                   # 專案相關說明文件與 API 文件
+    ├── logs/                   # 系統執行日誌 (Logs)
+    ├── web_app/                # API 原始碼主目錄
+    │   ├── routes/             # API 路由定義 (Endpoints)
+    │   │   ├── __init__.py     # 路由模組初始化
+    │   │   ├── accounts.py     # 帳戶相關 API (開戶、查詢等)
+    │   │   ├── admin.py        # 管理員後台相關 API
+    │   │   ├── auth.py         # 身分驗證 API (登入、Token 驗證)
+    │   │   ├── records.py      # 紀錄/流水帳相關 API
+    │   │   ├── reminders.py    # 提醒通知相關 API
+    │   │   ├── root.py         # 根路由或基礎測試介面
+    │   │   ├── transfers.py    # 轉帳/交易相關 API
+    │   │   └── users.py        # 使用者基本資料管理 API
+    │   ├── schemas/            # Pydantic 資料模型 (Request/Response 資料驗證)
+    │   │   ├── accounts.py     # 帳戶資料結構定義
+    │   │   ├── add.py          # 新增資料用的 Schema
+    │   │   ├── forgot_password.py # 忘記密碼流程的資料結構
+    │   │   └── member.py        # 會員相關資料結構
+    │   ├── static/             # 靜態資源檔案 (如圖片、ico)
+    │   ├── templates/          # 使用jinja模板 (暫時沒用到)
+    │   └── utils/              # 核心工具與通用邏輯,使用bcrypt 演算法,JWT,opt驗證
+    │       ├── database.py     # 資料庫連線配置 (Engine, Session)
+    │       ├── dependencies.py # FastAPI 依賴注入 (如：取得 DB、權限檢查)
+    │       ├── main.py         # 應用程式進入點 (App 初始化與路由掛載)
+    │       └── models.py       # 資料庫 ORM 模型 (SQLAlchemy / Tortoise 模型)
+    ├── .env                    # 環境變數設定檔 (含資料庫密碼、密鑰等，不進入 Git)
+    ├── .env.example            # 環境變數範例檔 (供團隊成員參考配置)
     ├── .gitignore              # Git 忽略檔案清單
-    ├── index.html              # 單頁應用 HTML 入口
-    ├── jsconfig.json           # JavaScript 路徑別名 (@) 設定
-    ├── package.json            # 前端套件依賴與腳本
-    ├── pnpm-lock.yaml          # pnpm 版本鎖定檔 (確保團隊依賴版本一致)
-    ├── README.md               # 專案說明文件
-    └── vite.config.js          # Vite 編譯設定
+    └── .python-version          # 指定 Python 3.12版本
