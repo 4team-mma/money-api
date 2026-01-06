@@ -14,23 +14,18 @@
 結合資料庫MySQL與ORM，安全驗證 JSON Web Tokens bcrypt密碼加密、JWT、OPT驗證、雜湊，確保 API 傳輸安全性。並使用開發測試工具Ruff、pytest-asyncio、Black。
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.127.0-05998b?logo=fastapi&logoColor=white)
-
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0.45-d71f00?logo=sqlalchemy&logoColor=white)
 ![PyMySQL](https://img.shields.io/badge/PyMySQL-1.1.2-4479a1?logo=mysql&logoColor=white)
-
 ![python-jose](https://img.shields.io/badge/python--jose-3.5.0-000000?logo=jsonwebtokens&logoColor=white)
-
 ![Bcrypt](https://img.shields.io/badge/Bcrypt-5.0.0-3776ab?logo=python&logoColor=white)
-
 ![Ruff](https://img.shields.io/badge/Ruff-0.14.10-d7ff64?logo=ruff&logoColor=black)
-
 ![pytest-asyncio](https://img.shields.io/badge/pytest--asyncio-1.3.0-0A9EDC?logo=pytest&logoColor=white)
-
 ![Black](https://img.shields.io/badge/Black-25.12.0-000000?logo=python&logoColor=white)
 
 
-# 遷移專案說明:API 專案 (money-api)：必須重新 Clone
-因為專案歷史紀錄已重整以抹除敏感資訊，請務必執行以下動作：
+# 遷移專案說明：
+- 必須重新 Clone
+- 因為專案歷史紀錄已重整以抹除敏感資訊，請務必執行以下動作：
 - 步驟 A：直接刪除您電腦中原本舊的 money-api 資料夾。原本的.env先複製內容下來，等下新clone的.env內容直接換成這個就好。
 - 步驟 B：重新執行 Clone：
 git clone https://github.com/4team-mma/money-api.git
