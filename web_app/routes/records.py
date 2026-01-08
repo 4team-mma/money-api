@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AddRecord, Account, Transaction
+from ..models.models import AddRecord, Account, Transaction
 from ..schemas.add import AddRecordCreate, AddRecordResponse, AddRecordUpdate
 from ..dependencies import get_current_user_id
 from typing import List, Optional

@@ -7,7 +7,7 @@ from sqlalchemy import (
     ForeignKey, DateTime, TIMESTAMP, func
 )
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
-from .database import Base
+from ..database import Base
 
 # 如果你的 Base 是在 database.py 定義的，請確保它繼承自 DeclarativeBase
 # 如果 database.py 那邊沒改，這邊直接使用原本引入的 Base 即可
