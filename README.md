@@ -13,7 +13,7 @@
 
 ## 專案介紹
 核心架構為 Python Web 框架，基於標準 Python 型別提示，內建 Swagger 互動式 API 文件。
-結合資料庫MySQL與ORM&Pydanic，安全驗證 JSON Web Tokens bcrypt密碼加密、JWT、OPT驗證、雜湊，確保 API 傳輸安全性。並使用開發測試工具Ruff、pytest-asyncio、Black，apscheduler固定時間自動執行api定時任務。
+結合資料庫MySQL與ORM，安全驗證 JSON Web Tokens bcrypt密碼加密、JWT、OPT驗證、雜湊，確保 API 傳輸安全性。並使用開發測試工具Ruff、pytest-asyncio、Black。
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.127.0-05998b?logo=fastapi&logoColor=white)
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0.45-d71f00?logo=sqlalchemy&logoColor=white)
@@ -24,11 +24,6 @@
 ![pytest-asyncio](https://img.shields.io/badge/pytest--asyncio-1.3.0-0A9EDC?logo=pytest&logoColor=white)
 ![Black](https://img.shields.io/badge/Black-25.12.0-000000?logo=python&logoColor=white)
 
-# 安裝套件:
-- 使用uv add 開頭,後面放套件名稱
-- uv add <package-name>
-- 原本:pip install apscheduler
-- 變成:uv add apscheduler
 
 # 遷移專案說明：
 - 必須重新 Clone
