@@ -7,8 +7,8 @@
 [團隊開發流程](docs/git-workflow.md) |
 [專案結構說明](docs/architecture.md) |
 [執行流程](docs/dependencies.md) |
-[ORM](docs/dependencies.md) |
-[Pydanic](docs/dependencies.md) 
+[ORM](docs/orm.md) |
+[Pydanic](docs/pydanic.md) 
 
 
 ## 專案介紹
