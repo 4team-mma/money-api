@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from ..database import get_db
-from ..models import Member, PasswordReset  # 💡 確保導入了這兩個模型
+from ..models.models import Member, PasswordReset  # 💡 確保導入了這兩個模型
 from ..schemas.member import MemberRegister, MemberLogin
 # 💡 導入我們之前建立的 Schema 與工具
 from ..schemas.forgot_password import SendOTPRequest, VerifyOTPRequest, ResetPasswordRequest
