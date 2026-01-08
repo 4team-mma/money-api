@@ -23,6 +23,7 @@ record = db.query(AddRecord).filter(AddRecord.id == record_id).first()
 - 關聯操作： 處理 user_id 與 account_id 之間的外鍵關係。
 - ❌ 錯誤示範： 在 Route 裡直接寫 SQL 字串 SELECT * FROM Adds WHERE... (這會失去 ORM 的類型安全與安全性)。
 
+- 參考:
 
 ```bash
 from fastapi import Depends

@@ -20,4 +20,4 @@ class AddRecordCreate(BaseModel):
 ## 什麼時候該用 Pydantic？
 - 當資料進出 API 時，必須使用 Pydantic Schemas。
 - Request Validation (進)： 前端傳來的內容（例如：AddRecordCreate），確保金額是數字、日期格式正確。
-- Response Modeling (出)： 定義 AddRecordResponse。這非常重要！ 它可以隱藏敏感欄位（如密碼 password），只吐出前端需要的資料。
+- Response Modeling (出)： 定義 AddRecordResponse。它可以隱藏敏感欄位（如密碼 password），只吐出前端需要的資料。
