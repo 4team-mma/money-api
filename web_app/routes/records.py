@@ -8,7 +8,7 @@ from typing import List, Optional
 from sqlalchemy import func, or_
 from decimal import Decimal
 from datetime import date
-import math # 🌟 用於計算總頁數
+import math #  用於計算總頁數
 
 router = APIRouter()
 
@@ -39,7 +39,7 @@ async def get_records(
         total_count = query.count()
 
         # 🌟 執行分頁
-        records = query.order_by(AddRecord.add_date.desc(), AddRecord.id.desc())\
+        records = query.order_by(AddRecord.add_date.desc(), AddRecord.add_id.desc())\
             .limit(page_size)\
             .offset((page - 1) * page_size)\
             .all()
@@ -139,7 +139,7 @@ async def update_record(
     user_id: int = Depends(get_current_user_id)
 ):
     try:
-        db_record = db.query(AddRecord).filter(AddRecord.id == record_id, AddRecord.user_id == user_id).first()
+        db_record = db.query(AddRecord).filter(AddRecord.add_id == record_id, AddRecord.user_id == user_id).first()
         if not db_record:
             raise HTTPException(status_code=404, detail="找不到該筆紀錄")
 
@@ -188,7 +188,7 @@ async def delete_record(
     user_id: int = Depends(get_current_user_id)
 ):
     try:
-        record = db.query(AddRecord).filter(AddRecord.id == record_id, AddRecord.user_id == user_id).first()
+        record = db.query(AddRecord).filter(AddRecord.add_id == record_id, AddRecord.user_id == user_id).first()
         if record is None:
             raise HTTPException(status_code=404, detail="紀錄不存在或無權限刪除")
 

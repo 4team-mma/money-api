@@ -45,11 +45,11 @@ async def get_admin_rankings(db: Session = Depends(get_db)):
         frequency_ranks = db.query(
             Member.username,
             Member.name,
-            func.count(AddRecord.id).label("count")
+            func.count(AddRecord.add_id).label("count")
         ).join(AddRecord, Member.user_id == AddRecord.user_id) \
          .filter(Member.role == 'user') \
          .group_by(Member.user_id) \
-         .order_by(func.count(AddRecord.id).desc()).limit(5).all()
+         .order_by(func.count(AddRecord.add_id).desc()).limit(5).all()
 
         # 3. 🛡️ 金庫大總管 (帳戶餘額儲蓄榜 - 排除 admin)
         savings_ranks = db.query(
@@ -75,7 +75,7 @@ async def get_admin_rankings(db: Session = Depends(get_db)):
             Member.username,
             Member.name,
             func.sum(AddRecord.add_amount).label("total_spent"),
-            func.count(AddRecord.id).label("tx_count")
+            func.count(AddRecord.add_id).label("tx_count")
         ).join(AddRecord, Member.user_id == AddRecord.user_id) \
          .filter(Member.role == 'user', AddRecord.add_type == False) \
          .group_by(Member.user_id) \
