@@ -17,7 +17,7 @@ class AddRecordCreate(BaseModel):
 
 # 存檔成功後，回傳給前端顯示在清單上的資料。
 class AddRecordResponse(AddRecordCreate):
-    id: int
+    add_id: int
     user_id: int
     model_config = ConfigDict(from_attributes=True)
 

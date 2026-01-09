@@ -13,4 +13,4 @@ class VerifyOTPRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
     otp: str
-    new_password: str = Field(..., min_length=3, description="新密碼，至少 3 位")
+    new_password: str = Field(..., min_length=3, max_length=50, description="新密碼，至少 3 位元,最大50位元")

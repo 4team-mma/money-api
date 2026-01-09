@@ -55,7 +55,7 @@ class Account(Base):
 class AddRecord(Base):
     __tablename__ = "Adds"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    add_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
     
     add_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -102,7 +102,7 @@ class Notification(Base):
 class PasswordReset(Base):
     __tablename__ = "password_resets"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    reset_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
     
     email: Mapped[str] = mapped_column(String(100), nullable=False)

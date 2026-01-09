@@ -7,7 +7,7 @@ class MemberRegister(BaseModel):
     username: str = Field(min_length=1, max_length=50, description="帳號")
     name: str = Field(min_length=1, max_length=50, description="顯示暱稱")
     email: EmailStr = Field(description="電子郵件")
-    password: str = Field(min_length=3, description="密碼，至少 3 字元")
+    password: str = Field(min_length=3, max_length=50,description="密碼，至少 3 字元,最多50字元")
     confirm_password: str = Field(description="確認密碼")
 
     # 💡 驗證：兩次密碼必須一樣
