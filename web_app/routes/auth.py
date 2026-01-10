@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from ..database import get_db
-from ..models import Member, PasswordReset  # 💡 確保導入了這兩個模型
+from ..models import Member, PasswordReset,Account  # 💡 確保導入了這兩個模型
 from ..schemas.member import MemberRegister, MemberLogin
 # 💡 導入我們之前建立的 Schema 與工具
 from ..schemas.forgot_password import SendOTPRequest, VerifyOTPRequest, ResetPasswordRequest
@@ -39,6 +39,36 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
     )
     db.add(new_user)
     db.commit()
+    db.refresh(new_user)
+    # 🚀 3. 自動化：為新使用者建立預設帳戶
+    try:
+        default_accounts = [
+            Account(
+                user_id=new_user.user_id, # 
+                account_type='現金',
+                account_name='我的錢包',
+                currency='TWD',
+                initial_balance=0,
+                current_balance=0,
+                exclude_from_assets=False,
+                account_icon='💰'
+            ),
+            Account(
+                user_id=new_user.user_id, # 
+                account_type='銀行',
+                account_name='預設銀行',
+                currency='TWD',
+                initial_balance=0,
+                current_balance=0,
+                exclude_from_assets=False,
+                account_icon='🏦'
+            )
+        ]
+        db.add_all(default_accounts) # 一次新增多筆
+        db.commit() # 儲存預設帳戶
+    except Exception as e:
+        print(f"預設帳戶建立失敗: {e}")
+        # 這裡不一定要報錯給前端，因為會員已經註冊成功了
     return {"msg": "註冊成功"}
 
 @router.post("/auth/login")
