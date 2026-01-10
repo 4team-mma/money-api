@@ -13,7 +13,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 # 定義接收資料的結構
 class AccountCreate(BaseModel):
     account_name: str
-    icon_id: str
+    account_icon: str
     account_type: str
     initial_balance: float
     exclude_from_assets: bool
@@ -43,7 +43,7 @@ async def create_account(
         new_acc = Account(
             user_id=user_id, #  使用動態 ID
             account_name=data.account_name,
-            icon_id=data.icon_id,
+            account_icon=data.account_icon,
             account_type=data.account_type,
             initial_balance=data.initial_balance,
             current_balance=data.initial_balance, # 初始時餘額等於初始餘額

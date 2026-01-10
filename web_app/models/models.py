@@ -49,7 +49,7 @@ class Account(Base):
     current_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
     
     exclude_from_assets: Mapped[bool] = mapped_column(Boolean, default=False)
-    icon_id: Mapped[Optional[str]] = mapped_column(String(5))
+    account_icon: Mapped[Optional[str]] = mapped_column(String(5))
 
 # 3. 收支紀錄 (白)
 class AddRecord(Base):
