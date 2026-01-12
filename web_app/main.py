@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
-from web_app.routes import root, users, accounts, records, auth,admin
+from web_app.routes import root, users, accounts, records, auth,admin,transfers
 from web_app.routes.auth import admin_required
 import logging
 
@@ -66,6 +66,7 @@ app.include_router(auth.router, prefix="/api", tags=["認證與密碼管理"])
 app.include_router(users.router, prefix="/api/users", tags=["使用者"])
 app.include_router(accounts.router, prefix="/api/accounts", tags=["帳戶"])
 app.include_router(records.router, prefix="/api/records", tags=["收支紀錄"])
+app.include_router(transfers.router, prefix="/api/transfers", tags=["轉帳紀錄"])
 app.include_router(
     admin.router, 
     prefix="/api/admin", 
