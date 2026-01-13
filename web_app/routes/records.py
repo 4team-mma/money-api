@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import AddRecord, Account, Transaction
-from ..schemas.add import AddRecordCreate, AddRecordResponse, AddRecordUpdate
+from ..schemas.add import AddRecordCreate, AddRecordResponse, AddRecordUpdate, MonthlyRecordResponse
 from ..dependencies import get_current_user_id
 from typing import List, Optional
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
 from datetime import date
 import math #  用於計算總頁數
@@ -62,6 +62,115 @@ async def get_records(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"資料庫連線出錯：{str(e)}")
+
+@router.get(
+    "/calendar/monthly",
+    summary="取得月度收支清單",
+    description="""
+根據指定的 **年份** 與 **月份**，查詢該使用者在該月的所有收支紀錄。
+- **計算功能**：自動加總該月總收入、總支出與餘額。
+- **資料排序**：預設按日期降序 (Newest First)。
+- **關聯查詢**：自動關聯帳戶資訊 (如貨幣、帳戶名稱)。
+    """,
+    response_model=MonthlyRecordResponse, # 指定回應模型(使用 Pydantic 自動轉換，將 Python 物件 檢查並過濾後，轉成前端看得懂的 JSON)
+    response_description="回傳月度統計數據與詳細紀錄清單"
+)
+async def get_monthly_records(
+    # 讓前端傳遞年份與月份，預設為空則由後端邏輯處理或回傳錯誤
+    year: int = Query(..., ge=2000, le=2100, description="年份"),
+    month: int = Query(..., ge=1, le=12, description="月份"),
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """
+    ### 權限要求
+    - 需通過 JWT Token 驗證。
+    - 僅能查詢該 `user_id` 所屬的資料。
+
+    ### 回傳格式說明 (Success JSON)
+    - `total_count`: 該月總筆數
+    - `monthly_income`: 總收入
+    - `monthly_expenses`: 總支出
+    - `monthly_balance`: 結餘 (收入 - 支出)
+    - `data`: 包含 `account_name` 與 `currency` 的詳細收支紀錄清單
+    """
+    try:
+        # 使用 SQLAlchemy ORM 與資料庫溝通，將資料庫裡的資料讀出來，變成 Python 物件
+        # 1. 建立基礎查詢與 LEFT JOIN
+        # 我們選取 AddRecord 的所有欄位，以及 Account 的 account_name, currency
+        stmt = (
+            select(AddRecord, Account.account_name, Account.currency, )
+            .join(
+                Account, 
+                # 定義 JOIN 條件：使用者 ID 相同且帳戶 ID 相同
+                and_(
+                    AddRecord.user_id == Account.user_id,
+                    AddRecord.account_id == Account.account_id
+                ),
+                isouter=True  # 實現 LEFT JOIN，即使 AddRecord 找不到對應的 Account 也能返回紀錄
+            )
+            .filter(AddRecord.user_id == user_id)
+            # 2. 關鍵：使用 extract 函數篩選特定年、月
+            .filter(extract('year', AddRecord.add_date) == year) # 從日期欄位中提取年份部分
+            .filter(extract('month', AddRecord.add_date) == month) # 從日期欄位中提取月份部分
+            # 3. 排序：按日期降序排列
+            .order_by(AddRecord.add_date.desc(), AddRecord.add_id.desc())
+        )
+
+        # 執行查詢，獲取所有結果行
+        results = db.execute(stmt).all()
+
+        # 4. 資料格式化 (將 Row Proxy 物件轉換為前端友好的 JSON 格式)
+        formatted_data = []
+        monthly_income = Decimal('0.0') # 順便計算該月總收入
+        monthly_expenses = Decimal('0.0') # 順便計算該月總支出
+        
+        for row in results:
+            record = row[0]       # AddRecord ORM 物件
+            account_name = row[1] # account_name 字串 (可能為 None)
+            currency = row[2]     # currency 字串 (可能為 None)
+            
+            # 將 ORM 物件轉為 dict，方便序列化為 JSON
+            item = {
+                "add_id": record.add_id,
+                "add_date": record.add_date,
+                "add_amount": record.add_amount,
+                "add_type": record.add_type, # True 為收入, False 為支出
+                "add_class": record.add_class,
+                "add_class_icon": record.add_class_icon,
+                "account_id": record.account_id,
+                "add_member": record.add_member,
+                "add_note": record.add_note,
+                "currency": currency or "N/A", # 處理 LEFT JOIN 可能的 Null 值
+                "account_name": account_name or "未分類帳戶" # 處理 LEFT JOIN 可能的 Null 值
+            }
+            formatted_data.append(item)
+
+            # 累計總收入與總支出
+            if record.add_type is True: # 收入
+                monthly_income += record.add_amount
+            else: # 支出
+                monthly_expenses += record.add_amount
+
+        monthly_balance = monthly_income - monthly_expenses # 計算月結餘
+
+        # 5. 返回結果(直接回傳字典，FastAPI 會自動校對 MonthlyRecordResponse 模型)
+        return {
+            "success": True,
+            "year": year,
+            "month": month,
+            "total_count": len(formatted_data), # 總筆數
+            "monthly_income": round(monthly_income, 2), # 四捨五入到小數兩位
+            "monthly_expenses": round(monthly_expenses, 2),
+            "monthly_balance": round(monthly_balance, 2),
+            "data": formatted_data
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"讀取 {year}-{month} 資料時發生錯誤：{str(e)}"
+        )
 
 # 2. 本月收支統計 API (放在 /{record_id} 之前，避免路徑匹配錯誤)
 @router.get("/stats/monthly")
