@@ -12,6 +12,8 @@ from ..database import Base
 # 如果你的 Base 是在 database.py 定義的，請確保它繼承自 DeclarativeBase
 # 如果 database.py 那邊沒改，這邊直接使用原本引入的 Base 即可
 
+# 加入新表格需要再到__init__.py裡面同時新增
+
 # 1. 會員中心 (Julia同學)
 class Member(Base):
     __tablename__ = "members"
@@ -114,7 +116,6 @@ class PasswordReset(Base):
     
 # 8. 回饋表格 (育育)
 class Feedback(Base):
-
     __tablename__ = "feedbacks"
 
     feedback_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
