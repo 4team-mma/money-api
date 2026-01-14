@@ -9,9 +9,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from ..database import Base
 
+# 主要功能是在定義資料庫的結構，
+# Mapped[...]：定義這個欄位的 Python 型別。
+# mapped_column(...)：定義資料庫層級的設定（如長度、是否允許為空、主鍵等）。
 # 如果你的 Base 是在 database.py 定義的，請確保它繼承自 DeclarativeBase
 # 如果 database.py 那邊沒改，這邊直接使用原本引入的 Base 即可
-
 # 加入新表格需要再到__init__.py裡面同時新增
 
 # 1. 會員中心 (Julia同學)
