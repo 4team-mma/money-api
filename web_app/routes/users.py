@@ -5,6 +5,7 @@ from typing import List, Optional
 from ..database import get_db
 from ..models import Member
 from ..schemas.member import MemberResponse, MemberUpdate
+from ..dependencies import get_current_user_id
 
 router = APIRouter()
 
@@ -37,5 +38,15 @@ def update_member_profile(user_id: int, data: MemberUpdate, db: Session = Depend
 
 # --- 以下為使用者個人功能 ---
 @router.get("/me")
-async def get_me():
-    return {"username": "當前用戶", "email": "user@example.com"}
+def get_me(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id) # 這會從 Token 解析出 user_id
+):
+    # 用 user_id 去資料庫查名字
+    user = db.query(Member).filter(Member.user_id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="找不到使用者")
+    
+    # 回傳使用者的資料 (FastAPI 會自動轉成 JSON)
+    return user

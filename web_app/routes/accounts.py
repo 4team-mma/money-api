@@ -1,59 +1,52 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from ..database import get_db
+from typing import List
+from ..schemas.accounts import AccountCreate, AccountResponse
 from ..models import Account
-# 假設您之後會建立 Schema，這裡先用基礎定義
-from pydantic import BaseModel
-from ..utils.jwt import verify_token
-from fastapi.security import OAuth2PasswordBearer
+from ..database import get_db
+from ..dependencies import get_current_user_id
 
+# 注意：這裡不要加 prefix="/accounts"，因為 main.py 已經幫你加了
+# tags 在 main.py 也有加，但這裡保留可以覆蓋或增加細節，不過通常建議這裡留空即可
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# 定義接收資料的結構
-class AccountCreate(BaseModel):
-    account_name: str
-    account_icon: str
-    account_type: str
-    initial_balance: float
-    exclude_from_assets: bool
-
-# 定義 Token 提取依賴項
-def get_current_user_id(token: str = Depends(oauth2_scheme)):
-    payload = verify_token(token)
-    return int(payload.get("sub"))
-
-@router.get("/")
-async def get_accounts(
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id) # 自動從 Token 提取 ID
-):
-    #  根據 user_id 過濾，實現資料隔離
-    return db.query(Account).filter(Account.user_id == user_id).all()
-
-#  新增這個 POST 路由，解決 405 錯誤
-@router.post("/")
-async def create_account(
-    data: AccountCreate, 
-    db: Session = Depends(get_db),
+# ===== GET 所有帳戶 =====
+# 網址對應: GET /api/accounts/
+@router.get("/", response_model=List[AccountResponse])
+def get_accounts(
+    db: Session = Depends(get_db), 
     user_id: int = Depends(get_current_user_id)
 ):
+    return db.query(Account).filter(Account.user_id == user_id).all()
+
+
+# ===== POST 新增帳戶 =====
+# 網址對應: POST /api/accounts/
+@router.post("/", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
+def create_account(
+    account_in: AccountCreate, # 接收 Pydantic Schema
+    db: Session = Depends(get_db), 
+    user_id: int = Depends(get_current_user_id)
+):
+    # 1. 將 Schema 轉為 Python 字典 (Pydantic v2 語法)
+    account_data = account_in.model_dump()
+    
+    # 2. 補上 Schema 沒定義但在資料庫 Model 必須的欄位
+    account_data["user_id"] = user_id
+    
+    # 邏輯：新開戶時，目前餘額 = 初始餘額
+    account_data["current_balance"] = account_in.initial_balance 
+    
+    # 3. 建立資料庫物件 (自動解包: **account_data)
+    # 這裡會自動把 account_name, account_icon, currency 等欄位填入
+    new_account = Account(**account_data)
+
     try:
-        # 這裡暫時沒寫 user_id 驗證，正式環境需加入 Depends(get_current_user_id)
-        new_acc = Account(
-            user_id=user_id, #  使用動態 ID
-            account_name=data.account_name,
-            account_icon=data.account_icon,
-            account_type=data.account_type,
-            initial_balance=data.initial_balance,
-            current_balance=data.initial_balance, # 初始時餘額等於初始餘額
-            exclude_from_assets=data.exclude_from_assets,
-            currency="TWD"
-        )
-        db.add(new_acc)
+        db.add(new_account)
         db.commit()
-        db.refresh(new_acc)
-        return new_acc
+        db.refresh(new_account) # 刷新以取得 DB 產生的 account_id
+        return new_account
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        # 建議印出錯誤 log 方便除錯，這裡先簡單回傳 500
+        raise HTTPException(status_code=500, detail=f"建立帳戶失敗: {str(e)}")
