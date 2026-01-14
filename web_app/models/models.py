@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Integer, String, Numeric, Date, Boolean, 
-    ForeignKey, DateTime, TIMESTAMP, func
+    ForeignKey, DateTime, TIMESTAMP, func,Text
 )
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from ..database import Base
@@ -111,3 +111,24 @@ class PasswordReset(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    
+# 8. 回饋表格 (育育)
+class Feedback(Base):
+
+    __tablename__ = "feedbacks"
+
+    feedback_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # 連結到會員中心
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
+
+    # 前端填寫的使用者名稱
+    feedback_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    # 問題類型 (例如：Bug、建議)
+    question_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    # 使用頁面 (後端自動帶入，例如 'web')
+    use_page: Mapped[str] = mapped_column(String(10), nullable=False)
+    # 詳細內容 (對應 SQL 的 TEXT 型態)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 建立時間
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
