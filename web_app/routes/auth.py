@@ -10,6 +10,7 @@ from ..utils.otp import generate_otp
 from ..utils.email_utils import send_otp_email
 from ..utils.password import hash_password, verify_password
 from ..utils.jwt import create_access_token
+from fastapi.security import OAuth2PasswordRequestForm
 
 router = APIRouter()
 
@@ -176,3 +177,30 @@ async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_d
     
     db.commit()
     return {"msg": "密碼已成功修改！"}
+
+
+# 👇👇👇【新增這個函式在 login 下方】👇👇👇
+# 這是專門給 Swagger UI (Authorize 按鈕) 用的登入接口
+# 它接收的是 Form Data，而不是 JSON
+@router.post("/auth/token")
+async def login_for_swagger(
+    form_data: OAuth2PasswordRequestForm = Depends(), 
+    db: Session = Depends(get_db)
+):
+    # 1. 找人 (OAuth2PasswordRequestForm 把帳號放在 username 欄位)
+    user = db.query(Member).filter(
+        (Member.username == form_data.username) | (Member.email == form_data.username)
+    ).first()
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="帳號不存在或輸入錯誤")
+
+    # 2. 比對密碼
+    if not verify_password(form_data.password, user.password):
+        raise HTTPException(status_code=401, detail="密碼錯誤")
+    
+    # 3. 產生 Token
+    access_token = create_access_token(data={"sub": str(user.user_id)})
+    
+    # 回傳 Token (格式必須符合 OAuth2 標準)
+    return {"access_token": access_token, "token_type": "bearer"}
