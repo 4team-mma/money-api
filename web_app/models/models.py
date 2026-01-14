@@ -1,13 +1,12 @@
 from decimal import Decimal
 from datetime import date, datetime
 from typing import Optional
-
+from ..database import Base
 from sqlalchemy import (
     Integer, String, Numeric, Date, Boolean, 
-    ForeignKey, DateTime, TIMESTAMP, func,Text
+    ForeignKey, DateTime, TIMESTAMP, func,Text,UniqueConstraint
 )
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
-from ..database import Base
 
 # 主要功能是在定義資料庫的結構，
 # Mapped[...]：定義這個欄位的 Python 型別。
@@ -135,3 +134,30 @@ class Feedback(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     # 建立時間
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    
+    
+# 9. CPI 物價指數資料 (新增)
+class CpiData(Base):
+    __tablename__ = "cpi_data"
+
+    cpi_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # 對應 category VARCHAR(100)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, comment='對應 Item (例如: 食物類)')
+    
+    # 對應 period VARCHAR(10)
+    period: Mapped[str] = mapped_column(String(10), nullable=False, comment='對應 TIME_PERIOD (例如: 2025M10)')
+    
+    # 對應 data_type VARCHAR(20)
+    data_type: Mapped[str] = mapped_column(String(20), nullable=False, comment='對應 TYPE (原始值 或 年增率)')
+    
+    # 對應 val DECIMAL(10, 2)
+    val: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, comment='對應 Item_VALUE')
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    # 設定複合唯一鍵 (Category + Period + DataType 必須唯一)
+    __table_args__ = (
+        UniqueConstraint('category', 'period', 'data_type', name='unique_cpi_record'),
+    )

@@ -5,9 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
-from web_app.routes import root, users, accounts, records, auth,admin,transfers,feedback
+from web_app.routes import root, users, accounts, records, auth,admin,transfers,feedback,analysis
 from web_app.routes.auth import admin_required
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+from contextlib import asynccontextmanager
+from .utils.cpi_crawler import fetch_and_update_cpi
 
 
 # 1. 先載入環境變數
@@ -30,7 +33,26 @@ logging.basicConfig(
     encoding="utf-8"
 )
 # --------------------------------------
-
+# 🔥 新增：定義生命週期管理器 (Lifespan)
+# 這裡負責在伺服器啟動時開啟排程，關閉時停止排程
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # --- 啟動時執行 ---
+    scheduler = BackgroundScheduler()
+    
+    # 設定排程：這裡設定每天凌晨 04:00 執行一次更新
+    # 也可以改成 hours=1 (每小時) 或 minutes=30 (每30分)
+    scheduler.add_job(fetch_and_update_cpi, 'cron', hour=4, minute=0)
+    
+    scheduler.start()
+    logging.info("APScheduler 排程器已啟動 - 每日 04:00 更新 CPI 資料")
+    
+    yield # 分隔線，以上是啟動，以下是關閉
+    
+    # --- 關閉時執行 ---
+    scheduler.shutdown()
+    logging.info("APScheduler 排程器已關閉")
+# --------------------------------------
 # 配置
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
@@ -38,6 +60,7 @@ app = FastAPI(
     title="FastAPI MoneyMMA",
     description="MMA server API-project",
     version="1.0.0",
+    lifespan=lifespan,  # <--- 加上這一行，排程才會動！
     docs_url="/docs" if DEBUG else None,
     redoc_url="/redoc" if DEBUG else None,
     openapi_url="/openapi.json" if DEBUG else None,
@@ -74,6 +97,7 @@ app.include_router(
     tags=["系統管理後台"],
     dependencies=[Depends(admin_required)] #  admin/ 底下的所有網址都限管理員
 )
+app.include_router(analysis.router,prefix="/api/analysis",tags=["消費趨勢分析"])
 
 @app.get("/favicon.ico")
 async def favicon():

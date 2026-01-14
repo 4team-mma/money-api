@@ -40,6 +40,7 @@ git clone https://github.com/4team-mma/money-api.git
 - 範例: uv add <package-name>
 - 原本: pip install apscheduler
 - uv add apscheduler
+- uv add xmltodict apscheduler requests(XML與排程套件)
 
 # 安裝依賴:
 - 執行：uv sync 

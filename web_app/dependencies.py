@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordBearer
 from .utils.jwt import verify_token
 
 # tokenUrl 指向你實作登入 API 的路徑，例如 auth.py 裡的 login 路徑
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login") 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
     """
