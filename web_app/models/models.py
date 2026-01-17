@@ -2,10 +2,13 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import Optional
 from ..database import Base
+
+# 核心組件 (Core)處理資料庫的「基本型別」與「結構」
 from sqlalchemy import (
     Integer, String, Numeric, Date, Boolean, 
     ForeignKey, DateTime, TIMESTAMP, func,Text,UniqueConstraint
 )
+# 物件關係映射 (ORM)負責將「Python 物件」與「資料表」串接。
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 
 # 主要功能是在定義資料庫的結構，
@@ -136,7 +139,7 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     
     
-# 9. CPI 物價指數資料 (新增)
+# 9. CPI 物價指數資料 (白)
 class CpiData(Base):
     __tablename__ = "cpi_data"
 
@@ -161,3 +164,33 @@ class CpiData(Base):
     __table_args__ = (
         UniqueConstraint('category', 'period', 'data_type', name='unique_cpi_record'),
     )
+    
+# 10. Salary薪資表格 (白)
+class SalaryBenchmark(Base):
+    __tablename__ = "salary_benchmarks"
+
+    salary_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # 行業別 (例如: 製造業)
+    industry: Mapped[str] = mapped_column(String(100), nullable=False)
+    # 週期 (例如: 2025M12)
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    # 類型 (例如: 經常性薪資、總薪資)
+    salary_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    # 是否為實質薪資 (0: 名目, 1: 實質)
+    salary_is_real: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 薪資金額
+    salary_val: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    # 建立時間
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 修改時間
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, 
+        server_default=func.now(), 
+        onupdate=func.now()
+    )
+    # 設定複合唯一鍵，確保資料不重複
+    __table_args__ = (
+        UniqueConstraint('industry', 'period', 'salary_type', 'salary_is_real', name='unique_salary_record'),
+    )
+

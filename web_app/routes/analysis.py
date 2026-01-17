@@ -1,115 +1,244 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from ..database import get_db
-from ..models import AddRecord, CpiData
+from ..models import AddRecord, CpiData, SalaryBenchmark, Member  # 💡 必須匯入 Member 才能查詢使用者職業
 from ..dependencies import get_current_user_id
+from typing import List
 
 router = APIRouter()
 
-# 1. 定義映射表
-CATEGORY_MAPPING = {
-    # === 食物類 ===
-    "早餐": "食物類",
-    "午餐": "食物類",
-    "晚餐": "食物類",
-    "飲料": "食物類",
-    "超市": "食物類",
-    "聚餐": "食物類",
-
-    # === 交通類 ===
-    "加油": "交通及通訊類",
-    "捷運": "交通及通訊類",
-    "公車": "交通及通訊類",
-    "保養": "交通及通訊類",
-    "停車費": "交通及通訊類",
-
-    # === 居住類 ===
-    "房租": "居住類",
-    "水電費": "居住類",
-    "網路費": "居住類",
-    
-    # ... 其他類別 ...
+# 💡 政府資料庫全名橋接表：確保能精準匹配資料庫中的 1 萬多筆資料
+GOV_NAME_BRIDGE = {
+    "食物類": "一.食物類(指數基期：民國110年=100)",
+    "衣著類": "二.衣著類(指數基期：民國110年=100)",
+    "居住類": "三.居住類(指數基期：民國110年=100)",
+    "交通及通訊類": "四.交通及通訊類(指數基期：民國110年=100)",
+    "醫藥保健類": "五.醫藥保健類(指數基期：民國110年=100)",
+    "教養娛樂類": "六.教養娛樂類(指數基期：民國110年=100)",
+    "雜項類": "七.雜項類(指數基期：民國110年=100)",
+    "總指數": "總指數(指數基期：民國110年=100)"
 }
 
+# 類別映射表：將使用者輸入的記帳項目對應到簡化大類別
+CATEGORY_MAPPING = {
+    # --- 食物類 ---
+    "飲食": "食物類",
+    "早餐": "食物類",
+    "午餐": "食物類",
+    "超商": "食物類",
+    "飲料": "食物類",
+    
+    # --- 衣著類 ---
+    "衣服": "衣著類",
+    "穿著": "衣著類",
+    "服飾": "衣著類",
+    "登山": "衣著類",
+    
+    # --- 居住類 ---
+    "居家": "居住類",
+    "房租": "居住類",
+    "水電瓦斯": "居住類",
+    "購物": "居住類",
+    "日常用品": "居住類",    
+    "美容美髮": "居住類",  
+    
+    # --- 交通及通訊類 ---
+    "交通": "交通及通訊類",
+    "汽車": "交通及通訊類",
+    "機車": "交通及通訊類",
+    "加油": "交通及通訊類",
+    "電話網路": "交通及通訊類",
+    "手機app": "交通及通訊類",
+    "電子產品": "交通及通訊類",
+    "電腦相關": "交通及通訊類",
+
+    # --- 醫藥保健類 ---
+    "醫療保健": "醫藥保健類",
+    "醫療": "醫藥保健類",
+    "保險": "醫藥保健類",
+    "保健食品": "醫藥保健類",
+    "保健": "醫藥保健類",
+
+    # --- 教養娛樂類 ---
+    "娛樂": "教養娛樂類",
+    "社交": "教養娛樂類",
+    "遊戲": "教養娛樂類",
+    "旅遊": "教養娛樂類",
+    "紀念品": "教養娛樂類",
+    "機票": "教養娛樂類",
+    "聖誕禮物": "教養娛樂類",   
+    "學習深造": "教養娛樂類",
+    "交際應酬": "教養娛樂類", 
+    "運動": "教養娛樂類", 
+    "教育": "教養娛樂類", 
+    "書籍": "教養娛樂類", 
+    
+    # --- 其他對應 ---
+    "其他": "雜項類",  # 收入類別通常不參與 CPI 支出比對
+    "繳稅": "雜項類",
+    "稅金": "雜項類",
+    "罰單": "雜項類",
+    "轉帳手續費": "雜項類", 
+    "奉獻": "雜項類",
+    # --- 收入 ---
+    "工資": "收入",  # 收入類別通常不參與 CPI 支出比對
+    "獎金": "收入",
+    "薪資": "收入",
+
+}
+
+# --- 1. 消費 CPI 支出比對路由 ---
 @router.get("/cpi-comparison")
 def get_cpi_comparison(
-    year: str,   # 前端傳來的查詢年份 (例如 2026)
-    month: str,  # 前端傳來的查詢月份 (例如 1)
+    year: str, 
+    month: str, 
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
-    # --- 步驟 1: 撈取使用者的花費 (保持不變) ---
-    # 這裡一定要查「當月」的，因為使用者想知道自己「現在」花多少
-    # 注意：month 如果是單位數 (1-9)，建議補 0 變成 "01"
+    # 格式化日期為 YYYY-MM
     target_date = f"{year}-{month.zfill(2)}" 
     
+    # 步驟 1: 撈取使用者當月花費
     user_expenses = db.query(
         AddRecord.add_class,
         func.sum(AddRecord.add_amount).label("total")
     ).filter(
         AddRecord.user_id == user_id,
+        AddRecord.add_type == 0,
         func.date_format(AddRecord.add_date, '%Y-%m') == target_date
     ).group_by(AddRecord.add_class).all()
 
-    # --- 步驟 2: Mapping 轉換 (保持不變) ---
+    # 步驟 2: 轉換為「簡化大類別」總計
     my_category_totals = {}
     for record in user_expenses:
-        my_class = record.add_class
-        amount = record.total
-        big_category = CATEGORY_MAPPING.get(my_class, "其他") # 記得確認 CATEGORY_MAPPING 有定義
-        
-        if big_category not in my_category_totals:
-            my_category_totals[big_category] = 0
-        my_category_totals[big_category] += amount
+        ui_category = CATEGORY_MAPPING.get(record.add_class, "雜項類")
+        my_category_totals[ui_category] = my_category_totals.get(ui_category, 0) + record.total
 
-    # --- 🔥 步驟 3 (核心修改): 撈取 CPI 資料，如果沒有就找上個月 ---
-    
-    # 定義一個內部函式來查資料
+    # 步驟 3: 撈取 CPI 資料 (年增率)
     def query_cpi(y, m):
-        period_str = f"{y}M{str(m).zfill(2)}" # 格式: 2026M01
+        period_str = f"{y}M{str(m).zfill(2)}"
+        # 💡 注意：資料庫中的 data_type 為 "年增率(%)"
         return db.query(CpiData).filter(
             CpiData.period == period_str,
-            CpiData.data_type == "年增率"
+            CpiData.data_type == "年增率(%)" 
         ).all()
 
-    # 1. 先試著查「當月」
     gov_cpi = query_cpi(year, month)
-    data_source_note = "本月數據" # 標記用
+    is_fallback = False
+    data_source_note = "✅ 本月 CPI 數據"
 
-    # 2. 如果當月沒資料 (空陣列)，就去查「上個月」
+    # 若當月無資料，自動尋找上個月
     if not gov_cpi:
-        # 計算上個月
         try:
             current_date = datetime(int(year), int(month), 1)
-            # 減去一天回到上個月，再抓該月的年/月
             prev_date = current_date - timedelta(days=1)
-            prev_year = str(prev_date.year)
-            prev_month = str(prev_date.month)
-            
-            print(f"⚠️ {year}M{month} 無 CPI 資料，改抓上個月: {prev_year}M{prev_month}")
-            
+            prev_year, prev_month = str(prev_date.year), str(prev_date.month)
             gov_cpi = query_cpi(prev_year, prev_month)
-            data_source_note = f"參考資料 ({prev_year}/{prev_month})"
-            
-        except Exception as e:
-            print(f"日期計算錯誤: {e}")
+            if gov_cpi:
+                is_fallback = True
+                data_source_note = f"ℹ️ 參考上月趨勢 ({prev_year}/{prev_month})"
+            else:
+                data_source_note = "⚠️ 尚無相關 CPI 資料"
+        except:
+            data_source_note = "❌ 日期計算異常"
 
-    # 轉成字典: {'食物類': 3.52, ...}
+    # 建立政府資料 Map
     gov_data_map = {item.category: float(item.val) for item in gov_cpi}
 
-    # --- 步驟 4: 組合回傳結果 (新增 note 欄位讓前端知道) ---
+    # 步驟 4: 組合結果 (自動橋接全名與短名)
     result = []
-    
-    # 如果使用者完全沒花費，也至少要回傳 CPI 資訊 (可選)
-    # 這裡示範只回傳有花費的類別
-    for category, my_total in my_category_totals.items():
+    for ui_cat, my_total in my_category_totals.items():
+        # 透過橋接表拿到資料庫全名，確保 JOIN 成功
+        full_db_name = GOV_NAME_BRIDGE.get(ui_cat)
+        gov_rate = gov_data_map.get(full_db_name, 0)
+
         result.append({
-            "category": category,
-            "my_spending": my_total,
-            "gov_cpi_rate": gov_data_map.get(category, 0),
-            "note": data_source_note # 👈 讓前端知道這是最新的還是舊的
+            "category": ui_cat,
+            "my_spending": float(my_total),
+            "gov_cpi_rate": gov_rate,
+            "is_fallback": is_fallback,
+            "note": data_source_note
         })
 
     return result
+
+# --- 2. 薪資比對路由 ---
+@router.get("/salary-comparison")
+def get_salary_comparison(
+    year: str, 
+    month: str, 
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    # 1. 取得使用者職業
+    user = db.query(Member).filter(Member.user_id == user_id).first()
+    user_job = user.job if user and user.job else "製造業"
+
+    # 2. 撈取使用者當月總收入
+    target_date = f"{year}-{month.zfill(2)}"
+    user_income = db.query(func.sum(AddRecord.add_amount)).filter(
+        AddRecord.user_id == user_id,
+        AddRecord.add_type == 1,
+        func.date_format(AddRecord.add_date, '%Y-%m') == target_date
+    ).scalar() or 0
+
+    # 3. 撈取政府薪資基準
+    period_str = f"{year}M{month.zfill(2)}"
+    benchmarks = db.query(SalaryBenchmark).filter(
+        SalaryBenchmark.industry == user_job,
+        SalaryBenchmark.period == period_str,
+        SalaryBenchmark.salary_is_real == 0
+    ).all()
+
+    # 備案邏輯：找最近的一個月
+    if not benchmarks:
+        latest = db.query(SalaryBenchmark.period).order_by(SalaryBenchmark.period.desc()).first()
+        if latest:
+            benchmarks = db.query(SalaryBenchmark).filter(
+                SalaryBenchmark.industry == user_job,
+                SalaryBenchmark.period == latest[0],
+                SalaryBenchmark.salary_is_real == 0
+            ).all()
+
+    return {
+        "user_job": user_job,
+        "user_income": float(user_income),
+        "period": benchmarks[0].period if benchmarks else period_str,
+        "benchmarks": [{"type": b.salary_type, "value": float(b.salary_val)} for b in benchmarks]
+    }
+
+# --- 3. 實質薪資趨勢路由 (供 Vue 圖表使用) ---
+@router.get("/real-salary-trend")
+def get_real_salary_trend(
+    industry: str = Query(..., description="行業別"),
+    db: Session = Depends(get_db)
+):
+    """
+    計算實質薪資：(名目薪資 / CPI 總指數) * 100
+    """
+    total_index_full_name = GOV_NAME_BRIDGE["總指數"]
+    
+    # 關聯查詢兩張表
+    results = db.query(
+        SalaryBenchmark.period,
+        SalaryBenchmark.salary_val.label("nominal"),
+        CpiData.val.label("cpi")
+    ).join(CpiData, SalaryBenchmark.period == CpiData.period).filter(
+        SalaryBenchmark.industry == industry,
+        SalaryBenchmark.salary_type == "總薪資",
+        CpiData.category == total_index_full_name,
+        CpiData.data_type == "原始值"
+    ).order_by(SalaryBenchmark.period.desc()).limit(12).all()
+
+    chart_data = []
+    for r in results:
+        real_val = (float(r.nominal) / float(r.cpi)) * 100
+        chart_data.append({
+            "period": r.period,
+            "nominal_salary": float(r.nominal),
+            "real_salary": round(real_val, 2)
+        })
+    
+    return chart_data[::-1] # 回傳正序資料供前端繪圖
