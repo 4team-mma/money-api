@@ -23,6 +23,7 @@ engine = create_engine(
 )
 
 # 建立 Session 
+# autocommit不要自動提交,autoflush不要自動刷新,bind=engine綁定引擎
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # 建立 Base 類別（SQLAlchemy 2.0+ 推薦方式）
@@ -34,6 +35,8 @@ class Base(DeclarativeBase):
 def get_db():
     db = SessionLocal()
     try:
-        yield db
+        # 程式會暫停在這裡，等到你的 API 函數執行完畢
+        yield db 
     finally:
+        # 確保伺服器不會因為同時開了太多窗戶而崩潰
         db.close()

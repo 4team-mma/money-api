@@ -18,6 +18,8 @@ async def get_records(
     page: int = 1,              # 預設第 1 頁
     page_size: int = 10,        # 每頁 10 筆
     search: Optional[str] = None, # 搜尋關鍵字
+    year: Optional[int] = None,   # 新增年份篩選
+    month: Optional[int] = None,  # 新增月份篩選
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):    
@@ -25,7 +27,7 @@ async def get_records(
         # 建立基礎查詢
         query = db.query(AddRecord).filter(AddRecord.user_id == user_id)
 
-        # 🌟 搜尋邏輯：如果前端有傳搜尋字串，就對 備註、類別、成員 進行模糊比對
+        # 搜尋邏輯：如果前端有傳搜尋字串，就對 備註、類別、成員 進行模糊比對
         if search:
             query = query.filter(
                 or_(
@@ -34,17 +36,21 @@ async def get_records(
                     AddRecord.add_member.ilike(f"%{search}%")
                 )
             )
-
-        # 🌟 計算總筆數
+        # 時間篩選邏輯 (與 transfers.py 一致)
+        if year:
+            query = query.filter(extract('year', AddRecord.add_date) == year)
+        if month:
+            query = query.filter(extract('month', AddRecord.add_date) == month)
+        #  計算總筆數
         total_count = query.count()
 
-        # 🌟 執行分頁
+        #  執行分頁
         records = query.order_by(AddRecord.add_date.desc(), AddRecord.add_id.desc())\
             .limit(page_size)\
             .offset((page - 1) * page_size)\
             .all()
 
-        # 🌟 計算總頁數
+        #  計算總頁數
         total_pages = math.ceil(total_count / page_size) if total_count > 0 else 1
 
         # 返回符合 Vue 前端 fetchTransactions 需求的格式
@@ -319,46 +325,46 @@ async def delete_record(
         raise HTTPException(status_code=500, detail=str(e))
 
 # 6. 轉帳 API
-@router.post("/transfer")
-async def create_transfer(
-    from_id: int, 
-    to_id: int, 
-    amount: float, 
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
-):
-    try:
-        amt_decimal = Decimal(str(amount))
-        # 安全檢查：確保轉出帳戶屬於當前使用者 
-        from_acc = db.query(Account).filter(Account.account_id == from_id, Account.user_id == user_id).first()
-        to_acc = db.query(Account).filter(Account.account_id == to_id).first()
+# @router.post("/transfer")
+# async def create_transfer(
+#     from_id: int, 
+#     to_id: int, 
+#     amount: float, 
+#     db: Session = Depends(get_db),
+#     user_id: int = Depends(get_current_user_id)
+# ):
+#     try:
+#         amt_decimal = Decimal(str(amount))
+#         # 安全檢查：確保轉出帳戶屬於當前使用者 
+#         from_acc = db.query(Account).filter(Account.account_id == from_id, Account.user_id == user_id).first()
+#         to_acc = db.query(Account).filter(Account.account_id == to_id).first()
 
-        if from_acc is None:
-            raise HTTPException(status_code=404, detail="轉出帳戶不存在或不屬於當前用戶")
-        if to_acc is None:
-            raise HTTPException(status_code=404, detail="轉入帳戶不存在")
+#         if from_acc is None:
+#             raise HTTPException(status_code=404, detail="轉出帳戶不存在或不屬於當前用戶")
+#         if to_acc is None:
+#             raise HTTPException(status_code=404, detail="轉入帳戶不存在")
             
-        if from_acc.current_balance < amt_decimal:
-            raise HTTPException(status_code=400, detail="轉出帳戶餘額不足")
+#         if from_acc.current_balance < amt_decimal:
+#             raise HTTPException(status_code=400, detail="轉出帳戶餘額不足")
 
-        from_acc.current_balance -= amt_decimal
-        to_acc.current_balance += amt_decimal
+#         from_acc.current_balance -= amt_decimal
+#         to_acc.current_balance += amt_decimal
 
-        new_tx = Transaction(
-            user_id=user_id,
-            from_account=from_acc.account_name,
-            to_account=to_acc.account_name,
-            amount=amt_decimal,
-            transaction_date=func.now()
-        )
-        db.add(new_tx)
+#         new_tx = Transaction(
+#             user_id=user_id,
+#             from_account=from_acc.account_name,
+#             to_account=to_acc.account_name,
+#             amount=amt_decimal,
+#             transaction_date=func.now()
+#         )
+#         db.add(new_tx)
         
-        db.commit()
-        return {"msg": "轉帳成功", "amount": float(amt_decimal)}
+#         db.commit()
+#         return {"msg": "轉帳成功", "amount": float(amt_decimal)}
         
-    except HTTPException as he:
-        db.rollback()
-        raise he
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+#     except HTTPException as he:
+#         db.rollback()
+#         raise he
+#     except Exception as e:
+#         db.rollback()
+#         raise HTTPException(status_code=500, detail=str(e))

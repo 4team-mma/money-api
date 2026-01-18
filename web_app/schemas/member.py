@@ -31,7 +31,7 @@ class MemberUpdate(BaseModel):
     username: Optional[str] = None
     name: Optional[str] = None
     email: Optional[EmailStr] = None
-    job: Optional[str] = None # 🌟 允許修改職稱
+    job: Optional[str] = None #  允許修改職稱
 
 # --- 回傳給前端用的規格 (不含密碼) ---
 class MemberResponse(BaseModel):
