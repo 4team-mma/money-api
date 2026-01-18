@@ -45,6 +45,7 @@ git clone https://github.com/4team-mma/money-api.git
 # 安裝依賴:
 - 執行：uv sync 
 - macOS電腦如果執行./dev.sh不允許  請先使用：chmod +x dev.sh
+- 如有更新套件,更新完git記得執行 uv sync 就可以自動補齊缺少的套件
 
 -------------------------------------------------------------------------
 開發內容:
