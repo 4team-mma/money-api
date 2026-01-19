@@ -78,7 +78,7 @@ async def get_records(
 - **資料排序**：預設按日期降序 (Newest First)。
 - **關聯查詢**：自動關聯帳戶資訊 (如貨幣、帳戶名稱)。
     """,
-    response_model=MonthlyRecordResponse, # 指定回應模型(使用 Pydantic 自動轉換，將 Python 物件 檢查並過濾後，轉成前端看得懂的 JSON)
+    response_model=MonthlyRecordResponse, # 指定回應模型(使用 Pydantic 自動轉換)
     response_description="回傳月度統計數據與詳細紀錄清單"
 )
 async def get_monthly_records(
@@ -101,24 +101,22 @@ async def get_monthly_records(
     - `data`: 包含 `account_name` 與 `currency` 的詳細收支紀錄清單
     """
     try:
-        # 使用 SQLAlchemy ORM 與資料庫溝通，將資料庫裡的資料讀出來，變成 Python 物件
+        # 使用 SQLAlchemy ORM 與資料庫溝通
         # 1. 建立基礎查詢與 LEFT JOIN
-        # 我們選取 AddRecord 的所有欄位，以及 Account 的 account_name, currency
         stmt = (
             select(AddRecord, Account.account_name, Account.currency, )
             .join(
                 Account, 
-                # 定義 JOIN 條件：使用者 ID 相同且帳戶 ID 相同
                 and_(
                     AddRecord.user_id == Account.user_id,
                     AddRecord.account_id == Account.account_id
                 ),
-                isouter=True  # 實現 LEFT JOIN，即使 AddRecord 找不到對應的 Account 也能返回紀錄
+                isouter=True  # 實現 LEFT JOIN
             )
             .filter(AddRecord.user_id == user_id)
             # 2. 關鍵：使用 extract 函數篩選特定年、月
-            .filter(extract('year', AddRecord.add_date) == year) # 從日期欄位中提取年份部分
-            .filter(extract('month', AddRecord.add_date) == month) # 從日期欄位中提取月份部分
+            .filter(extract('year', AddRecord.add_date) == year) 
+            .filter(extract('month', AddRecord.add_date) == month) 
             # 3. 排序：按日期降序排列
             .order_by(AddRecord.add_date.desc(), AddRecord.add_id.desc())
         )
@@ -126,17 +124,16 @@ async def get_monthly_records(
         # 執行查詢，獲取所有結果行
         results = db.execute(stmt).all()
 
-        # 4. 資料格式化 (將 Row Proxy 物件轉換為前端友好的 JSON 格式)
+        # 4. 資料格式化
         formatted_data = []
         monthly_income = Decimal('0.0') # 順便計算該月總收入
         monthly_expenses = Decimal('0.0') # 順便計算該月總支出
         
         for row in results:
             record = row[0]       # AddRecord ORM 物件
-            account_name = row[1] # account_name 字串 (可能為 None)
-            currency = row[2]     # currency 字串 (可能為 None)
+            account_name = row[1] # account_name 字串
+            currency = row[2]     # currency 字串
             
-            # 將 ORM 物件轉為 dict，方便序列化為 JSON
             item = {
                 "add_id": record.add_id,
                 "add_date": record.add_date,
@@ -147,8 +144,8 @@ async def get_monthly_records(
                 "account_id": record.account_id,
                 "add_member": record.add_member,
                 "add_note": record.add_note,
-                "currency": currency or "N/A", # 處理 LEFT JOIN 可能的 Null 值
-                "account_name": account_name or "未分類帳戶" # 處理 LEFT JOIN 可能的 Null 值
+                "currency": currency or "N/A", 
+                "account_name": account_name or "未分類帳戶" 
             }
             formatted_data.append(item)
 
@@ -160,7 +157,7 @@ async def get_monthly_records(
 
         monthly_balance = monthly_income - monthly_expenses # 計算月結餘
 
-        # 5. 返回結果(直接回傳字典，FastAPI 會自動校對 MonthlyRecordResponse 模型)
+        # 5. 返回結果
         return {
             "success": True,
             "year": year,
@@ -178,7 +175,7 @@ async def get_monthly_records(
             detail=f"讀取 {year}-{month} 資料時發生錯誤：{str(e)}"
         )
 
-# 2. 本月收支統計 API (放在 /{record_id} 之前，避免路徑匹配錯誤)
+# 2. 本月收支統計 API
 @router.get("/stats/monthly")
 async def get_monthly_stats(
     db: Session = Depends(get_db),
@@ -324,7 +321,9 @@ async def delete_record(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# 6. 轉帳 API
+
+# 6. 轉帳 API (已停用，改由 transfers.py 處理)
+
 # @router.post("/transfer")
 # async def create_transfer(
 #     from_id: int, 
