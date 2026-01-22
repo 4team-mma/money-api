@@ -23,3 +23,19 @@ class AccountResponse(AccountCreate):
 
     # Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
     model_config = ConfigDict(from_attributes=True)
+    
+    
+# 這是刪除成功時，如果你不想回傳空內容 (204)，可以回傳這個格式
+class AccountDeleteResponse(BaseModel):
+    message: str
+    account_id: int
+
+# 額外補充：這是「更新帳戶」用的 Schema
+# 使用 Optional 讓前端可以只傳送「想修改」的欄位即可
+class AccountUpdate(BaseModel):
+    account_name: Optional[str] = None
+    account_type: Optional[str] = None
+    currency: Optional[str] = None
+    initial_balance: Optional[Decimal] = None
+    exclude_from_assets: Optional[bool] = None
+    account_icon: Optional[str] = None
