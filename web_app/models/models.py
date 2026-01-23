@@ -9,7 +9,7 @@ from sqlalchemy import (
     ForeignKey, DateTime, TIMESTAMP, func,Text,UniqueConstraint
 )
 # 物件關係映射 (ORM)負責將「Python 物件」與「資料表」串接。
-from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
+from sqlalchemy.orm import Mapped, mapped_column, relationship,DeclarativeBase
 
 # 主要功能是在定義資料庫的結構，
 # Mapped[...]：定義這個欄位的 Python 型別。
@@ -42,36 +42,37 @@ class Member(Base):
 
 # 2. 帳戶管理 (育育同學)
 class Account(Base):
-    __tablename__ = "Accounts"
+    __tablename__ = "accounts"
 
     account_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
     
     account_type: Mapped[str] = mapped_column(String(10), nullable=False)
     account_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    currency: Mapped[str] = mapped_column(String(5), default="TWD")
+    currency: Mapped[str] = mapped_column(String(5), default="NT$")
     
     initial_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
     current_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
     
     exclude_from_assets: Mapped[bool] = mapped_column(Boolean, default=False)
-    account_icon: Mapped[Optional[str]] = mapped_column(String(5))
+    account_icon: Mapped[Optional[str]] = mapped_column(String(20))
 
 # 3. 收支紀錄 (白)
 class AddRecord(Base):
-    __tablename__ = "Adds"
+    __tablename__ = "adds"
 
     add_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
     
     add_date: Mapped[date] = mapped_column(Date, nullable=False)
     add_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    add_type: Mapped[bool] = mapped_column(Boolean, nullable=False) # True/False
+    add_type: Mapped[bool] = mapped_column(Boolean, nullable=False) 
+    # 支出收入True/False
     
     add_class: Mapped[str] = mapped_column(String(20), nullable=False)
     add_class_icon: Mapped[str] = mapped_column(String(20), nullable=False)
     
-    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("Accounts.account_id"), nullable=False)
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.account_id"), nullable=False)
     add_member: Mapped[str] = mapped_column(String(10), nullable=False)
     
     add_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -79,19 +80,31 @@ class AddRecord(Base):
 
 # 4. 轉帳紀錄 (白)
 class Transaction(Base):
-    __tablename__ = "Transactions"
+    __tablename__ = "transactions"
 
     transaction_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
-    
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
-    from_account: Mapped[str] = mapped_column(String(100), nullable=False)
-    to_account: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # 1. 這是外鍵欄位，指向小寫的資料表 'accounts'
+    from_account_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.account_id"), nullable=False
+    )
+    to_account_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.account_id"), nullable=False
+    )
+    
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    # 2. 這是關聯物件，變數名稱絕對不能叫 from_account_id (會跟上面衝突)
+    # 第一個參數要指向類別名 "Account" (大寫)
+    # 由於有多個外鍵指向同一張表，必須指定 foreign_keys
+    from_account = relationship("Account", foreign_keys=[from_account_id])
+    to_account = relationship("Account", foreign_keys=[to_account_id])
 
 # 5. 提醒/行事曆 (沛青同學)
 class Notification(Base):
-    __tablename__ = "Notifications"
+    __tablename__ = "notifications"
 
     reminder_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)

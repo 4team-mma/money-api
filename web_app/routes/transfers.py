@@ -13,14 +13,6 @@ from typing import List
 
 router = APIRouter()
 
-# 定義接收轉帳的 Schema
-class TransferCreate(BaseModel):
-    transaction_date: date
-    from_account_id: int
-    to_account_id: int
-    amount: Decimal
-
-
 # 查詢get
 @router.get("/", response_model=List[TransferResponse])
 async def get_all_transfers(
@@ -79,10 +71,10 @@ async def create_transfer(
         # 3. 寫入 Transactions 表 (根據您的 SQL 結構)
         new_tx = Transaction(
             user_id=user_id,
-            transaction_date=data.transaction_date,
-            from_account=from_acc.account_name, # 您的 SQL 是儲存名稱
-            to_account=to_acc.account_name,
-            amount=data.amount
+            transaction_date = data.transaction_date,
+            from_account_id = from_acc.account_id, # 您的 SQL 是儲存名稱
+            to_account_id = to_acc.account_id,
+            amount = data.amount
         )
         db.add(new_tx)
         db.commit()
@@ -125,9 +117,9 @@ async def update_transfer(
 
         # 2. 【核心邏輯：餘額回補】
         # 先找出舊紀錄中的轉出與轉入帳戶，把金額「倒回去」
-        # 注意：SQL 存的是名稱，所以要用 account_name 找
-        old_from_acc = db.query(Account).filter(Account.account_name == old_tx.from_account, Account.user_id == user_id).first()
-        old_to_acc = db.query(Account).filter(Account.account_name == old_tx.to_account, Account.user_id == user_id).first()
+        # 注意：SQL 存的是名稱，所以要用 account_id 找
+        old_from_acc = db.query(Account).filter(Account.account_id == old_tx.from_account_id, Account.user_id == user_id).first()
+        old_to_acc = db.query(Account).filter(Account.account_id == old_tx.to_account_id, Account.user_id == user_id).first()
         
         if old_from_acc: old_from_acc.current_balance += old_tx.amount # 退回轉出的錢
         if old_to_acc: old_to_acc.current_balance -= old_tx.amount     # 扣除多加的錢
@@ -175,14 +167,14 @@ async def delete_transfer(
         if not tx:
             raise HTTPException(status_code=404, detail="轉帳紀錄不存在或無權限刪除")
 
-        # 2. 找出受影響的兩個帳戶 (根據你的 SQL，是用名稱查找)
+        # 2. 找出受影響的兩個帳戶 (根據你的 SQL，是用id查找)
         from_acc = db.query(Account).filter(
-            Account.account_name == tx.from_account, 
+            Account.account_id == tx.from_account_id, 
             Account.user_id == user_id
         ).first() #
         
         to_acc = db.query(Account).filter(
-            Account.account_name == tx.to_account, 
+            Account.account_id == tx.to_account_id, 
             Account.user_id == user_id
         ).first() #
 

@@ -7,7 +7,7 @@ class AccountCreate(BaseModel):
     account_name: str
     # 設定預設值，因為資料庫有 Default，但前端可能不傳
     account_type: str = "現金" 
-    currency: str = "TWD"
+    currency: str = "NT$"
     initial_balance: Decimal
     exclude_from_assets: bool = False
     

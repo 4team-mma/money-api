@@ -12,6 +12,7 @@ class TransferCreate(BaseModel):
     from_account_id: int  # 來源帳戶 ID
     to_account_id: int    # 目標帳戶 ID
     amount: Decimal
+    
 
 # 回應 (Response):
 # 回應給前端的欄位，看你需要哪些開哪些
@@ -26,7 +27,7 @@ class TransferResponse(TransferCreate):
 
 # 修改 # 要與前端的transferPayload一致
 # 因為帳戶有轉出轉入,就不需要單一的accountid
-# 型別以前端的型別要一致,不是看資料庫的型別。例如from_accout_id是對應account_id所以是int
+# 型別以前端的型別要一致,不是看資料庫的型別。例如from_account_id是對應account_id所以是int
 # MySQL的from_accout是 (VARCHAR) 是用來存 最終的文字結果
 class TransferUpdate(BaseModel):
     transaction_date: Optional[date] = None
