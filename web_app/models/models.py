@@ -49,7 +49,7 @@ class Account(Base):
     
     account_type: Mapped[str] = mapped_column(String(10), nullable=False)
     account_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    currency: Mapped[str] = mapped_column(String(5), default="TWD")
+    currency: Mapped[str] = mapped_column(String(5), default="NT$")
     
     initial_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
     current_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
