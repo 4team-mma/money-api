@@ -11,7 +11,7 @@ class RecordDetail(BaseModel):
     add_type: bool = Field(..., description="類型：True 為收入, False 為支出")
     add_class: str = Field(..., description="類別名")
     add_class_icon: str = Field(..., description="類別icon")
-    account_id: int
+    account_id: int = Field(..., description="帳戶ID")
     add_member: str = Field(..., description="成員")
     add_note: str | None = Field(None, description="備註")
     currency: str = Field(..., description="幣別")
