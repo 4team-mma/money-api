@@ -13,14 +13,6 @@ from typing import List
 
 router = APIRouter()
 
-# 定義接收轉帳的 Schema
-class TransferCreate(BaseModel):
-    transaction_date: date
-    from_account_id: int
-    to_account_id: int
-    amount: Decimal
-
-
 # 查詢get
 @router.get("/", response_model=List[TransferResponse])
 async def get_all_transfers(
