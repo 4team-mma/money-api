@@ -11,6 +11,7 @@ from typing import List
 router = APIRouter()
 
 # 查詢get
+# 查詢get
 @router.get("/", response_model=List[TransferResponse])
 async def get_all_transfers(
     year: int = None, 
@@ -21,47 +22,40 @@ async def get_all_transfers(
     """
     獲取轉帳清單，支援按年、月篩選
     """
-    try:
-        # 1. 為帳戶表建立兩個分身
-        FromAcc = aliased(Account)
-        ToAcc = aliased(Account)
-        
-        # 2. 基礎查詢：先過濾出「屬於該使用者」的紀錄
-        query = db.query(Transaction).filter(Transaction.user_id == current_user.user_id)
-        
-        # 3. 執行 Join 查詢
-        query = db.query(
-            Transaction,
-            FromAcc.account_name.label("from_name"),
-            ToAcc.account_name.label("to_name")
-        ).join(FromAcc, Transaction.from_account_id == FromAcc.account_id) \
-        .join(ToAcc, Transaction.to_account_id == ToAcc.account_id) \
-        .filter(Transaction.user_id == current_user.user_id)
+    # 1. 為帳戶表建立兩個分身
+    FromAcc = aliased(Account)
+    ToAcc = aliased(Account)
+    
+    # 2. 執行 Join 查詢
+    # 直接在基礎查詢中加入 Join 與 Label，這樣邏輯更清晰
+    query = db.query(
+        Transaction,
+        FromAcc.account_name.label("from_name"),
+        ToAcc.account_name.label("to_name")
+    ).join(FromAcc, Transaction.from_account_id == FromAcc.account_id) \
+     .join(ToAcc, Transaction.to_account_id == ToAcc.account_id) \
+     .filter(Transaction.user_id == current_user.user_id)
 
-        # 3. 動態篩選：如果有傳 year，就加一個年份過濾條件
-        if year:
-            query = query.filter(extract('year', Transaction.transaction_date) == year)
-        
-        # 4. 動態篩選：如果有傳 month，就加一個月份過濾條件
-        if month:
-            query = query.filter(extract('month', Transaction.transaction_date) == month)
+    # 3. 動態篩選：年份
+    if year:
+        query = query.filter(extract('year', Transaction.transaction_date) == year)
+    
+    # 4. 動態篩選：月份
+    if month:
+        query = query.filter(extract('month', Transaction.transaction_date) == month)
 
-        # 5. 排序：通常我們會希望最新的紀錄在最前面
-        results = query.order_by(Transaction.transaction_date.desc()).all()
-        
-        # 6. 將查詢結果重新打包成 Schema 格式
-        final_data = []
-        for tx, f_name, t_name in results:
-            data = TransferResponse.model_validate(tx)
-            data.from_account_name = f_name # 賦予中文名稱
-            data.to_account_name = t_name   # 賦予中文名稱
-            final_data.append(data)
-        
-        return final_data
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查詢失敗: {str(e)}")
-
+    # 5. 排序並執行
+    results = query.order_by(Transaction.transaction_date.desc()).all()
+    
+    # 6. 將查詢結果重新打包成 Schema 格式
+    final_data = []
+    for tx, f_name, t_name in results:
+        data = TransferResponse.model_validate(tx)
+        data.from_account_name = f_name # 賦予中文名稱
+        data.to_account_name = t_name   # 賦予中文名稱
+        final_data.append(data)
+    
+    return final_data
 
     # 1. 基礎查詢：先過濾出「屬於該使用者」的紀錄
     query = db.query(Transaction).filter(Transaction.user_id == current_user.user_id)
