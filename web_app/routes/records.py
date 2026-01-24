@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AddRecord, Account, Transaction
+from ..models import AddRecord, Account, Member,Transaction
 from ..schemas.add import AddRecordCreate, AddRecordResponse, AddRecordUpdate, MonthlyRecordResponse
-from ..dependencies import get_current_user_id
+from ..dependencies import get_current_user
 from typing import List, Optional
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
@@ -21,11 +21,11 @@ async def get_records(
     year: Optional[int] = None,   # 新增年份篩選
     month: Optional[int] = None,  # 新增月份篩選
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):    
     try:
         # 建立基礎查詢
-        query = db.query(AddRecord).filter(AddRecord.user_id == user_id)
+        query = db.query(AddRecord).filter(AddRecord.user_id == current_user.user_id)
 
         # 搜尋邏輯：如果前端有傳搜尋字串，就對 備註、類別、成員 進行模糊比對
         if search:
@@ -86,7 +86,7 @@ async def get_monthly_records(
     year: int = Query(..., ge=2000, le=2100, description="年份"),
     month: int = Query(..., ge=1, le=12, description="月份"),
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     """
     ### 權限要求
@@ -113,7 +113,7 @@ async def get_monthly_records(
                 ),
                 isouter=True  # 實現 LEFT JOIN
             )
-            .filter(AddRecord.user_id == user_id)
+            .filter(AddRecord.user_id == current_user.user_id)
             # 2. 關鍵：使用 extract 函數篩選特定年、月
             .filter(extract('year', AddRecord.add_date) == year) 
             .filter(extract('month', AddRecord.add_date) == month) 
@@ -179,7 +179,7 @@ async def get_monthly_records(
 @router.get("/stats/monthly")
 async def get_monthly_stats(
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
         today = date.today()
@@ -187,14 +187,14 @@ async def get_monthly_stats(
 
         expense = db.query(func.sum(AddRecord.add_amount))\
             .filter(
-                AddRecord.user_id == user_id,
+                AddRecord.user_id == current_user.user_id,
                 AddRecord.add_type == False,
                 AddRecord.add_date >= first_day
             ).scalar() or Decimal("0")
 
         income = db.query(func.sum(AddRecord.add_amount))\
             .filter(
-                AddRecord.user_id == user_id,
+                AddRecord.user_id == current_user.user_id,
                 AddRecord.add_type == True,
                 AddRecord.add_date >= first_day
             ).scalar() or Decimal("0")
@@ -213,12 +213,12 @@ async def get_monthly_stats(
 async def create_record(
     data: AddRecordCreate, 
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
         amt_decimal = Decimal(str(data.add_amount))
         new_record = AddRecord(
-            user_id=user_id,
+            user_id=current_user.user_id,
             **data.dict()
         )
         db.add(new_record)
@@ -248,10 +248,10 @@ async def update_record(
     record_id: int,
     data: AddRecordUpdate,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
-        db_record = db.query(AddRecord).filter(AddRecord.add_id == record_id, AddRecord.user_id == user_id).first()
+        db_record = db.query(AddRecord).filter(AddRecord.add_id == record_id, AddRecord.user_id == current_user.user_id).first()
         if not db_record:
             raise HTTPException(status_code=404, detail="找不到該筆紀錄")
 
@@ -297,10 +297,10 @@ async def update_record(
 async def delete_record(
     record_id: int,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
-        record = db.query(AddRecord).filter(AddRecord.add_id == record_id, AddRecord.user_id == user_id).first()
+        record = db.query(AddRecord).filter(AddRecord.add_id == record_id, AddRecord.user_id == current_user.user_id).first()
         if record is None:
             raise HTTPException(status_code=404, detail="紀錄不存在或無權限刪除")
 

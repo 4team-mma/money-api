@@ -5,7 +5,7 @@ from typing import List, Optional
 from ..database import get_db
 from ..models import Member
 from ..schemas.member import MemberResponse, MemberUpdate
-from ..dependencies import get_current_user_id
+from ..dependencies import get_current_user
 
 router = APIRouter()
 
@@ -15,9 +15,18 @@ def get_all_users(db: Session = Depends(get_db)):
     """取得資料庫中所有成員的完整清單"""
     return db.query(Member).all()
 
-# 更新用戶資訊 (這就是你要的「真修」邏輯)
+# 更新用戶資訊 
 @router.put("/{user_id}", response_model=MemberResponse)
-def update_member_profile(user_id: int, data: MemberUpdate, db: Session = Depends(get_db)):
+def update_member_profile(
+    user_id: int, 
+    data: MemberUpdate, 
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+    ):
+    # 安全檢查：只有本人或管理員可以修改
+    if current_user.user_id != user_id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="你沒有權限修改此帳號")  
+    
     # 1. 尋找使用者
     user = db.query(Member).filter(Member.user_id == user_id).first()
     if not user:
@@ -40,10 +49,10 @@ def update_member_profile(user_id: int, data: MemberUpdate, db: Session = Depend
 @router.get("/me")
 def get_me(
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id) # 這會從 Token 解析出 user_id
+    current_user: Member = Depends(get_current_user)
 ):
     # 用 user_id 去資料庫查名字
-    user = db.query(Member).filter(Member.user_id == user_id).first()
+    user = db.query(Member).filter(Member.user_id == current_user.user_id).first()
     
     if not user:
         raise HTTPException(status_code=404, detail="找不到使用者")

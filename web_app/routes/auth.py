@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import desc # 用於排序找出最後一筆 OTP 紀錄
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
@@ -14,23 +15,33 @@ from ..utils.otp import generate_otp
 from ..utils.email_utils import send_otp_email
 from ..utils.password import hash_password, verify_password
 from ..utils.jwt import create_access_token
+from ..dependencies import get_current_user,admin_required
+import uuid
 
 router = APIRouter()
 
 # ==================== 守門員與權限 ====================
-
-async def admin_required():
-    """管理員權限驗證依賴項 (預留未來檢查邏輯)"""
-    return True
+# 此部分在dependencies的admin_required
 
 # ==================== 註冊與登入 ====================
 
+
+
+
 @router.post("/auth/register")
 async def register(data: MemberRegister, db: Session = Depends(get_db)):
-    # 檢查 Email 是否已被註冊
-    existing_user = db.query(Member).filter(Member.email == data.email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="此電子郵件已被註冊")
+    #  資安優化：同時檢查 Email 與 Username，並使用統一的錯誤訊息防止列舉攻擊
+    user_exists = db.query(Member).filter(Member.username == data.username).first()
+    email_exists = db.query(Member).filter(Member.email == data.email).first()
+    
+    if user_exists or email_exists:
+        # 駭客無法得知是「帳號」還是「信箱」被用過
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="帳號或電子郵件已被使用，請嘗試其他名稱"
+        )
+    
+    
 
     # 建立新會員 (記得加密密碼)
     new_user = Member(
@@ -82,14 +93,10 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
         (Member.username == data.identifier) | (Member.email == data.identifier)
     ).first()
     
-    if not user:
-        raise HTTPException(status_code=401, detail="帳號不存在或輸入錯誤")
-
-    # 🌟 2. 找到人後，進行密碼比對
-    if not verify_password(data.password, user.password):
+    if not user or not verify_password(data.password, user.password):
+        # 優化：統一報錯訊息，不告知是帳號錯還是密碼錯
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
     
-    # 🌟 3. 驗證通過，建立 Token
     access_token = create_access_token(data={"sub": str(user.user_id)})
     
     return {
@@ -100,7 +107,8 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
             "user_id": user.user_id,
             "username": user.username,
             "email": user.email,
-            "role": user.role
+            "role": user.role,
+            "name": user.name
         }
     }
 
@@ -123,14 +131,17 @@ async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
         # 2. 取得 Google 使用者資訊
         email = id_info['email']
         full_name = id_info.get('name', 'Google 使用者')
-        default_username = email.split('@')[0]
+        # 避免用戶名稱重複:
+        default_username = f"{email.split('@')[0]}_{datetime.now().strftime('%S%f')[:4]}"
 
         # 3. 檢查資料庫是否有此 Email
         user = db.query(Member).filter(Member.email == email).first()
 
         # 4. 如果使用者不存在，自動幫他註冊
         if not user:
-            placeholder_password = hash_password("OAUTH_USER_RANDOM_SECRET")
+            # 使用隨機 UUID 作為密碼雜湊，徹底杜絕撞庫風險
+            random_pwd = str(uuid.uuid4()) 
+            placeholder_password = hash_password(random_pwd)
             
             new_user = Member(
                 username=default_username,
@@ -205,6 +216,20 @@ async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
     user = db.query(Member).filter(Member.email == data.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="此信箱尚未註冊為會員")
+
+    # 新增：60 秒發信冷卻時間邏輯
+    last_otp = db.query(PasswordReset).filter(
+        PasswordReset.email == data.email
+    ).order_by(desc(PasswordReset.created_at)).first()
+
+    if last_otp:
+        # 計算距離上一次發信過了幾秒
+        time_diff = (datetime.now() - last_otp.created_at).total_seconds()
+        if time_diff < 60:
+            raise HTTPException(
+                status_code=429, 
+                detail=f"請求過於頻繁，請於 {int(60 - time_diff)} 秒後再試"
+            )
 
     otp = generate_otp()
     expiry = datetime.now() + timedelta(minutes=5)
