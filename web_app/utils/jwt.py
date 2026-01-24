@@ -3,6 +3,7 @@ JWT 工具函式
 """
 
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,6 +12,9 @@ from fastapi import HTTPException, status
 from jose import JWTError, jwt
 
 load_dotenv()
+
+# 取得與 main.py 一致的 logger
+logger = logging.getLogger(__name__)
 
 # JWT 設定
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-keep-it-secret")
@@ -37,20 +41,12 @@ def create_access_token(
     to_encode = data.copy()
 
     # 設定過期時間
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-        )
-
-    to_encode.update({"exp": expire})
-
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "type": "access"}) # 🌟 標記類型
     # 編碼 JWT
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     return encoded_jwt
-
 
 def create_refresh_token(data: dict) -> str:
     """
@@ -67,57 +63,49 @@ def create_refresh_token(data: dict) -> str:
         days=REFRESH_TOKEN_EXPIRE_DAYS
     )
     to_encode.update({"exp": expire, "type": "refresh"})  # 標記為 refresh token
-
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
 
 def verify_token(token: str) -> dict:
     """
     驗證 Token 並解碼
-
-    Args:
-        token: JWT Token 字串
-
-    Returns:
-        解碼後的 Payload
-
-    Raises:
-        HTTPException: Token 無效或過期
+    🌟 優化：區分過期與非法憑證，且不觸發全域 500 Log
     """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="無法驗證憑證",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
     try:
         # 解碼 JWT
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
-        # 檢查必要欄位
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-
+        
+        # 1. 檢查必要欄位
+        if not payload.get("sub"):
+            logger.warning("Token 解析成功但缺少 'sub' 欄位")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="憑證格式錯誤",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return payload
 
-    except JWTError:
-        raise credentials_exception
-
+    except jwt.ExpiredSignatureError:
+        # 🌟 明確拋出「過期」訊息，讓前端 Vue 攔截器決定是否執行 Refresh Token 流程
+        logger.info("使用者憑證已過期")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="TOKEN_EXPIRED",  # 使用特定字串方便前端判斷
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except JWTError as e:
+        # 🌟 其他 JWT 錯誤（簽名不符、格式不對等）
+        # 這裡 raise HTTPException 不會進入 main.py 的 500 全域處理器
+        logger.warning(f"Token 驗證無效: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無法驗證憑證",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 def decode_token(token: str) -> Optional[dict]:
-    """
-    解碼 Token（不驗證）
-
-    Args:
-        token: JWT Token 字串
-
-    Returns:
-        解碼後的 Payload，失敗返回 None
-    """
+    """解碼 Token（不驗證，僅用於後端內部快速讀取）"""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_signature": False})
     except JWTError:
         return None

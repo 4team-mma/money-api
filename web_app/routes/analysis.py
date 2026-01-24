@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from ..database import get_db
 from ..models import AddRecord, CpiData, SalaryBenchmark, Member  # 💡 必須匯入 Member 才能查詢使用者職業
 from ..dependencies import get_current_user
-from typing import List
 
 router = APIRouter()
 
@@ -97,7 +96,10 @@ def get_cpi_comparison(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
-    # 格式化日期為 YYYY-MM
+    # 1. 驗證輸入參數 (業務邏輯錯誤攔截)
+    if not (year.isdigit() and month.isdigit()):
+        raise HTTPException(status_code=400, detail="年份或月份格式錯誤")
+    
     target_date = f"{year}-{month.zfill(2)}" 
     
     # 步驟 1: 撈取使用者當月花費
@@ -111,10 +113,10 @@ def get_cpi_comparison(
     ).group_by(AddRecord.add_class).all()
 
     # 步驟 2: 轉換為「簡化大類別」總計
-    my_category_totals = {}
-    for record in user_expenses:
-        ui_category = CATEGORY_MAPPING.get(record.add_class, "雜項類")
-        my_category_totals[ui_category] = my_category_totals.get(ui_category, 0) + record.total
+    my_category_totals = {
+        CATEGORY_MAPPING.get(record.add_class, "雜項類"): record.total 
+        for record in user_expenses
+    }
 
     # 步驟 3: 撈取 CPI 資料 (年增率)
     def query_cpi(y, m):
@@ -129,20 +131,18 @@ def get_cpi_comparison(
     is_fallback = False
     data_source_note = "✅ 本月 CPI 數據"
 
-    # 若當月無資料，自動尋找上個月
+    # 2. 自動回溯邏輯：移除 try-except，讓全域處理器處理非預期錯誤 (如 DB 斷線)
     if not gov_cpi:
-        try:
-            current_date = datetime(int(year), int(month), 1)
-            prev_date = current_date - timedelta(days=1)
-            prev_year, prev_month = str(prev_date.year), str(prev_date.month)
-            gov_cpi = query_cpi(prev_year, prev_month)
-            if gov_cpi:
-                is_fallback = True
-                data_source_note = f"ℹ️ 參考上月趨勢 ({prev_year}/{prev_month})"
-            else:
-                data_source_note = "⚠️ 尚無相關 CPI 資料"
-        except:
-            data_source_note = "❌ 日期計算異常"
+        current_date = datetime(int(year), int(month), 1)
+        prev_date = current_date - timedelta(days=1)
+        prev_year, prev_month = str(prev_date.year), str(prev_date.month)
+        gov_cpi = query_cpi(prev_year, prev_month)
+        if gov_cpi:
+            is_fallback = True
+            data_source_note = f"ℹ️ 參考上月趨勢 ({prev_year}/{prev_month})"
+        else:
+            # 這裡不拋出 404，因為「沒有 CPI 數據」對前端來說是可顯示的狀態
+            data_source_note = "⚠️ 尚無相關 CPI 資料"
 
     # 建立政府資料 Map
     gov_data_map = {item.category: float(item.val) for item in gov_cpi}

@@ -13,6 +13,7 @@ class RecordDetail(BaseModel):
     add_class_icon: str = Field(..., description="類別icon")
     account_id: int = Field(..., description="帳戶ID")
     add_member: str = Field(..., description="成員")
+    add_tag: str | None = Field(None, description="標籤")
     add_note: str | None = Field(None, description="備註")
     currency: str = Field(..., description="幣別")
     account_name: str = Field(..., description="帳戶名")

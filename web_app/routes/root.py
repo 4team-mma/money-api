@@ -1,4 +1,3 @@
-from fastapi import APIRouter
 from fastapi import APIRouter, Request
 import logging  # 1. 匯入日誌模組
 import os
