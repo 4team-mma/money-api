@@ -11,7 +11,6 @@ from typing import List
 router = APIRouter()
 
 # 查詢get
-# 查詢get
 @router.get("/", response_model=List[TransferResponse])
 async def get_all_transfers(
     year: int = None, 
@@ -33,8 +32,8 @@ async def get_all_transfers(
         FromAcc.account_name.label("from_name"),
         ToAcc.account_name.label("to_name")
     ).join(FromAcc, Transaction.from_account_id == FromAcc.account_id) \
-     .join(ToAcc, Transaction.to_account_id == ToAcc.account_id) \
-     .filter(Transaction.user_id == current_user.user_id)
+    .join(ToAcc, Transaction.to_account_id == ToAcc.account_id) \
+    .filter(Transaction.user_id == current_user.user_id)
 
     # 3. 動態篩選：年份
     if year:
@@ -56,22 +55,6 @@ async def get_all_transfers(
         final_data.append(data)
     
     return final_data
-
-    # 1. 基礎查詢：先過濾出「屬於該使用者」的紀錄
-    query = db.query(Transaction).filter(Transaction.user_id == current_user.user_id)
-
-    # 2. 動態篩選：如果有傳 year，就加一個年份過濾條件
-    if year:
-        query = query.filter(extract('year', Transaction.transaction_date) == year)
-        
-    # 3. 動態篩選：如果有傳 month，就加一個月份過濾條件
-    if month:
-        query = query.filter(extract('month', Transaction.transaction_date) == month)
-
-    # 4. 排序：通常我們會希望最新的紀錄在最前面
-    results = query.order_by(Transaction.transaction_date.desc()).all()
-        
-    return results
 
 # 新增
 @router.post("/")
