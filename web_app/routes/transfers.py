@@ -1,6 +1,6 @@
 # web_app/routes/transfers.py
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session,aliased # 同一張表格被關聯兩次使用aliased
 from sqlalchemy import extract
 from ..database import get_db
 from ..models import Account, Transaction,Member
@@ -25,21 +25,42 @@ async def get_all_transfers(
     獲取轉帳清單，支援按年、月篩選
     """
     try:
-        # 1. 基礎查詢：先過濾出「屬於該使用者」的紀錄
+        # 1. 為帳戶表建立兩個分身
+        FromAcc = aliased(Account)
+        ToAcc = aliased(Account)
+        
+        # 2. 基礎查詢：先過濾出「屬於該使用者」的紀錄
         query = db.query(Transaction).filter(Transaction.user_id == current_user.user_id)
+        
+        # 3. 執行 Join 查詢
+        query = db.query(
+            Transaction,
+            FromAcc.account_name.label("from_name"),
+            ToAcc.account_name.label("to_name")
+        ).join(FromAcc, Transaction.from_account_id == FromAcc.account_id) \
+        .join(ToAcc, Transaction.to_account_id == ToAcc.account_id) \
+        .filter(Transaction.user_id == current_user.user_id)
 
-        # 2. 動態篩選：如果有傳 year，就加一個年份過濾條件
+        # 3. 動態篩選：如果有傳 year，就加一個年份過濾條件
         if year:
             query = query.filter(extract('year', Transaction.transaction_date) == year)
         
-        # 3. 動態篩選：如果有傳 month，就加一個月份過濾條件
+        # 4. 動態篩選：如果有傳 month，就加一個月份過濾條件
         if month:
             query = query.filter(extract('month', Transaction.transaction_date) == month)
 
-        # 4. 排序：通常我們會希望最新的紀錄在最前面
+        # 5. 排序：通常我們會希望最新的紀錄在最前面
         results = query.order_by(Transaction.transaction_date.desc()).all()
         
-        return results
+        # 6. 將查詢結果重新打包成 Schema 格式
+        final_data = []
+        for tx, f_name, t_name in results:
+            data = TransferResponse.model_validate(tx)
+            data.from_account_name = f_name # 賦予中文名稱
+            data.to_account_name = t_name   # 賦予中文名稱
+            final_data.append(data)
+        
+        return final_data
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查詢失敗: {str(e)}")
