@@ -28,7 +28,7 @@
 async def create_record(
     data: AddRecordCreate,   # <--- 1. 使用 Pydantic 驗證進入的資料
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     # 2. 業務邏輯處理 (例如 Decimal 轉換)
     amt_decimal = Decimal(str(data.add_amount))

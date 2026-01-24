@@ -1,7 +1,8 @@
-import random
+#import random
 import string
+import secrets
 
 def generate_otp(length: int = 6) -> str:
-    """產生指定長度的純數字驗證碼"""
-    # 使用 random.choices 確保產生的是字串，並處理開頭為 0 的情況
-    return ''.join(random.choices(string.digits, k=length))
+    """產生加密級別安全的純數字驗證碼"""
+    # secrets.choice 比 random.choice 更難被預測
+    return ''.join(secrets.choice(string.digits) for _ in range(length))

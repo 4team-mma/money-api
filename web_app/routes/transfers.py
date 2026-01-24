@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from ..database import get_db
-from ..models import Account, Transaction
-from ..dependencies import get_current_user_id
+from ..models import Account, Transaction,Member
+from ..dependencies import get_current_user
 from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
@@ -19,14 +19,14 @@ async def get_all_transfers(
     year: int = None, 
     month: int = None, 
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     """
     獲取轉帳清單，支援按年、月篩選
     """
     try:
         # 1. 基礎查詢：先過濾出「屬於該使用者」的紀錄
-        query = db.query(Transaction).filter(Transaction.user_id == user_id)
+        query = db.query(Transaction).filter(Transaction.user_id == current_user.user_id)
 
         # 2. 動態篩選：如果有傳 year，就加一個年份過濾條件
         if year:
@@ -51,12 +51,12 @@ async def get_all_transfers(
 async def create_transfer(
     data: TransferCreate, 
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
         # 1. 取得並驗證帳戶
-        from_acc = db.query(Account).filter(Account.account_id == data.from_account_id, Account.user_id == user_id).first()
-        to_acc = db.query(Account).filter(Account.account_id == data.to_account_id, Account.user_id == user_id).first()
+        from_acc = db.query(Account).filter(Account.account_id == data.from_account_id, Account.user_id == current_user.user_id).first()
+        to_acc = db.query(Account).filter(Account.account_id == data.to_account_id, Account.user_id == current_user.user_id).first()
 
         if not from_acc or not to_acc:
             raise HTTPException(status_code=404, detail="轉出或轉入帳戶不存在")
@@ -70,9 +70,9 @@ async def create_transfer(
 
         # 3. 寫入 Transactions 表 (根據您的 SQL 結構)
         new_tx = Transaction(
-            user_id=user_id,
+            user_id=current_user.user_id,
             transaction_date = data.transaction_date,
-            from_account_id = from_acc.account_id, # 您的 SQL 是儲存名稱
+            from_account_id = from_acc.account_id, 
             to_account_id = to_acc.account_id,
             amount = data.amount
         )
@@ -99,17 +99,17 @@ async def update_transfer(
     # 讓你能在 API 裡面下達 db.query()、db.add() 或 db.commit() 等指令。
     # 只要這支 API 需要讀取、新增、修改或刪除資料庫裡的資料，就一定要寫
     
-    # user_id: int = Depends(get_current_user_id)的部分:
+    # current_user: Member = Depends(get_current_user)的部分:
     # 在 dependencies.py 定義的「守門員」。它會去檢查 Header 裡的 JWT Token，並解碼出是哪位使用者的 ID。
     # 功能:驗證身分+資料過濾
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
         # 1. 找出舊的轉帳紀錄
         old_tx = db.query(Transaction).filter(
             Transaction.transaction_id == transaction_id, 
-            Transaction.user_id == user_id
+            Transaction.user_id == current_user.user_id
         ).first()
         
         if not old_tx:
@@ -118,8 +118,8 @@ async def update_transfer(
         # 2. 【核心邏輯：餘額回補】
         # 先找出舊紀錄中的轉出與轉入帳戶，把金額「倒回去」
         # 注意：SQL 存的是名稱，所以要用 account_id 找
-        old_from_acc = db.query(Account).filter(Account.account_id == old_tx.from_account_id, Account.user_id == user_id).first()
-        old_to_acc = db.query(Account).filter(Account.account_id == old_tx.to_account_id, Account.user_id == user_id).first()
+        old_from_acc = db.query(Account).filter(Account.account_id == old_tx.from_account_id, Account.user_id == current_user.user_id).first()
+        old_to_acc = db.query(Account).filter(Account.account_id == old_tx.to_account_id, Account.user_id == current_user.user_id).first()
         
         if old_from_acc: old_from_acc.current_balance += old_tx.amount # 退回轉出的錢
         if old_to_acc: old_to_acc.current_balance -= old_tx.amount     # 扣除多加的錢
@@ -155,13 +155,13 @@ async def update_transfer(
 async def delete_transfer(
     transaction_id: int, 
     db: Session = Depends(get_db), #
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     try:
         # 1. 安全檢查：找出這筆轉帳，並確認它是屬於這個使用者的
         tx = db.query(Transaction).filter(
             Transaction.transaction_id == transaction_id, 
-            Transaction.user_id == user_id
+            Transaction.user_id == current_user.user_id
         ).first() #
         
         if not tx:
@@ -170,12 +170,12 @@ async def delete_transfer(
         # 2. 找出受影響的兩個帳戶 (根據你的 SQL，是用id查找)
         from_acc = db.query(Account).filter(
             Account.account_id == tx.from_account_id, 
-            Account.user_id == user_id
+            Account.user_id == current_user.user_id
         ).first() #
         
         to_acc = db.query(Account).filter(
             Account.account_id == tx.to_account_id, 
-            Account.user_id == user_id
+            Account.user_id == current_user.user_id
         ).first() #
 
         # 3. 餘額反向回補 (Reversal)

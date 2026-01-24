@@ -4,7 +4,7 @@ from sqlalchemy import func
 from datetime import datetime, timedelta
 from ..database import get_db
 from ..models import AddRecord, CpiData, SalaryBenchmark, Member  # 💡 必須匯入 Member 才能查詢使用者職業
-from ..dependencies import get_current_user_id
+from ..dependencies import get_current_user
 from typing import List
 
 router = APIRouter()
@@ -95,7 +95,7 @@ def get_cpi_comparison(
     year: str, 
     month: str, 
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     # 格式化日期為 YYYY-MM
     target_date = f"{year}-{month.zfill(2)}" 
@@ -105,7 +105,7 @@ def get_cpi_comparison(
         AddRecord.add_class,
         func.sum(AddRecord.add_amount).label("total")
     ).filter(
-        AddRecord.user_id == user_id,
+        AddRecord.user_id == current_user.user_id,
         AddRecord.add_type == 0,
         func.date_format(AddRecord.add_date, '%Y-%m') == target_date
     ).group_by(AddRecord.add_class).all()
@@ -170,16 +170,16 @@ def get_salary_comparison(
     year: str, 
     month: str, 
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     # 1. 取得使用者職業
-    user = db.query(Member).filter(Member.user_id == user_id).first()
+    user = db.query(Member).filter(Member.user_id == current_user.user_id).first()
     user_job = user.job if user and user.job else "製造業"
 
     # 2. 撈取使用者當月總收入
     target_date = f"{year}-{month.zfill(2)}"
     user_income = db.query(func.sum(AddRecord.add_amount)).filter(
-        AddRecord.user_id == user_id,
+        AddRecord.user_id == current_user.user_id,
         AddRecord.add_type == 1,
         func.date_format(AddRecord.add_date, '%Y-%m') == target_date
     ).scalar() or 0

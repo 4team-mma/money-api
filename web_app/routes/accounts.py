@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from ..schemas.accounts import AccountCreate, AccountResponse, AccountUpdate
-from ..models import Account
+from ..models import Account,Member
 from ..database import get_db
-from ..dependencies import get_current_user_id
+from ..dependencies import get_current_user
 
 # 注意：這裡不要加 prefix="/accounts"，因為 main.py 已經幫你加了
 # tags 在 main.py 也有加，但這裡保留可以覆蓋或增加細節，不過通常建議這裡留空即可
@@ -15,9 +15,9 @@ router = APIRouter()
 @router.get("/", response_model=List[AccountResponse])
 def get_accounts(
     db: Session = Depends(get_db), 
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
-    return db.query(Account).filter(Account.user_id == user_id).all()
+    return db.query(Account).filter(Account.user_id == current_user.user_id).all()
 
 
 # ===== POST 新增帳戶 =====
@@ -26,13 +26,13 @@ def get_accounts(
 def create_account(
     account_in: AccountCreate, # 接收 Pydantic Schema
     db: Session = Depends(get_db), 
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     # 1. 將 Schema 轉為 Python 字典 (Pydantic v2 語法)
     account_data = account_in.model_dump()
     
     # 2. 補上 Schema 沒定義但在資料庫 Model 必須的欄位
-    account_data["user_id"] = user_id
+    account_data["user_id"] = current_user.user_id
     
     # 邏輯：新開戶時，目前餘額 = 初始餘額
     account_data["current_balance"] = account_in.initial_balance 
@@ -61,12 +61,12 @@ def create_account(
 def delete_account(
     account_id: int,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     # 1. 尋找該帳戶，並同時檢查是否屬於該使用者 (安全性檢查)
     account_query = db.query(Account).filter(
         Account.account_id == account_id, 
-        Account.user_id == user_id
+        Account.user_id == current_user.user_id
     )
     
     account = account_query.first()
@@ -98,12 +98,12 @@ def update_account(
     account_id: int, 
     obj_in: AccountUpdate, 
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: Member = Depends(get_current_user)
 ):
     # 1. 🔍 必須同時確認 ID 和 User_ID (安全性)
     db_obj = db.query(Account).filter(
         Account.account_id == account_id, 
-        Account.user_id == user_id
+        Account.user_id == current_user.user_id
     ).first()
 
     if not db_obj:

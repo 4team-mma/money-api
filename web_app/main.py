@@ -6,11 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from web_app.routes import root, users, accounts, records, auth,admin,transfers,feedback,analysis
-from web_app.routes.auth import admin_required
+
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
 from .utils.cpi_crawler import fetch_and_update_cpi
+from web_app.dependencies import admin_required
 
 
 # 1. 先載入環境變數

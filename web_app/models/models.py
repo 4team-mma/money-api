@@ -28,7 +28,7 @@ class Member(Base):
     username: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     
-    role: Mapped[str] = mapped_column(String(10), server_default="user")
+    role: Mapped[str] = mapped_column(String(10), server_default="user",index=True)
     status: Mapped[str] = mapped_column(String(10), server_default="active")
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -38,7 +38,7 @@ class Member(Base):
     xp: Mapped[int] = mapped_column(Integer, default=0)
     level: Mapped[int] = mapped_column(Integer, default=1)
     points: Mapped[int] = mapped_column(Integer, default=0)
-    job: Mapped[str] = mapped_column(String(100), default='一般用戶')
+    job: Mapped[str] = mapped_column(String(100), default='一般民眾')
 
 # 2. 帳戶管理 (育育同學)
 class Account(Base):
@@ -64,12 +64,12 @@ class AddRecord(Base):
     add_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
     
-    add_date: Mapped[date] = mapped_column(Date, nullable=False)
+    add_date: Mapped[date] = mapped_column(Date, nullable=False,index=True)
     add_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     add_type: Mapped[bool] = mapped_column(Boolean, nullable=False) 
     # 支出收入True/False
     
-    add_class: Mapped[str] = mapped_column(String(20), nullable=False)
+    add_class: Mapped[str] = mapped_column(String(20), nullable=False,index=True)
     add_class_icon: Mapped[str] = mapped_column(String(20), nullable=False)
     
     account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.account_id"), nullable=False)
@@ -84,8 +84,8 @@ class Transaction(Base):
 
     transaction_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
-    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
-
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    
     # 1. 這是外鍵欄位，指向小寫的資料表 'accounts'
     from_account_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("accounts.account_id"), nullable=False

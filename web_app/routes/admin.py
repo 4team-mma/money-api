@@ -3,16 +3,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from ..database import get_db
 from ..models import Member, AddRecord, Account
+from ..dependencies import admin_required
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(admin_required)]
+)
 
-@router.get("/users")
-async def get_all_users(db: Session = Depends(get_db)):
-    """
-    管理員功能：查看系統內所有註冊會員
-    """
-    users = db.query(Member).all()
-    return users
+
+@router.get("/users") # 顯示1-20,21-40...避免會員數多時,卡死
+async def get_all_users(skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
+    return db.query(Member).offset(skip).limit(limit).all()
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: int, db: Session = Depends(get_db)):
@@ -20,12 +20,28 @@ async def delete_user(user_id: int, db: Session = Depends(get_db)):
     管理員功能：刪除違規會員
     """
     user = db.query(Member).filter(Member.user_id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="找不到該會員")
-    
     db.delete(user)
     db.commit()
     return {"msg": f"會員 {user_id} 已成功刪除"}
+
+@router.put("/users/{user_id}/block")
+async def block_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(Member).filter(Member.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="找不到會員")
+    user.status = "banned" # 設定為封鎖狀態
+    db.commit()
+    return {"msg": f"會員 {user.username} 已被停用"}
+
+@router.get("/summary")
+async def get_system_summary(db: Session = Depends(get_db)):
+    total_users = db.query(Member).count()
+    total_records = db.query(AddRecord).count()
+    # 這裡可以計算今日新增用戶
+    return {
+        "total_users": total_users,
+        "total_records": total_records
+    }
 
 @router.get("/stats/rankings")
 async def get_admin_rankings(db: Session = Depends(get_db)):
@@ -38,8 +54,8 @@ async def get_admin_rankings(db: Session = Depends(get_db)):
             AddRecord.add_class,
             func.sum(AddRecord.add_amount).label("total_amount")
         ).filter(AddRecord.add_type == False) \
-         .group_by(AddRecord.add_class) \
-         .order_by(func.sum(AddRecord.add_amount).desc()).all()
+        .group_by(AddRecord.add_class) \
+        .order_by(func.sum(AddRecord.add_amount).desc()).limit(10).all
 
         # 2. ✍️ 勤勞小蜜蜂獎 (記帳頻率排名 - 排除 admin)
         frequency_ranks = db.query(
@@ -47,9 +63,9 @@ async def get_admin_rankings(db: Session = Depends(get_db)):
             Member.name,
             func.count(AddRecord.add_id).label("count")
         ).join(AddRecord, Member.user_id == AddRecord.user_id) \
-         .filter(Member.role == 'user') \
-         .group_by(Member.user_id) \
-         .order_by(func.count(AddRecord.add_id).desc()).limit(5).all()
+        .filter(Member.role == 'user') \
+        .group_by(Member.user_id) \
+        .order_by(func.count(AddRecord.add_id).desc()).limit(5).all()
 
         # 3. 🛡️ 金庫大總管 (帳戶餘額儲蓄榜 - 排除 admin)
         savings_ranks = db.query(
