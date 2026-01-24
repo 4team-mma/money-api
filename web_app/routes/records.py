@@ -178,14 +178,14 @@ async def get_monthly_stats(
     expense = db.query(func.sum(AddRecord.add_amount))\
         .filter(
             AddRecord.user_id == current_user.user_id,
-            AddRecord.add_type is False,
+            AddRecord.add_type == False,
             AddRecord.add_date >= first_day
         ).scalar() or Decimal("0")
 
     income = db.query(func.sum(AddRecord.add_amount))\
         .filter(
             AddRecord.user_id == current_user.user_id,
-            AddRecord.add_type is True,
+            AddRecord.add_type == True,
             AddRecord.add_date >= first_day
         ).scalar() or Decimal("0")
 
