@@ -36,7 +36,10 @@ def get_db():
     db = SessionLocal()
     try:
         # 程式會暫停在這裡，等到你的 API 函數執行完畢
-        yield db 
+        yield db
+    except Exception:
+        db.rollback() # 如果 API 發生任何錯誤，這裡會自動回滾
+        raise
     finally:
         # 確保伺服器不會因為同時開了太多窗戶而崩潰
         db.close()
