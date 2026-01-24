@@ -11,6 +11,8 @@ class TransferCreate(BaseModel):
     transaction_date: date
     from_account_id: int  # 來源帳戶 ID
     to_account_id: int    # 目標帳戶 ID
+    from_account_name: Optional[str] = None
+    to_account_name: Optional[str] = None
     amount: Decimal
     
 

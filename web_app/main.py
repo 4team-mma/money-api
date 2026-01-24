@@ -4,6 +4,9 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
+from web_app.routes import root, users, accounts, records, auth,admin,transfers,feedback,analysis
+from web_app.routes.stats import router as stats_router
 from fastapi.responses import RedirectResponse, JSONResponse 
 from web_app.routes import root, users, accounts, records, auth, admin, transfers, feedback, analysis, reminders
 
@@ -136,7 +139,7 @@ app.include_router(
     dependencies=[Depends(admin_required)] #  admin/ 底下的所有網址都限管理員
 )
 app.include_router(analysis.router,prefix="/api/analysis",tags=["消費趨勢分析"])
-
+app.include_router(stats_router,prefix="/api/stats",tags=["圖表分析"])
 @app.get("/favicon.ico")
 async def favicon():
     return RedirectResponse("/static/favicon.ico")
