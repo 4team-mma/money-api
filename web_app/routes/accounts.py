@@ -41,15 +41,10 @@ def create_account(
     # 這裡會自動把 account_name, account_icon, currency 等欄位填入
     new_account = Account(**account_data)
 
-    try:
-        db.add(new_account)
-        db.commit()
-        db.refresh(new_account) # 刷新以取得 DB 產生的 account_id
-        return new_account
-    except Exception as e:
-        db.rollback()
-        # 建議印出錯誤 log 方便除錯，這裡先簡單回傳 500
-        raise HTTPException(status_code=500, detail=f"建立帳戶失敗: {str(e)}")
+    db.add(new_account)
+    db.commit()
+    db.refresh(new_account) # 刷新以取得 DB 產生的 account_id
+    return new_account
     
     
     
@@ -79,17 +74,10 @@ def delete_account(
         )
 
     # 3. 執行刪除
-    try:
-        account_query.delete(synchronize_session=False)
-        db.commit()
-        # 204 No Content 不需要回傳 body
-        return None
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"刪除帳戶失敗: {str(e)}"
-        )
+    account_query.delete(synchronize_session=False)
+    db.commit()
+    # 204 No Content 不需要回傳 body
+    return None
         
         
 #更新尚未寫
@@ -114,15 +102,10 @@ def update_account(
     update_data = obj_in.model_dump(exclude_unset=True)
 
     # 3. 執行更新邏輯
-    try:
-        for field, value in update_data.items():
-            setattr(db_obj, field, value)
+    for field, value in update_data.items():
+        setattr(db_obj, field, value)
 
-        db.add(db_obj) # 確保物件在 session 中
-        db.commit()    # 🌟 核心：提交事務
-        db.refresh(db_obj) # 刷新物件狀態
-        return db_obj
-    except Exception as e:
-        db.rollback() # 出錯回滾
-        print(f"Error during update: {e}")
-        raise HTTPException(status_code=500, detail="資料庫更新失敗")
+    db.add(db_obj) # 確保物件在 session 中
+    db.commit()    # 🌟 核心：提交事務
+    db.refresh(db_obj) # 刷新物件狀態
+    return db_obj
