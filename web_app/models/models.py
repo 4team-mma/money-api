@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 from ..database import Base
 
@@ -113,7 +113,7 @@ class Notification(Base):
     reminder_date_start: Mapped[date] = mapped_column(Date, nullable=False)
     reminder_date_end: Mapped[Optional[date]] = mapped_column(Date)
     
-    reminder_time: Mapped[str] = mapped_column(String(10), default="10:00:00")
+    reminder_time: Mapped[timedelta] = mapped_column(String(10), default="10:00:00")
     repeat_cycle: Mapped[Optional[str]] = mapped_column(String(20))
     description: Mapped[Optional[str]] = mapped_column(String(200))
 

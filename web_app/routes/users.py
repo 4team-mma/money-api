@@ -1,7 +1,7 @@
 # web_app/routes/users.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 from ..database import get_db
 from ..models import Member
 from ..schemas.member import MemberResponse, MemberUpdate
@@ -37,13 +37,9 @@ def update_member_profile(
     for key, value in update_data.items():
         setattr(user, key, value)
 
-    try:
-        db.commit()
-        db.refresh(user)
-        return user
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"資料庫更新失敗: {str(e)}")
+    db.commit()
+    db.refresh(user)
+    return user
 
 # --- 以下為使用者個人功能 ---
 @router.get("/me")

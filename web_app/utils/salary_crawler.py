@@ -1,13 +1,18 @@
 import requests
 import xmltodict
 import urllib3
+import logging
 from datetime import datetime
 from ..database import SessionLocal
 from ..models import SalaryBenchmark
 import re
 
+# 1. 取得與 main.py 一致的 logger
+logger = logging.getLogger(__name__)
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# 政府開放資料 URL
 URL_REGULAR_9663 = "https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230037/mp05002.xml"
 URL_TOTAL_9634 = "https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230037/mp05001.xml"
 
@@ -15,7 +20,7 @@ def clean_industry_name(raw_tag):
     return raw_tag.split('_')[0]
 
 def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
-    print(f"--- [薪資爬蟲啟動: {salary_type_name}] ---")
+    logger.info(f"🚀 開始抓取薪資數據: {salary_type_name}")
     db = SessionLocal()
     current_year = datetime.now().year
     min_save_year = current_year - 5 
@@ -39,11 +44,8 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
             
             # 1. 處理政府符號 (如 Ⓟ) 並提取數字
             digits = re.sub(r'\D', '', raw_period) 
-            
-            # 2. 統一格式化為 YYYYMXX (例如 2025M11)
             if len(digits) >= 6:
-                year = digits[:4]
-                month = digits[4:6]
+                year, month = digits[:4], digits[4:6]
                 period_str = f"{year}M{month}"
             else:
                 year = digits[:4]
@@ -67,26 +69,32 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
                     SalaryBenchmark.salary_is_real == is_real_val
                 ).first()
 
-                if existing:
-                    # 💡 如果重複了，就更新數值 (通常後面的數值包含獎金，更具參考價值)
-                    existing.salary_val = float(val)
-                    update_count += 1
-                else:
-                    db.add(SalaryBenchmark(
-                        industry=industry_name,
-                        period=period_str,
-                        salary_type=salary_type_name,
-                        salary_is_real=is_real_val,
-                        salary_val=float(val)
-                    ))
-                    db.flush() # 🌟 關鍵：讓同一個 Session 內之後的查詢能看到這筆
-                    new_count += 1
+                try:
+                    salary_val = float(val)
+                    if existing:
+                        # 💡 如果重複了，就更新數值 (通常後面的數值包含獎金，更具參考價值)
+                        existing.salary_val = salary_val
+                        update_count += 1
+                    else:
+                        db.add(SalaryBenchmark(
+                            industry=industry_name,
+                            period=period_str,
+                            salary_type=salary_type_name,
+                            salary_is_real=is_real_val,
+                            salary_val=salary_val
+                        ))
+                        db.flush() # 🌟 關鍵：讓同一個 Session 內之後的查詢能看到這筆
+                        new_count += 1
+                except ValueError:
+                    continue # 跳過非數字數值
         
         db.commit()
-        print(f"--- [{salary_type_name}] 結束。新增: {new_count} 筆, 更新: {update_count} 筆 ---")
+        logger.info(f"✅ {salary_type_name} 同步完成。新增: {new_count} 筆, 更新: {update_count} 筆 ---")
+        
     except Exception as e:
         db.rollback()
-        print(f"❌ 抓取失敗: {e}")
+        # 🌟 這裡使用 exc_info=True，Log 會紀錄哪一行爬蟲出錯
+        logger.error(f"❌ 薪資抓取失敗 ({salary_type_name}): {str(e)}", exc_info=True)
     finally:
         db.close()
 

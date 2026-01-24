@@ -1,17 +1,21 @@
 from dotenv import load_dotenv
 import os
-from fastapi import FastAPI,Request,Depends
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from web_app.routes import root, users, accounts, records, auth,admin,transfers,feedback,analysis
 from web_app.routes.stats import router as stats_router
+from fastapi.responses import RedirectResponse, JSONResponse 
+from web_app.routes import root, users, accounts, records, auth, admin, transfers, feedback, analysis, reminders
+
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
 from .utils.cpi_crawler import fetch_and_update_cpi
 from web_app.dependencies import admin_required
+from sqlalchemy.exc import SQLAlchemyError
 
 
 # 1. 先載入環境變數
@@ -67,6 +71,41 @@ app = FastAPI(
     openapi_url="/openapi.json" if DEBUG else None,
 )
 
+# ----------------------------------------------------------------
+# 🔥 新增：全域異常處理器 (Global Exception Handlers)
+# ----------------------------------------------------------------
+
+# 建立一個專門給 main 使用的 logger
+logger = logging.getLogger(__name__)
+
+# 處理所有未預期的崩潰 (Exception)
+@app.exception_handler(Exception)
+async def universal_exception_handler(request: Request, exc: Exception):
+    # 紀錄詳細錯誤到 logs/app.log
+    # exc_info=True 會自動抓取 Traceback (哪一行的程式碼出錯)
+    logger.error(f"非預期錯誤 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True)
+    
+    # 回傳給前端安全、格式統一的訊息
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "detail": "系統發生非預期錯誤，請聯繫管理員或稍後再試。"
+        }
+    )
+
+# 針對資料庫錯誤做更細緻的 Log
+@app.exception_handler(SQLAlchemyError)
+async def database_exception_handler(request: Request, exc: SQLAlchemyError):
+    logger.error(f"資料庫異常 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "detail": "資料庫連線或處理異常，請稍後再試。"
+        }
+    )
+
 # 1. 讀取 .env 的字串的5173,5174
 cors_raw = os.getenv("CORS_ORIGINS", "")
 origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
@@ -92,6 +131,7 @@ app.include_router(accounts.router, prefix="/api/accounts", tags=["帳戶"])
 app.include_router(records.router, prefix="/api/records", tags=["收支紀錄"])
 app.include_router(transfers.router, prefix="/api/transfers", tags=["轉帳紀錄"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["問題回饋"])
+app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事項"])
 app.include_router(
     admin.router, 
     prefix="/api/admin", 

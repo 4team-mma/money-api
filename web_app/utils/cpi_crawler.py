@@ -5,6 +5,9 @@ import re
 from datetime import datetime
 from ..models import CpiData
 from ..database import SessionLocal
+import logging
+
+logger = logging.getLogger("app_logger")
 
 # 屏蔽安全警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -14,28 +17,46 @@ CPI_URL = "https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230555/pr0101a1m
 
 def find_data_items(obj):
     """💡 強效搜尋：自動在 XML 字典結構中尋找資料列表"""
+    # 情況 A: 物件是列表
     if isinstance(obj, list):
+        # 啟發式判斷：如果列表第一個元素就是目標欄位，直接回傳
         if len(obj) > 0 and isinstance(obj[0], dict) and 'Item' in obj[0]:
             return obj
+        
+        # 否則遞迴搜尋子項
         for item in obj:
             res = find_data_items(item)
-            if res: return res
+            if res:
+                return res
+
+    # 情況 B: 物件是字典
     if isinstance(obj, dict):
-        for target in ['pr0101a1m', 'Row', 'pr0101a1']:
+        # 1. 優先匹配已知標籤 (優先度排序)
+        # 2026 建議：將常用的標籤抽離成常量或配置
+        targets = ['pr0101a1m', 'Row', 'pr0101a1', 'Data'] 
+        for target in targets:
             if target in obj:
                 val = obj[target]
+                # 確保回傳格式統一為 list，簡化後續 for 迴圈
                 return val if isinstance(val, list) else [val]
+        
+        # 2. 深度優先搜尋其餘鍵值
         for k, v in obj.items():
-            if k.startswith('@'): continue 
+            # 跳過屬性標籤 (xmltodict 以 @ 開頭的內容)
+            if k.startswith('@'):
+                continue 
+            
             res = find_data_items(v)
-            if res: return res
-    return []
+            if res:
+                return res
+
+    return None # 改為返回 None 以便外部判斷 if not items
 
 def fetch_and_update_cpi():
     """
     抓取 CPI 指數並存入資料庫，僅保留最近 6 年數據。
     """
-    print("--- [CPI 爬蟲啟動: 6 年過濾版] ---")
+    logger.info("--- [CPI 爬蟲啟動: 6 年過濾版] ---")
     db = SessionLocal()
     current_year = datetime.now().year
     # 💡 嚴格限制：只抓取今年起算前 6 年 (如 2021-2026)
@@ -44,12 +65,13 @@ def fetch_and_update_cpi():
     try:
         response = requests.get(CPI_URL, timeout=30, verify=False)
         response.encoding = 'utf-8'
-        data_dict = xmltodict.parse(response.text)
+        response.raise_for_status() # 💡 2026 規範：若連線失敗直接拋出 Exception
         
+        data_dict = xmltodict.parse(response.text)
         items = find_data_items(data_dict)
 
         if not items:
-            print("❌ 錯誤：無法在 XML 結構中找到資料節點。")
+            logger.warning("❌ 錯誤：無法在 XML 結構中找到資料節點。")
             return
 
         new_count = 0
@@ -96,14 +118,16 @@ def fetch_and_update_cpi():
                     existing.val = val_float
                     update_count += 1
             
+            # 批次 flush 減少記憶體壓力
             if (new_count + update_count) % 500 == 0:
                 db.flush()
 
         db.commit()
-        print(f"--- [CPI 任務結束] 新增: {new_count} 筆, 更新: {update_count} 筆, 跳過舊資料: {skip_count} 筆 ---")
+        logger.info(f"--- [CPI 任務結束] 新增: {new_count} 筆, 更新: {update_count} 筆, 跳過舊資料: {skip_count} 筆 ---")
 
     except Exception as e:
         db.rollback()
-        print(f"❌ 抓取失敗: {e}")
+        # 💡 重要：背景任務不會回傳給前端，必須在此手動紀錄完整 Traceback 到 app.log
+        logger.error(f"❌ CPI 抓取程序崩潰: {str(e)}", exc_info=True)
     finally:
         db.close()

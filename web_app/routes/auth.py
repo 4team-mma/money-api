@@ -15,7 +15,6 @@ from ..utils.otp import generate_otp
 from ..utils.email_utils import send_otp_email
 from ..utils.password import hash_password, verify_password
 from ..utils.jwt import create_access_token
-from ..dependencies import get_current_user,admin_required
 import uuid
 
 router = APIRouter()
@@ -52,38 +51,37 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
         role="user"
     )
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    db.flush() # 🌟 使用 flush 先取得 new_user.user_id，但不提交 Transaction
 
-    # 🚀 自動化：為新使用者建立預設帳戶
-    try:
-        default_accounts = [
-            Account(
-                user_id=new_user.user_id,
-                account_type='現金',
-                account_name='我的錢包',
-                currency='NT$',
-                initial_balance=0,
-                current_balance=0,
-                exclude_from_assets=False,
-                account_icon='💰'
-            ),
-            Account(
-                user_id=new_user.user_id,
-                account_type='銀行',
-                account_name='預設銀行',
-                currency='NT$',
-                initial_balance=0,
-                current_balance=0,
-                exclude_from_assets=False,
-                account_icon='🏦'
-            )
-        ]
-        db.add_all(default_accounts)
-        db.commit()
-    except Exception as e:
-        print(f"預設帳戶建立失敗: {e}")
-        
+    # 為新使用者建立預設帳戶
+    # 若帳戶建立失敗，整筆註冊（含會員）應一起回滾，確保資料一致性
+    default_accounts = [
+        Account(
+            user_id=new_user.user_id,
+            account_type='現金',
+            account_name='我的錢包',
+            currency='NT$',
+            initial_balance=0,
+            current_balance=0,
+            exclude_from_assets=False,
+            account_icon='💰'
+        ),
+        Account(
+            user_id=new_user.user_id,
+            account_type='銀行',
+            account_name='預設銀行',
+            currency='NT$',
+            initial_balance=0,
+            current_balance=0,
+            exclude_from_assets=False,
+            account_icon='🏦'
+        )
+    ]
+    db.add_all(default_accounts)
+    
+    # 統一提交
+    db.commit()
+    
     return {"msg": "註冊成功"}
 
 @router.post("/auth/login")
@@ -120,94 +118,86 @@ GOOGLE_CLIENT_ID = "709149079121-1mma6vkj82ni707n86sp098ub1re4q22.apps.googleuse
 
 @router.post("/auth/google")
 async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
+    # 1. 驗證 Google Token (保持 ValueError 捕獲，因為這是特定的業務錯誤)
     try:
-        # 1. 驗證 Google Token (修正變數名稱以符合拼字檢查)
         id_info = id_token.verify_oauth2_token(
             data.token, 
             google_requests.Request(), 
             GOOGLE_CLIENT_ID
         )
-
-        # 2. 取得 Google 使用者資訊
-        email = id_info['email']
-        full_name = id_info.get('name', 'Google 使用者')
-        # 避免用戶名稱重複:
-        default_username = f"{email.split('@')[0]}_{datetime.now().strftime('%S%f')[:4]}"
-
-        # 3. 檢查資料庫是否有此 Email
-        user = db.query(Member).filter(Member.email == email).first()
-
-        # 4. 如果使用者不存在，自動幫他註冊
-        if not user:
-            # 使用隨機 UUID 作為密碼雜湊，徹底杜絕撞庫風險
-            random_pwd = str(uuid.uuid4()) 
-            placeholder_password = hash_password(random_pwd)
-            
-            new_user = Member(
-                username=default_username,
-                name=full_name,
-                email=email,
-                password=placeholder_password,
-                role="user",
-                status="active",
-                created_at=datetime.now(),
-                job="一般用戶"
-            )
-            db.add(new_user)
-            db.commit()
-            db.refresh(new_user)
-            
-            # 🌟 為 Google 新用戶建立預設帳戶
-            try:
-                default_accounts = [
-                    Account(
-                        user_id=new_user.user_id,
-                        account_type='現金',
-                        account_name='我的錢包',
-                        currency='NT$',
-                        initial_balance=0,
-                        current_balance=0,
-                        exclude_from_assets=False,
-                        account_icon='💰'
-                    ),
-                    Account(
-                        user_id=new_user.user_id,
-                        account_type='銀行',
-                        account_name='預設銀行',
-                        currency='NT$',
-                        initial_balance=0,
-                        current_balance=0,
-                        exclude_from_assets=False,
-                        account_icon='🏦'
-                    )
-                ]
-                db.add_all(default_accounts)
-                db.commit()
-            except Exception as e:
-                print(f"Google 用戶預設帳戶建立失敗: {e}")
-            
-            user = new_user
-
-        # 簽發 JWT Token
-        access_token = create_access_token(data={"sub": str(user.user_id)})
-        
-        return {
-            "msg": "Google 登入成功",
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "user_id": user.user_id,
-                "username": user.username,
-                "email": user.email,
-                "name": user.name
-            }
-        }
-
     except ValueError:
         raise HTTPException(status_code=400, detail="Google Token 驗證無效")
-    except Exception as e:
-        print(f"Google 認證流程錯誤: {e}")
-        raise HTTPException(status_code=500, detail="伺服器處理 Google 登入時出錯")
+
+    # 2. 取得 Google 使用者資訊
+    email = id_info['email']
+    full_name = id_info.get('name', 'Google 使用者')
+    
+    # 3. 檢查使用者是否已存在
+    user = db.query(Member).filter(Member.email == email).first()
+
+    # 4. 如果使用者不存在，執行「原子化」註冊流程
+    if not user:
+        # 生成不重複的預設帳號
+        default_username = f"{email.split('@')[0]}_{datetime.now().strftime('%M%S')}"
+        
+        # 建立新會員
+        new_user = Member(
+            username=default_username,
+            name=full_name,
+            email=email,
+            password=hash_password(str(uuid.uuid4())), # 隨機密碼
+            role="user",
+            status="active",
+            created_at=datetime.now(),
+            job="一般用戶"
+        )
+        db.add(new_user)
+        db.flush() # 🌟 先取得 user_id，不提交事務
+
+        # 🌟 為新用戶同步建立預設帳戶
+        default_accounts = [
+            Account(
+                user_id=new_user.user_id,
+                account_type='現金',
+                account_name='我的錢包',
+                currency='NT$',
+                initial_balance=0,
+                current_balance=0,
+                exclude_from_assets=False,
+                account_icon='💰'
+            ),
+            Account(
+                user_id=new_user.user_id,
+                account_type='銀行',
+                account_name='預設銀行',
+                currency='NT$',
+                initial_balance=0,
+                current_balance=0,
+                exclude_from_assets=False,
+                account_icon='🏦'
+            )
+        ]
+        db.add_all(default_accounts)
+        
+        # 統一提交：確保「會員」與「帳戶」同時建立成功
+        db.commit()
+        db.refresh(new_user)
+        user = new_user
+
+    # 5. 簽發 JWT Token
+    access_token = create_access_token(data={"sub": str(user.user_id)})
+    
+    return {
+        "msg": "Google 登入成功",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "user_id": user.user_id,
+            "username": user.username,
+            "email": user.email,
+            "name": user.name
+        }
+    }
 
 # ==================== 忘記密碼邏輯 ====================
 
@@ -245,7 +235,7 @@ async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
 
     email_success = send_otp_email(user.email, otp)
     if not email_success:
-        raise HTTPException(status_code=500, detail="驗證信發送失敗，請稍後再試")
+        raise HTTPException(status_code=500, detail="驗證信發送失敗，請稍後再試或聯繫客服")
 
     return {"msg": "驗證碼已寄出，請檢查您的信箱"}
 
