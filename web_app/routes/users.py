@@ -1,11 +1,12 @@
 # web_app/routes/users.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends,  HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
-from ..models import Member
-from ..schemas.member import MemberResponse, MemberUpdate
+from ..models import Member, AddRecord, Account,Transaction,Notification,Feedback,PasswordReset
+from ..schemas.member import MemberResponse, MemberUpdate, MemberPasswordChange
 from ..dependencies import get_current_user
+from ..utils.password import verify_password, get_password_hash
 
 router = APIRouter()
 
@@ -55,3 +56,65 @@ def get_me(
     
     # 回傳使用者的資料 (FastAPI 會自動轉成 JSON)
     return user
+
+
+
+
+# --- 修改密碼 ---
+@router.put("/me/password", summary="變更個人密碼")
+async def change_password(
+    data: MemberPasswordChange,
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    # 1. 驗證舊密碼是否正確
+    if not verify_password(data.current_password, current_user.password):
+        raise HTTPException(status_code=400, detail="目前密碼輸入錯誤")
+    
+    # 2. 加密新密碼
+    current_user.password = get_password_hash(data.new_password)
+    
+    db.commit()
+    return {"message": "密碼變更成功"}
+
+
+
+
+# --- 刪除個人帳號 (更安全的寫法) ---
+@router.delete("/me", summary="刪除目前登入的帳號", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    try:
+        # 1. 先刪除該使用者的所有記帳紀錄
+        db.query(AddRecord).filter(AddRecord.user_id == current_user.user_id).delete()
+        
+        # 刪除資產帳戶紀錄
+        db.query(Account).filter(Account.user_id == current_user.user_id).delete()
+        
+        # 刪除轉帳紀錄
+        db.query(Transaction).filter(Transaction.user_id == current_user.user_id).delete()
+        
+        # 刪除提醒紀錄
+        db.query(Notification).filter(Notification.user_id == current_user.user_id).delete()
+        # 💡 如果還有其他關聯資料表（例如 Accounts），也要在這裡一併刪除
+        
+        # 刪除回饋關聯
+        db.query(Feedback).filter(Feedback.user_id == current_user.user_id).delete()
+        # 刪除忘記密碼關聯
+        db.query(PasswordReset).filter(PasswordReset.user_id == current_user.user_id).delete()
+        
+        # 2. 刪除會員本人
+        db.delete(current_user)
+        
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        # 輸出詳細錯誤到控制台，方便 Leader 妳除錯
+        print(f"❌ 刪除帳號失敗，詳細原因: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"資料庫刪除失敗，請檢查是否有其他關聯資料未清除。"
+        )

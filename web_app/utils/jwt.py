@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
 
+
 load_dotenv()
 
 # 取得與 main.py 一致的 logger

@@ -13,7 +13,7 @@ from ..schemas.member import MemberRegister, MemberLogin
 from ..schemas.forgot_password import SendOTPRequest, VerifyOTPRequest, ResetPasswordRequest
 from ..utils.otp import generate_otp
 from ..utils.email_utils import send_otp_email
-from ..utils.password import hash_password, verify_password
+from ..utils.password import get_password_hash, verify_password
 from ..utils.jwt import create_access_token
 import uuid
 from slowapi import Limiter
@@ -112,7 +112,7 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
         username=data.username,
         name=data.name,
         email=data.email,
-        password=hash_password(data.password),
+        password=get_password_hash(data.password),
         role="user"
     )
     db.add(new_user)
@@ -211,7 +211,7 @@ async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
             username=default_username,
             name=full_name,
             email=email,
-            password=hash_password(str(uuid.uuid4())), # 隨機密碼
+            password=get_password_hash(str(uuid.uuid4())), # 隨機密碼
             role="user",
             status="active",
             created_at=datetime.now(),
@@ -336,7 +336,7 @@ async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_d
     if user is None:
         raise HTTPException(status_code=404, detail="找不到該使用者，無法重設密碼")
     
-    user.password = hash_password(data.new_password)
+    user.password = get_password_hash(data.new_password)
     record.is_used = True
     
     db.commit()
