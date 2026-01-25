@@ -49,3 +49,13 @@ class MemberResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        
+# 刪除      
+class MemberDeleteResponse(BaseModel):
+    message: str
+    user_id: int
+
+# 用於變更密碼的規格
+class MemberPasswordChange(BaseModel):
+    current_password: str = Field(description="目前密碼")
+    new_password: str = Field(min_length=3, max_length=50, description="新密碼")
