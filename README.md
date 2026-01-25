@@ -43,6 +43,9 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add xmltodict apscheduler requests(XML與排程套件)
 - uv add google-auth
 - uv add slowapi(IP 限制套件)
+- uv add pandas openpyxl (資料處理/Excel 檔案引擎)
+- uv add reportlab (PDF轉換套件)
+
 # 安裝依賴:
 - 執行：uv sync 
 - macOS電腦如果執行./dev.sh不允許  請先使用：chmod +x dev.sh
