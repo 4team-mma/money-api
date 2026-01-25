@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status,Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import desc # 用於排序找出最後一筆 OTP 紀錄
 from datetime import datetime, timedelta
@@ -16,17 +16,82 @@ from ..utils.email_utils import send_otp_email
 from ..utils.password import hash_password, verify_password
 from ..utils.jwt import create_access_token
 import uuid
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from ..utils.email_utils import verify_recaptcha, send_otp_email 
+import os
+
 
 router = APIRouter()
 
 # ==================== 守門員與權限 ====================
 # 此部分在dependencies的admin_required
 
+
+
+
+# =======IP 限制、reCAPTCHA、每日上限與非同步寄信功能============
+# 1. 初始化 IP 限制器 (每分鐘同一個 IP 只能請求 5 次)
+limiter = Limiter(key_func=get_remote_address)
+
+@router.post("/auth/forgot-password/send-otp")
+@limiter.limit("5/minute") # 第一層：IP 限制 (slowapi)
+async def request_password_reset_otp(
+    # pylint: disable=unused-argument
+    request: Request, # slowapi 必須要有這個參數
+    data: SendOTPRequest, 
+    background_tasks: BackgroundTasks, # 異步寄信專用
+    db: Session = Depends(get_db)
+):
+    # --- 第二層：Google reCAPTCHA 驗證 ---
+    # 假設你的 SendOTPRequest 有包含 recaptcha_token 欄位
+    if not verify_recaptcha(data.recaptcha_token):
+        raise HTTPException(status_code=400, detail="機器人驗證失敗，請重新嘗試")
+
+    user = db.query(Member).filter(Member.email == data.email).first()
+    if not user:
+        # 資安策略：對外統一口徑，不透露使用者是否存在
+        return {"msg": "若信箱正確，驗證碼已寄出"}
+
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # --- 第三層：資料庫檢查 (每日上限 5 次) ---
+    daily_count = db.query(PasswordReset).filter(
+        PasswordReset.email == data.email,
+        PasswordReset.created_at >= today_start
+    ).count()
+
+    if daily_count >= 5:
+        raise HTTPException(status_code=429, detail="今日發送次數已達上限")
+
+    # --- 第四層：60 秒冷卻時間 (你原本寫得很好的邏輯) ---
+    last_otp = db.query(PasswordReset).filter(PasswordReset.email == data.email)\
+                .order_by(desc(PasswordReset.created_at)).first()
+
+    if last_otp and (now - last_otp.created_at).total_seconds() < 60:
+        wait = int(60 - (now - last_otp.created_at).total_seconds())
+        raise HTTPException(status_code=429, detail=f"請等待 {wait} 秒後再試")
+
+    # --- 第五層：產碼、存檔與「非同步」寄信 ---
+    otp = generate_otp()
+    new_reset_entry = PasswordReset(
+        user_id=user.user_id,
+        email=user.email,
+        otp_code=otp,
+        expires_at=now + timedelta(minutes=5)
+    )
+    db.add(new_reset_entry)
+    db.commit()
+
+    # 使用 background_tasks，API 會立刻回應成功，後端才慢慢寄信
+    background_tasks.add_task(send_otp_email, user.email, otp)
+
+    return {"msg": "驗證碼已寄出，請檢查您的信箱"}
+
+# ==========================================================
+
 # ==================== 註冊與登入 ====================
-
-
-
-
 @router.post("/auth/register")
 async def register(data: MemberRegister, db: Session = Depends(get_db)):
     #  資安優化：同時檢查 Email 與 Username，並使用統一的錯誤訊息防止列舉攻擊
@@ -114,7 +179,8 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
 class GoogleAuthRequest(BaseModel):
     token: str
 
-GOOGLE_CLIENT_ID = "709149079121-1mma6vkj82ni707n86sp098ub1re4q22.apps.googleusercontent.com"
+# key寫在.env
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 @router.post("/auth/google")
 async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
