@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 # 步驟 1：發送驗證碼的請求
 class SendOTPRequest(BaseModel):
     email: EmailStr = Field(..., description="使用者的電子郵件")
+    recaptcha_token: str = Field(..., description="Google reCAPTCHA 驗證權杖")
 
 # 步驟 2：驗證驗證碼是否正確
 class VerifyOTPRequest(BaseModel):

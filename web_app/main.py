@@ -9,13 +9,16 @@ from web_app.routes import root, users, accounts, records, auth,admin,transfers,
 from web_app.routes.stats import router as stats_router
 from fastapi.responses import RedirectResponse, JSONResponse 
 from web_app.routes import root, users, accounts, records, auth, admin, transfers, feedback, analysis, reminders
-
-import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
 from .utils.cpi_crawler import fetch_and_update_cpi
 from web_app.dependencies import admin_required
 from sqlalchemy.exc import SQLAlchemyError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+import logging
+
 
 
 # 1. 先載入環境變數
@@ -37,8 +40,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     encoding="utf-8"
 )
+
 # --------------------------------------
-# 🔥 新增：定義生命週期管理器 (Lifespan)
+# 定義生命週期管理器 (Lifespan)
 # 這裡負責在伺服器啟動時開啟排程，關閉時停止排程
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -61,6 +65,12 @@ async def lifespan(_: FastAPI):
 # 配置
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
+
+#  初始化 Limiter (slowapi：相關設定01)
+# key_func 指定用 IP 位址作為限制對象
+limiter = Limiter(key_func=get_remote_address)
+
+
 app = FastAPI(
     title="FastAPI MoneyMMA",
     description="MMA server API-project",
@@ -70,6 +80,17 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None,
     openapi_url="/openapi.json" if DEBUG else None,
 )
+
+# ----------------------------------------------------------------
+# 🔥slowapi：相關設定02
+# ----------------------------------------------------------------
+
+# 將 limiter 掛載到 app 狀態，並註冊報錯處理器
+app.state.limiter = limiter
+# 異常處理區塊: 當使用者點擊太快時，自動回傳 429 Too Many Requests。
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
 
 # ----------------------------------------------------------------
 # 🔥 新增：全域異常處理器 (Global Exception Handlers)
