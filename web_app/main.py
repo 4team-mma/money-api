@@ -5,10 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
-from web_app.routes import root, users, accounts, records, auth,admin,transfers,feedback,analysis
+from web_app.routes import root, users, accounts, records, auth, admin, transfers, feedback, analysis, reminders
+from web_app.routes.setting import router as setting_router
 from web_app.routes.stats import router as stats_router
 from fastapi.responses import RedirectResponse, JSONResponse 
-from web_app.routes import root, users, accounts, records, auth, admin, transfers, feedback, analysis, reminders
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
 from .utils.cpi_crawler import fetch_and_update_cpi
@@ -153,6 +153,7 @@ app.include_router(records.router, prefix="/api/records", tags=["收支紀錄"])
 app.include_router(transfers.router, prefix="/api/transfers", tags=["轉帳紀錄"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["問題回饋"])
 app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事項"])
+app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
 app.include_router(
     admin.router, 
     prefix="/api/admin", 
