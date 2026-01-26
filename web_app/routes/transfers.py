@@ -72,7 +72,8 @@ async def create_transfer(
         transaction_date=data.transaction_date,
         from_account_id=from_acc.account_id, 
         to_account_id=to_acc.account_id,
-        amount=data.amount
+        amount=data.amount,
+        transaction_note=data.transaction_note
     )
     db.add(new_tx)
     db.commit()
@@ -120,7 +121,8 @@ async def update_transfer(
     old_tx.to_account_id = new_to_id
     old_tx.amount = new_amount
     if data.transaction_date: old_tx.transaction_date = data.transaction_date
-    if data.note is not None: old_tx.note = data.note
+    if data.transaction_note is not None: 
+        old_tx.transaction_note = data.transaction_note
 
     db.commit()
     db.refresh(old_tx)
