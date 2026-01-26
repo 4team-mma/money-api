@@ -93,7 +93,7 @@ class Transaction(Base):
     to_account_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("accounts.account_id"), nullable=False
     )
-    
+    transaction_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     # 2. 這是關聯物件，變數名稱絕對不能叫 from_account_id (會跟上面衝突)

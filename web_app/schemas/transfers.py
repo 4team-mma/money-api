@@ -1,6 +1,6 @@
 # 對應前端vue
 # web_app/schemas/transfers.py
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -13,6 +13,10 @@ class TransferCreate(BaseModel):
     to_account_id: int    # 目標帳戶 ID
     from_account_name: Optional[str] = None
     to_account_name: Optional[str] = None
+    transaction_note: str | None = Field(
+        None, 
+        description="轉帳說明", 
+        max_length=200)
     amount: Decimal
     
 
