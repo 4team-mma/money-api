@@ -47,7 +47,7 @@ class Account(Base):
     account_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
     
-    account_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(20), nullable=False)
     account_name: Mapped[str] = mapped_column(String(100), nullable=False)
     currency: Mapped[str] = mapped_column(String(5), default="NT$")
     
