@@ -53,81 +53,82 @@ def find_data_items(obj):
     return None # 改為返回 None 以便外部判斷 if not items
 
 def fetch_and_update_cpi():
+    
     """
     抓取 CPI 指數並存入資料庫，僅保留最近 6 年數據。
     """
     logger.info("--- [CPI 爬蟲啟動: 6 年過濾版] ---")
-    db = SessionLocal()
     current_year = datetime.now().year
     # 💡 嚴格限制：只抓取今年起算前 6 年 (如 2021-2026)
     min_save_year = current_year - 5 
-    
-    try:
-        response = requests.get(CPI_URL, timeout=30, verify=False)
-        response.encoding = 'utf-8'
-        response.raise_for_status() # 💡 2026 規範：若連線失敗直接拋出 Exception
-        
-        data_dict = xmltodict.parse(response.text)
-        items = find_data_items(data_dict)
-
-        if not items:
-            logger.warning("❌ 錯誤：無法在 XML 結構中找到資料節點。")
-            return
-
-        new_count = 0
-        update_count = 0
-        skip_count = 0
-
-        for item in items:
-            category_name = item.get('Item')
-            raw_period = item.get('TIME_PERIOD') 
-            type_val = item.get('TYPE')           
-            value = item.get('Item_VALUE')
-
-            if not value or value == '-' or not category_name: 
-                continue
-
-            # 1. 💡 年份過濾邏輯：只處理 2021 年以後的資料
-            year_part = int(raw_period[:4])
-            if year_part < min_save_year:
-                skip_count += 1
-                continue
-
-            # 2. 💡 格式清理：移除初步統計符號 (如 Ⓟ) 以便與薪資表關聯
-            period_str = re.sub(r'[^0-9M]', '', raw_period) 
-
-            # 3. 💡 Upsert 邏輯 (檢查是否存在)
-            existing = db.query(CpiData).filter(
-                CpiData.category == category_name,
-                CpiData.period == period_str,
-                CpiData.data_type == type_val
-            ).first()
-
-            val_float = float(value)
-
-            if not existing:
-                db.add(CpiData(
-                    category=category_name,
-                    period=period_str,
-                    data_type=type_val,
-                    val=val_float
-                ))
-                new_count += 1
-            else:
-                if float(existing.val) != val_float:
-                    existing.val = val_float
-                    update_count += 1
+    with SessionLocal() as db:
+        try:
+            response = requests.get(CPI_URL, timeout=30, verify=False)
+            response.encoding = 'utf-8'
+            response.raise_for_status() 
+            # 💡 2026 規範：若連線失敗直接拋出 Exception
             
-            # 批次 flush 減少記憶體壓力
-            if (new_count + update_count) % 500 == 0:
-                db.flush()
+            data_dict = xmltodict.parse(response.text)
+            items = find_data_items(data_dict)
 
-        db.commit()
-        logger.info(f"--- [CPI 任務結束] 新增: {new_count} 筆, 更新: {update_count} 筆, 跳過舊資料: {skip_count} 筆 ---")
+            if not items:
+                logger.warning("❌ 錯誤：無法在 XML 結構中找到資料節點。")
+                return
 
-    except Exception as e:
-        db.rollback()
-        # 💡 重要：背景任務不會回傳給前端，必須在此手動紀錄完整 Traceback 到 app.log
-        logger.error(f"❌ CPI 抓取程序崩潰: {str(e)}", exc_info=True)
-    finally:
-        db.close()
+            new_count = 0
+            update_count = 0
+            skip_count = 0
+
+            for item in items:
+                category_name = item.get('Item')
+                raw_period = item.get('TIME_PERIOD') 
+                type_val = item.get('TYPE')           
+                value = item.get('Item_VALUE')
+
+                if not value or value == '-' or not category_name: 
+                    continue
+
+                # 1. 💡 年份過濾邏輯：只處理 2021 年以後的資料
+                year_part = int(raw_period[:4])
+                if year_part < min_save_year:
+                    skip_count += 1
+                    continue
+
+                # 2. 💡 格式清理：移除初步統計符號 (如 Ⓟ) 以便與薪資表關聯
+                period_str = re.sub(r'[^0-9M]', '', raw_period) 
+
+                # 3. 💡 Upsert 邏輯 (檢查是否存在)
+                existing = db.query(CpiData).filter(
+                    CpiData.category == category_name,
+                    CpiData.period == period_str,
+                    CpiData.data_type == type_val
+                ).first()
+
+                val_float = float(value)
+
+                if not existing:
+                    db.add(CpiData(
+                        category=category_name,
+                        period=period_str,
+                        data_type=type_val,
+                        val=val_float
+                    ))
+                    new_count += 1
+                else:
+                    if float(existing.val) != val_float:
+                        existing.val = val_float
+                        update_count += 1
+                
+                # 批次 flush 減少記憶體壓力
+                if (new_count + update_count) % 500 == 0:
+                    db.flush()
+
+            db.commit()
+            logger.info(f"--- [CPI 任務結束] 新增: {new_count} 筆, 更新: {update_count} 筆, 跳過舊資料: {skip_count} 筆 ---")
+
+        except Exception as e:
+            db.rollback()
+            # 背景任務必須自己 Log，因為全域處理器抓不到這裡
+            logger.error(f"❌ CPI 抓取程序崩潰: {str(e)}", exc_info=True)
+            raise e
+        
