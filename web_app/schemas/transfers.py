@@ -19,6 +19,7 @@ class TransferCreate(BaseModel):
         max_length=200)
     amount: Decimal
     
+    
 
 # 回應 (Response):
 # 回應給前端的欄位，看你需要哪些開哪些
@@ -26,6 +27,8 @@ class TransferCreate(BaseModel):
 class TransferResponse(TransferCreate):
     transaction_id: int
     user_id: int
+    from_account_id: int  # ✅ 這裡有定義
+
     # 使用from_attributes=True
     # 因為Pydantic只認字典，物件時會抱錯，使用這個=True是讓他能自動判斷轉換
     # 去讀它的屬性（Attributes）來填充資料
