@@ -1,11 +1,9 @@
 # web_app/routes/stats/trends.py
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import func, case, text
 from datetime import date
 import logging
-
-# 引入你的資料庫組件與模型
 from web_app.database import get_db
 from web_app.models.models import AddRecord, Member
 from web_app.dependencies import get_current_user
@@ -57,3 +55,71 @@ async def get_cash_flow_trend(
         logger.error(f"趨勢 API 錯誤: {str(e)}")
         # 將具體錯誤傳回前端方便除錯
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/net-worth-history")
+def get_net_worth_history(
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    # 取得使用者 ID
+    user_id = current_user.user_id
+        
+    # 1. 取得該使用者的「當前」總資產
+    res_total = db.execute(
+        text("SELECT SUM(current_balance) FROM accounts WHERE user_id = :uid"),
+        {"uid": user_id}
+    ).fetchone()
+    current_total = float(res_total[0]) if res_total and res_total[0] is not None else 0.0
+
+    # 2. 處理月資料
+    query_monthly = text("""
+        SELECT 
+            CONCAT(YEAR(add_date), '-', LPAD(MONTH(add_date), 2, '0')) as month_key,
+            SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
+        FROM adds
+        WHERE user_id = :uid
+        GROUP BY month_key
+        ORDER BY month_key DESC
+    """)
+    monthly_changes = db.execute(query_monthly, {"uid": user_id}).fetchall()
+
+    monthly_results = []
+    running_balance_m = current_total
+    for row in monthly_changes:
+        m_key = row[0]
+        change = float(row[1])
+        monthly_results.append({
+            "id": m_key,
+            "date": f"{m_key}-01",
+            "period": f"{m_key.split('-')[0]}年{m_key.split('-')[1]}月",
+            "net": round(running_balance_m, 2),
+            "diff": round(change, 2)
+        })
+        running_balance_m -= change
+
+    # 3. 處理年資料
+    query_yearly = text("""
+        SELECT 
+            YEAR(add_date) as year_key,
+            SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
+        FROM adds
+        WHERE user_id = :uid
+        GROUP BY year_key
+        ORDER BY year_key DESC
+    """)
+    yearly_changes = db.execute(query_yearly, {"uid": user_id}).fetchall()
+
+    yearly_results = []
+    running_balance_y = current_total
+    for row in yearly_changes:
+        y_key = str(row[0])
+        change = float(row[1])
+        yearly_results.append({
+            "id": y_key,
+            "period": f"{y_key}年",
+            "net": round(running_balance_y, 2),
+            "diff": round(change, 2)
+        })
+        running_balance_y -= change
+
+    return {"monthly": monthly_results, "yearly": yearly_results}
