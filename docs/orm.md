@@ -66,103 +66,99 @@ def get_members(db: Session = Depends(get_db)):
 ```
 
 ```bash
-   try:
-        # 驗證排序欄位
-        allowed_sort_fields = ["ab_id", "birthday"]
-        if sort_by and sort_by not in allowed_sort_fields:
-            raise HTTPException(
-                status_code=400,
-                detail=f"不支援的排序欄位。允許的欄位: {', '.join(allowed_sort_fields)}",
-            )
+# 驗證排序欄位 (這屬於業務邏輯檢查，保留)
+allowed_sort_fields = ["ab_id", "birthday"]
+if sort_by and sort_by not in allowed_sort_fields:
+    raise HTTPException(
+        status_code=400,
+        detail=f"不支援的排序欄位。允許的欄位: {', '.join(allowed_sort_fields)}",
+    )
 
-        # 驗證排序方向
-        sort_order = sort_order.lower()
-        if sort_order not in ["asc", "desc"]:
-            raise HTTPException(
-                status_code=400, detail="排序方向只能是 asc 或 desc"
-            )
+# 驗證排序方向
+sort_order = sort_order.lower()
+if sort_order not in ["asc", "desc"]:
+    raise HTTPException(
+        status_code=400, detail="排序方向只能是 asc 或 desc"
+    )
 
-        # 驗證分頁參數
-        if page < 1:
-            raise HTTPException(status_code=400, detail="頁碼必須大於 0")
-        if page_size < 1 or page_size > 100:
-            raise HTTPException(
-                status_code=400, detail="每頁筆數必須介於 1 到 100 之間"
-            )
+# 驗證分頁參數
+if page < 1:
+    raise HTTPException(status_code=400, detail="頁碼必須大於 0")
+if page_size < 1 or page_size > 100:
+    raise HTTPException(
+        status_code=400, detail="每頁筆數必須介於 1 到 100 之間"
+    )
 
-        # 建立基礎查詢
-        query = db.query(AddressBook)
+# 建立基礎查詢
+query = db.query(AddressBook)
 
-        # 搜尋條件
-        if search:
-            search_pattern = f"%{search}%"
-            query = query.filter(
-                or_(
-                    AddressBook.name.like(search_pattern),
-                    AddressBook.email.like(search_pattern),
-                    AddressBook.mobile.like(search_pattern),
-                    AddressBook.address.like(search_pattern),
-                )
-            )
+# 搜尋條件
+if search:
+    search_pattern = f"%{search}%"
+    query = query.filter(
+        or_(
+            AddressBook.name.like(search_pattern),
+            AddressBook.email.like(search_pattern),
+            AddressBook.mobile.like(search_pattern),
+            AddressBook.address.like(search_pattern),
+        )
+    )
 
-        # 計算總筆數
-        total_rows = query.count()
+# 計算總筆數
+total_rows = query.count()
 
-        # 排序
-        if sort_by:
-            sort_column = getattr(AddressBook, sort_by)
-            if sort_order == "asc":
-                query = query.order_by(sort_column.asc())
-            else:
-                query = query.order_by(sort_column.desc())
-        else:
-            # 預設排序
-            query = query.order_by(AddressBook.ab_id.desc())
+# 排序
+if sort_by:
+    sort_column = getattr(AddressBook, sort_by)
+    if sort_order == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+else:
+    # 預設排序
+    query = query.order_by(AddressBook.ab_id.desc())
 
-        # 分頁
-        offset = (page - 1) * page_size
-        items = query.offset(offset).limit(page_size).all()
+# 分頁
+offset = (page - 1) * page_size
+items = query.offset(offset).limit(page_size).all()
 
-        # 計算總頁數
-        total_pages = ceil(total_rows / page_size)
+# 計算總頁數
+total_pages = ceil(total_rows / page_size)
 
-        # 將 ORM 物件轉換為字典列表
-        data = [
-            {
-                "ab_id": item.ab_id,
-                "name": item.name,
-                "avatar": item.avatar,
-                "email": item.email,
-                "mobile": item.mobile,
-                "birthday": (
-                    item.birthday.isoformat() if item.birthday else None
-                ),
-                "address": item.address,
-                "created_at": item.created_at.isoformat(),
-            }
-            for item in items
-        ]
+# 將 ORM 物件轉換為字典列表
+data = [
+    {
+        "ab_id": item.ab_id,
+        "name": item.name,
+        "avatar": item.avatar,
+        "email": item.email,
+        "mobile": item.mobile,
+        "birthday": (
+            item.birthday.isoformat() if item.birthday else None
+        ),
+        "address": item.address,
+        "created_at": item.created_at.isoformat(),
+    }
+    for item in items
+]
 
-        return {
-            "success": True,
-            "data": data,
-            "pagination": {
-                "page": page,
-                "page_size": page_size,
-                "total_rows": total_rows,
-                "total_pages": total_pages,
-                "has_next": page < total_pages,
-                "has_prev": page > 1,
-            },
-            "filters": {
-                "search": search,
-                "sort_by": sort_by,
-                "sort_order": sort_order,
-            },
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"資料庫錯誤: {str(e)}")
+return {
+    "success": True,
+    "data": data,
+    "pagination": {
+        "page": page,
+        ""page_size": page_size,
+        "total_rows": total_rows,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+    },
+    "filters": {
+        "search": search,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+    },
+}
+
 
 ```

@@ -22,19 +22,16 @@ def verify_recaptcha(token: str) -> bool:
         "secret": RECAPTCHA_SECRET,
         "response": token
     }
+    # 發送 REST 請求到 Google
+    response = requests.post(verify_url, data=payload, timeout=5)
+    response.raise_for_status() 
+    result = response.json()
     
-    try:
-        # 發送 REST 請求到 Google
-        response = requests.post(verify_url, data=payload, timeout=5)
-        result = response.json()
-        
-        # Google 會回傳 success (布林值) 與 score (0.0 ~ 1.0)
-        # score 越高代表越像人類，通常設定 > 0.5 即可通過
-        return result.get("success", False) and result.get("score", 0) > 0.5
-    except Exception as e:
-        logger.error(f"reCAPTCHA 驗證失敗: {str(e)}")
-        return False
-
+    # Google 會回傳 success (布林值) 與 score (0.0 ~ 1.0)
+    # score 越高代表越像人類，通常設定 > 0.5 即可通過
+    # Google 回傳的 success 代表 API 呼叫是否成功，score 才是分數
+    return result.get("success", False) and result.get("score", 0) > 0.5
+    
 
 
 # 從 .env 讀取設定
@@ -73,21 +70,18 @@ def send_otp_email(receiver_email: str, otp_code: str):
     """
     message.attach(MIMEText(body, "html"))
 
-    try:
-        # 3. 連接伺服器並發信
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
-            server.ehlo()    # 主動向伺服器打招呼
-            server.starttls()  # 啟用安全傳輸加密
-            server.ehlo()    # 加密後再次打招呼
-            server.login(SMTP_USER, SMTP_PASSWORD) 
-            server.send_message(message)
-        logger.info(f"✅ 驗證碼已成功寄送至: {receiver_email}")
-        return True
 
-    except (smtplib.SMTPException, OSError) as e:
-        # 4. 這裡紀錄 Log，但將布林值傳回給 API，由 API 決定是否 raise HTTPException
-        logger.error(f"❌ 寄信失敗 (對象: {receiver_email}): {str(e)}", exc_info=True)
-        return False
+    # 3. 連接伺服器並發信
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
+        server.ehlo()    # 主動向伺服器打招呼
+        server.starttls()  # 啟用安全傳輸加密
+        server.ehlo()    # 加密後再次打招呼
+        server.login(SMTP_USER, SMTP_PASSWORD) 
+        server.send_message(message)
+        
+    logger.info(f"✅ 驗證碼已成功寄送至: {receiver_email}")
+
+
     
 
 
