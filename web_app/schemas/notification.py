@@ -30,7 +30,7 @@ class NotificationCreate(BaseModel):
 # 存檔成功後，回傳給前端顯示在清單上的資料。
 class NotificationResponse(BaseModel):
     reminder_id: int
-    user_id: int
+    #user_id: int
     reminder_title: str
     reminder_date_start: date
     reminder_date_end: date
