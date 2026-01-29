@@ -80,7 +80,7 @@ class TransferCreate(BaseModel):
 # 然後會繼承TransferCreate欄位
 class TransferResponse(TransferCreate):
     transaction_id: int
-    user_id: int
+    #user_id: int
     from_account_id: int  # ✅ 這裡有定義
 
     # 使用from_attributes=True

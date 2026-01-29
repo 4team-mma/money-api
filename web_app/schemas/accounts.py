@@ -18,7 +18,7 @@ class AccountCreate(BaseModel):
 # 這是回傳給前端的格式 (包含 ID 等資料庫生成的欄位)
 class AccountResponse(AccountCreate):
     account_id: int
-    user_id: int
+    # user_id: int
     current_balance: Decimal
 
     # Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料

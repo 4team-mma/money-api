@@ -35,7 +35,7 @@ class MemberUpdate(BaseModel):
 
 # --- 回傳給前端用的規格 (不含密碼) ---
 class MemberResponse(BaseModel):
-    user_id: int
+    #user_id: int
     email: str
     username: str
     name: str
@@ -53,7 +53,7 @@ class MemberResponse(BaseModel):
 # 刪除      
 class MemberDeleteResponse(BaseModel):
     message: str
-    user_id: int
+    #user_id: int
 
 # 用於變更密碼的規格
 class MemberPasswordChange(BaseModel):

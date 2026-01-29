@@ -14,7 +14,7 @@ class FeedbackCreate(BaseModel):
 class FeedbackResponse(BaseModel):
 
     feedback_id: int
-    user_id: int
+    #user_id: int
     feedback_name: str
     question_type: str
     use_page: str
