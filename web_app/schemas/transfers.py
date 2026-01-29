@@ -3,8 +3,62 @@
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 
+class AccountInfo(BaseModel):
+    account_id: int
+    account_name: str = Field(..., description="帳戶名")
+    account_icon: Optional[str]  = Field(None, description="帳戶圖示")
+    currency: Optional[str] = Field(None, description="幣別")
+
+# 單筆轉帳紀錄的詳細資料
+class TransferDetail(BaseModel):
+    transaction_id: int
+    transaction_date: date = Field(..., description="日期")
+    from_account_id: int = Field(..., description="來源帳戶id")
+    to_account_id: int = Field(..., description="去向帳戶id")
+    amount: Decimal = Field(..., description="金額")
+    transaction_note: Optional[str] = Field(None, description="備註")
+    
+    # 關聯查詢後的額外欄位
+    from_account: AccountInfo
+    to_account: AccountInfo
+
+    class Config:
+        from_attributes = True # 允許從 ORM 物件轉換
+
+# 月度轉帳列表的回應模型
+class MonthlyTransferResponse(BaseModel):
+    success: bool
+    year: int
+    month: int
+    total_count: int
+    data: List[TransferDetail] = Field(..., description="詳細轉帳紀錄清單")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "year": 2023,
+                "month": 10,
+                "total_count": 1,
+                "total_transfer_amount": 5000.0,
+                "data": [
+                    {
+                        "transaction_id": 101,
+                        "transaction_date": "2023-10-15",
+                        "from_account_id": 1,
+                        "to_account_id": 2,
+                        "amount": 5000.0,
+                        "transaction_note": "薪資轉儲蓄",
+                        "from_account_name": "國泰世華",
+                        "from_account_icon": "🏦",
+                        "from_currency": "NT$",
+                        "to_account_name": "中信儲蓄"
+                    }
+                ]
+            }
+        }
 
 # 請求 (Request): 是 Vue 前端發給 FastAPI 的「申請書」,資料還沒產生,所以不用id
 class TransferCreate(BaseModel):
@@ -42,6 +96,10 @@ class TransferUpdate(BaseModel):
     transaction_date: Optional[date] = None
     from_account_id:Optional[int] = None
     to_account_id:Optional[int] =None
+    transaction_note: str | None = Field(
+        None, 
+        description="轉帳說明", 
+        max_length=200)
     amount:Optional[Decimal]=None
     
     

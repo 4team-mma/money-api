@@ -1,11 +1,11 @@
 # web_app/routes/transfers.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import extract
+from sqlalchemy import select, extract
 from ..database import get_db
 from ..models import Account, Transaction, Member
 from ..dependencies import get_current_user
-from ..schemas.transfers import TransferCreate, TransferResponse, TransferUpdate
+from ..schemas.transfers import TransferCreate, TransferResponse, TransferUpdate, MonthlyTransferResponse
 from typing import List
 
 router = APIRouter()
@@ -46,6 +46,78 @@ async def get_all_transfers(
         final_data.append(data)
     
     return final_data
+
+@router.get(
+    "/calendar/monthly",
+    summary="取得月度轉帳紀錄",
+    response_model=MonthlyTransferResponse,
+    response_description="回傳轉帳統計數據與詳細紀錄清單"
+)
+async def get_monthly_transfers(
+    year: int = Query(..., ge=2000, le=2100, description="年份"),
+    month: int = Query(..., ge=1, le=12, description="月份"),
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    # 1. 為同一張 Account 表建立兩個別名 (Alias)
+    fromAcc = aliased(Account, name="fromAcc")
+    toAcc = aliased(Account, name="toAcc")
+
+    # 2. 建立查詢
+    stmt = (
+        select(
+            Transaction,            # 轉帳紀錄主表
+            fromAcc.account_name.label("from_account_name"),
+            fromAcc.account_icon.label("from_account_icon"),
+            fromAcc.currency.label("from_currency"),
+            toAcc.account_name.label("to_account_name")
+        )
+        .join(fromAcc, Transaction.from_account_id == fromAcc.account_id, isouter=True)
+        .join(toAcc, Transaction.to_account_id == toAcc.account_id, isouter=True)
+        .filter(Transaction.user_id == current_user.user_id)
+        .filter(extract('year', Transaction.transaction_date) == year)
+        .filter(extract('month', Transaction.transaction_date) == month)
+        .order_by(Transaction.transaction_date.desc(), Transaction.transaction_id.desc())
+    )
+
+    results = db.execute(stmt).all()
+
+    # 3. 資料格式化與統計
+    formatted_data = []
+        
+    for row in results:
+        trans = row[0]  # Transaction ORM 物件
+        
+        item = {
+            "transaction_id": trans.transaction_id,
+            "transaction_date": trans.transaction_date,
+            "from_account_id": trans.from_account_id,
+            "to_account_id": trans.to_account_id,
+            "transaction_note": trans.transaction_note,
+            "amount": trans.amount,
+            # 將轉出帳戶資訊打包成物件
+            "from_account": {
+                "account_id": trans.from_account_id,
+                "account_name": row.from_account_name or "未知帳戶",
+                "account_icon": row.from_account_icon,
+                "currency": row.from_currency or "N/A"
+            },
+            
+            # 將轉入帳戶資訊打包成物件
+            "to_account": {
+                "account_id": trans.to_account_id,
+                "account_name": row.to_account_name or "未知帳戶"
+            }
+        }
+        formatted_data.append(item)
+
+    return {
+        "success": True,
+        "year": year,
+        "month": month,
+        "total_count": len(formatted_data),
+        "data": formatted_data
+    }
 
 # 2. 新增 POST
 @router.post("/")
