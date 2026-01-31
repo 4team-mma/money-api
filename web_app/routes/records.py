@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import AddRecord, Account, Member
-from ..schemas.add import AddRecordCreate, AddRecordResponse, AddRecordUpdate, MonthlyRecordResponse
+from ..schemas.add import AddRecordCreate, AddRecordResponse,AddRecordUpdate, MonthlyRecordResponse
 from ..dependencies import get_current_user
 from typing import Optional
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
 from datetime import date
+
 import math #  用於計算總頁數
 
 router = APIRouter()
@@ -66,6 +67,8 @@ async def get_records(
         }
     }
 
+
+
 @router.get(
     "/calendar/monthly",
     summary="取得月度收支清單",
@@ -100,7 +103,8 @@ async def get_monthly_records(
     # 使用 SQLAlchemy ORM 與資料庫溝通
     # 1. 建立基礎查詢與 LEFT JOIN
     stmt = (
-        select(AddRecord, Account.account_name, Account.currency, )
+        select(AddRecord, Account.account_name, Account.currency,AddRecord.created_at,
+    AddRecord.updated_at )
         .join(
             Account, 
             and_(
