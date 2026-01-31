@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator,ConfigDict
 
 # --- 註冊頁面用的規格 ---
 class MemberRegister(BaseModel):
@@ -46,9 +46,8 @@ class MemberResponse(BaseModel):
     points: int = 0
     created_at: Optional[datetime] = None
     
-
-    class Config:
-        from_attributes = True
+    #Pydantic v2 建議統一使用
+    model_config = ConfigDict(from_attributes=True)
         
 # 刪除      
 class MemberDeleteResponse(BaseModel):
