@@ -1,7 +1,7 @@
 # 對應前端vue
 # web_app/schemas/transfers.py
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import date
+from datetime import date,datetime
 from decimal import Decimal
 from typing import Optional, List
 
@@ -23,9 +23,12 @@ class TransferDetail(BaseModel):
     # 關聯查詢後的額外欄位
     from_account: AccountInfo
     to_account: AccountInfo
-
-    class Config:
-        from_attributes = True # 允許從 ORM 物件轉換
+    
+    # 💡 這裡改成 Optional 且預設為 None
+    created_at: Optional[datetime] = Field(None, description="建立時間")
+    updated_at: Optional[datetime] = Field(None, description="更新時間")
+    # Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
+    model_config = ConfigDict(from_attributes=True)
 
 # 月度轉帳列表的回應模型
 class MonthlyTransferResponse(BaseModel):
@@ -35,7 +38,9 @@ class MonthlyTransferResponse(BaseModel):
     total_count: int
     data: List[TransferDetail] = Field(..., description="詳細轉帳紀錄清單")
 
-    class Config:
+    
+    model_config = ConfigDict(
+        from_attributes=True,
         json_schema_extra = {
             "example": {
                 "success": True,
@@ -58,7 +63,7 @@ class MonthlyTransferResponse(BaseModel):
                     }
                 ]
             }
-        }
+        })
 
 # 請求 (Request): 是 Vue 前端發給 FastAPI 的「申請書」,資料還沒產生,所以不用id
 class TransferCreate(BaseModel):
@@ -80,6 +85,8 @@ class TransferCreate(BaseModel):
 # 然後會繼承TransferCreate欄位
 class TransferResponse(TransferCreate):
     transaction_id: int
+    created_at: datetime # 新增
+    updated_at: datetime # 新增
     #user_id: int
     from_account_id: int  # ✅ 這裡有定義
 

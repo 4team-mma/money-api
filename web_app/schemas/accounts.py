@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 from typing import Optional
+from datetime import datetime
 
 # 這是接收前端傳來資料的格式
 class AccountCreate(BaseModel):
@@ -20,6 +21,8 @@ class AccountResponse(AccountCreate):
     account_id: int
     # user_id: int
     current_balance: Decimal
+    created_at: datetime # 新增
+    updated_at: datetime # 新增
 
     # Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
     model_config = ConfigDict(from_attributes=True)
