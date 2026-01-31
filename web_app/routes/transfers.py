@@ -13,8 +13,8 @@ router = APIRouter()
 # 1. 查詢 GET
 @router.get("/", response_model=List[TransferResponse])
 async def get_all_transfers(
-    year: int = None, 
-    month: int = None, 
+    year: int | None = None,
+    month: int | None = None,
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
