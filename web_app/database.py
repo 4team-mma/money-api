@@ -13,7 +13,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 
 if not DATABASE_URL:
-    raise ValueError("❌ 錯誤：找不到環境變數 DATABASE_URL！請檢查 .env 檔案是否存在且內容正確。")
+    raise ValueError(
+        "❌ 錯誤：找不到環境變數 DATABASE_URL！請檢查 .env 檔案是否存在且內容正確。"
+    )
 
 # 建立 SQLAlchemy 引擎
 engine = create_engine(
