@@ -28,7 +28,8 @@ jobs:
 
     - name: 4. 程式碼排版檢查 (Black)
       # 確保每個人寫的 Code 縮排和空格都長得一樣，才不會在 Git 產生沒意義的差異
-      run: black --check .
+      # 加上 python -m 確保能正確呼叫安裝好的 black
+      run: python -m black --check .
 
     - name: 5. 程式碼品質掃描 (Ruff)
       # 自動抓出潛在的 Bug 或不規範的寫法 (例如你提到的 E712)
