@@ -8,7 +8,9 @@
 [專案結構說明](docs/architecture.md) |
 [執行流程](docs/dependencies.md) |
 [ORM](docs/orm.md) |
-[Pydanic](docs/pydanic.md) 
+[Pydanic](docs/pydanic.md) |
+[API撰寫說明文檔](docs/api_guide.md) 
+
 
 
 ## 專案介紹
