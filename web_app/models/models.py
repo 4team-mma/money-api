@@ -43,7 +43,7 @@ class Member(Base):
 # 2. 帳戶管理 (育育同學)
 class Account(Base):
     __tablename__ = "accounts"
-
+    
     account_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
     
@@ -75,7 +75,8 @@ class AddRecord(Base):
     add_class: Mapped[str] = mapped_column(String(20), nullable=False,index=True)
     add_class_icon: Mapped[str] = mapped_column(String(20), nullable=False)
     
-    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.account_id"), nullable=False)
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.account_id"), nullable=False, index=True)
+
     add_member: Mapped[str] = mapped_column(String(10), nullable=False)
     
     add_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -94,10 +95,10 @@ class Transaction(Base):
     
     # 1. 這是外鍵欄位，指向小寫的資料表 'accounts'
     from_account_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.account_id"), nullable=False
+        Integer, ForeignKey("accounts.account_id"), nullable=False, index=True
     )
     to_account_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.account_id"), nullable=False
+        Integer, ForeignKey("accounts.account_id"), nullable=False, index=True
     )
     transaction_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
