@@ -8,3 +8,7 @@ updates:
     schedule:
       interval: "weekly"
     # 建議先針對主要的 dependencies 進行監控
+    groups:
+      python-dependencies:
+        patterns:
+          - "*" # 將所有 Python 套件更新合併成一個 PR
