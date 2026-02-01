@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel,ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -21,6 +21,4 @@ class FeedbackResponse(BaseModel):
     content: str
     created_at: datetime
 
-class Config:
-
-    from_attributes = True # 允許從 SQLAlchemy 物件直接轉換
+model_config = ConfigDict(from_attributes=True)

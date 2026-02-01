@@ -88,8 +88,13 @@ app = FastAPI(
 # 將 limiter 掛載到 app 狀態，並註冊報錯處理器
 app.state.limiter = limiter
 # 異常處理區塊: 當使用者點擊太快時，自動回傳 429 Too Many Requests。
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+# 修改原因:Pylance跳出紅線警告
+# 這個報錯是因為 FastAPI 的 add_exception_handler 預設預期處理函數的第二個參數要是通用的 Exception，但 slowapi 的內建處理器限定了必須是 RateLimitExceeded。
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return _rate_limit_exceeded_handler(request, exc)
 
 
 # ----------------------------------------------------------------

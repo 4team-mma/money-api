@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
-from datetime import date, timedelta
+from datetime import date, timedelta,datetime
 from typing import Optional
 
 class RepeatCycle(str, Enum):
@@ -39,6 +39,8 @@ class NotificationResponse(BaseModel):
     raw_reminder_time: timedelta = Field(..., exclude=True, validation_alias="reminder_time")
     repeat_cycle: str
     description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
     

@@ -56,6 +56,9 @@ class Account(Base):
     
     exclude_from_assets: Mapped[bool] = mapped_column(Boolean, default=False)
     account_icon: Mapped[Optional[str]] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    
 
 # 3. 收支紀錄 (白)
 class AddRecord(Base):
@@ -77,6 +80,9 @@ class AddRecord(Base):
     
     add_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     add_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
 # 4. 轉帳紀錄 (白)
 class Transaction(Base):
@@ -95,6 +101,10 @@ class Transaction(Base):
     )
     transaction_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    
 
     # 2. 這是關聯物件，變數名稱絕對不能叫 from_account_id (會跟上面衝突)
     # 第一個參數要指向類別名 "Account" (大寫)
@@ -116,7 +126,9 @@ class Notification(Base):
     reminder_time: Mapped[timedelta] = mapped_column(String(10), default="10:00:00")
     repeat_cycle: Mapped[Optional[str]] = mapped_column(String(20))
     description: Mapped[Optional[str]] = mapped_column(String(200))
-
+    # 補上時間戳記
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 # 7. 忘記密碼表格 (白)
 class PasswordReset(Base):
     __tablename__ = "password_resets"
@@ -130,6 +142,9 @@ class PasswordReset(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    
+
+    
     
 # 8. 回饋表格 (育育)
 class Feedback(Base):

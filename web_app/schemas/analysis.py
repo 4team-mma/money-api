@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from decimal import Decimal
 from typing import List, Optional
 from datetime import datetime
@@ -16,5 +16,5 @@ class SalaryBenchmarkResponse(BaseModel):
     created_at: datetime = Field(..., description="建立時間")
     updated_at: datetime = Field(..., description="最後更新時間")
 
-    class Config:
-        from_attributes = True  # 允許從 SQLAlchemy 物件直接轉換
+
+    model_config = ConfigDict(from_attributes=True)

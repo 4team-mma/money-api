@@ -1,7 +1,8 @@
 from pydantic import BaseModel, Field, ConfigDict # ConfigDict是將資料庫物件轉成Json
-from datetime import date
+from datetime import date,datetime
 from decimal import Decimal # 處理收支紀錄運算
 from typing import Optional, List
+
 
 # 單筆收支紀錄的詳細資料
 class RecordDetail(BaseModel):
@@ -17,21 +18,13 @@ class RecordDetail(BaseModel):
     add_note: str | None = Field(None, description="備註")
     currency: str = Field(..., description="幣別")
     account_name: str = Field(..., description="帳戶名")
+    # 💡 這裡改成 Optional 且預設為 None
+    created_at: Optional[datetime] = Field(None, description="建立時間")
+    updated_at: Optional[datetime] = Field(None, description="更新時間")
 
-    class Config:
-        # 允許從 SQLAlchemy ORM 物件直接轉換
-        from_attributes = True 
-
-# 月度匯總回應模型
-class MonthlyRecordResponse(BaseModel):
-    success: bool = True
-    year: int
-    month: int
-    total_count: int = Field(..., description="該月紀錄總筆數")
-    monthly_income: float = Field(..., description="該月總收入")
-    monthly_expenses: float = Field(..., description="該月總支出")
-    monthly_balance: float = Field(..., description="該月結餘")
-    data: List[RecordDetail] = Field(..., description="詳細收支紀錄清單")
+    
+    # Pydantic v2 SQLAlchemy ORM 物件直接轉換
+    model_config = ConfigDict(from_attributes=True)
 
 # 前端點擊「儲存」時傳給後端的資料。不包含 id跟userid
 class AddRecordCreate(BaseModel):
@@ -46,10 +39,28 @@ class AddRecordCreate(BaseModel):
     add_note: Optional[str] = None
 
 # 存檔成功後，回傳給前端顯示在清單上的資料。
+# Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
+    model_config = ConfigDict(from_attributes=True)
+
 class AddRecordResponse(AddRecordCreate):
     add_id: int
-    #user_id: int
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+
+# 月度匯總回應模型
+class MonthlyRecordResponse(BaseModel):
+    success: bool = True
+    year: int
+    month: int
+    total_count: int = Field(..., description="該月紀錄總筆數")
+    monthly_income: float = Field(..., description="該月總收入")
+    monthly_expenses: float = Field(..., description="該月總支出")
+    monthly_balance: float = Field(..., description="該月結餘")
+    data: List[RecordDetail] = Field(..., description="詳細收支紀錄清單")
+
 
 # 修改
 class AddRecordUpdate(BaseModel):
