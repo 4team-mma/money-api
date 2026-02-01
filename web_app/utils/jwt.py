@@ -1,15 +1,13 @@
 """
 JWT 工具函式
 """
-
 import os
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
-from jose import JWTError, jwt
+from jose import JWTError, jwt, ExpiredSignatureError
 
 
 load_dotenv()
@@ -86,12 +84,12 @@ def verify_token(token: str) -> dict:
             )
         return payload
 
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         # 🌟 明確拋出「過期」訊息，讓前端 Vue 攔截器決定是否執行 Refresh Token 流程
         logger.info("使用者憑證已過期")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="TOKEN_EXPIRED",  # 使用特定字串方便前端判斷
+            detail="登入時間過長，已自動退出",  # 使用特定字串方便前端判斷
             headers={"WWW-Authenticate": "Bearer"},
         )
     except JWTError as e:
