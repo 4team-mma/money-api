@@ -1,22 +1,24 @@
-from fastapi import APIRouter, Request
-import logging  # 1. 匯入日誌模組
 import os
-# 2. 取得這份檔案專用的紀錄器
-logger = logging.getLogger("root")
-
+from datetime import datetime
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
+import logging as logger
 router = APIRouter()
 
-@router.get("/")
+@router.get("/") 
 async def root(request: Request):
-    client_host = request.client.host  # 取得訪問者 IP
-    logger.info(f'來自{client_host}訪客,訪問了首頁')  # 3. 紀錄動作
-    return {"hello": "Hello! Welcome to MMA web",
-            "key": os.getenv('SECRET_KEY','沒有設定'),
-            "path":os.getenv('PATH','沒有設定') 
-            # 作業系統本身的環境變數
-            }
+    """
+    API 系統狀態檢查
+    """
+    # 取得真實 IP (若有經過 Nginx/Cloudflare 需改用 X-Forwarded-For，這裡先用簡易版)
+    client_host = request.client.host if request.client else "unknown"
+    logger.info(f"訪客 {client_host} 訪問了系統首頁")
 
-@router.get("/loot")
-async def get_loot():
-    # logger.info("訪問了 loot 頁面")
-    return {"item":"我是loot"}
+    return {
+        "app_name": "FastAPI MoneyMMA",  # 專案名稱
+        "version": "1.0.0",              # 版本號 (跟 Swagger 上的一致)
+        "status": "online",              # 系統狀態
+        "server_time": datetime.now().isoformat(), # 伺服器時間 (方便除錯時區問題)
+        "support": "如有疑問，請至網站問題回饋留言" # 聯絡方式 (選填)
+    }
+    

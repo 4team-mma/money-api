@@ -23,18 +23,16 @@ import os
 
 
 router = APIRouter()
-
 # ==================== 守門員與權限 ====================
 # 此部分在dependencies的admin_required
-
-
-
 
 # =======IP 限制、reCAPTCHA、每日上限與非同步寄信功能============
 # 1. 初始化 IP 限制器 (每分鐘同一個 IP 只能請求 5 次)
 limiter = Limiter(key_func=get_remote_address)
 
-@router.post("/auth/forgot-password/send-otp")
+
+# ==================== 忘記密碼邏輯 ====================
+@router.post("/auth/forgot-password/send-otp"  , summary="🔑 OPT驗證碼發送")
 @limiter.limit("5/minute") # 第一層：IP 限制 (slowapi)
 async def request_password_reset_otp(
     # pylint: disable=unused-argument
@@ -43,6 +41,19 @@ async def request_password_reset_otp(
     background_tasks: BackgroundTasks, # 異步寄信專用
     db: Session = Depends(get_db)
 ):
+    """
+    發送 6 位數驗證碼，用於忘記密碼。具備多重資安防護機制。
+    
+    - **防護機制**:
+        1. **IP 限制**: 同 IP 每分鐘限 5 次。
+        2. **reCAPTCHA**: 必須通過 Google 機器人驗證。
+        3. **每日上限**: 同一 Email 每天只能發送 5 次。
+        4. **冷卻時間**: 每次發送需間隔 60 秒。
+    
+    - **資安注意**: 
+        - 無論 Email 是否存在，系統都會回傳「驗證碼已寄出」的成功訊息，以防止駭客掃描帳號。
+        - 實際寄信為**背景執行** (Background Task)，API 回應速度快。
+    """
     # --- 第二層：Google reCAPTCHA 驗證 ---
     # 假設你的 SendOTPRequest 有包含 recaptcha_token 欄位
     if not verify_recaptcha(data.recaptcha_token):
@@ -92,8 +103,20 @@ async def request_password_reset_otp(
 # ==========================================================
 
 # ==================== 註冊與登入 ====================
-@router.post("/auth/register")
+@router.post("/auth/register" , summary="🙂 會員註冊")
 async def register(data: MemberRegister, db: Session = Depends(get_db)):
+    """
+    建立新會員帳號，並同時初始化個人的資產帳戶。
+    
+    - **流程**:
+        1. 檢查 Username 與 Email 是否重複 (回傳 400)。
+        2. 建立會員資料 (密碼加密)。
+        3. **自動建立帳戶**: 系統會自動為新用戶建立「我的錢包(現金)」與「預設銀行」兩個帳戶。
+    
+    - **錯誤處理**:
+        - 若帳號重複，會回傳模糊的錯誤訊息「帳號或電子郵件已被使用」以防止列舉攻擊。
+    """
+    
     #  資安優化：同時檢查 Email 與 Username，並使用統一的錯誤訊息防止列舉攻擊
     user_exists = db.query(Member).filter(Member.username == data.username).first()
     email_exists = db.query(Member).filter(Member.email == data.email).first()
@@ -104,9 +127,7 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail="帳號或電子郵件已被使用，請嘗試其他名稱"
         )
-    
-    
-
+        
     # 建立新會員 (記得加密密碼)
     new_user = Member(
         username=data.username,
@@ -149,9 +170,17 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
     
     return {"msg": "註冊成功"}
 
-@router.post("/auth/login")
+@router.post("/auth/login" , summary="🔐 會員登入")
 async def login(data: MemberLogin, db: Session = Depends(get_db)):
-    # 🌟 1. 先從資料庫找人
+    """
+    一般會員登入接口。
+    
+    - **輸入**: `identifier` 欄位可接受 **Username** 或 **Email**。
+    - **回傳**: JWT Access Token 與部分使用者資訊。
+    - **錯誤**: 帳號或密碼錯誤統一回傳 401，不透露具體錯誤原因。
+    """
+    
+    #  1. 先從資料庫找人
     user = db.query(Member).filter(
         (Member.username == data.identifier) | (Member.email == data.identifier)
     ).first()
@@ -182,8 +211,19 @@ class GoogleAuthRequest(BaseModel):
 # key寫在.env
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
-@router.post("/auth/google")
+@router.post("/auth/google" , summary="📍Google 第三方登入/註冊")
 async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
+    """
+    接收前端 Google SDK 的 `id_token` 進行驗證。
+    
+    - **智慧流程**:
+        - **登入**: 若 Email 已存在，直接登入並回傳 Token。
+        - **註冊**: 若 Email 不存在，系統將自動：
+            1. 建立新會員 (隨機密碼)。
+            2. 建立預設現金與銀行帳戶。
+            3. 直接登入並回傳 Token。
+    """
+    
     # 1. 驗證 Google Token (保持 ValueError 捕獲，因為這是特定的業務錯誤)
     try:
         id_info = id_token.verify_oauth2_token(
@@ -267,46 +307,55 @@ async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
 
 # ==================== 忘記密碼邏輯 ====================
 
-@router.post("/auth/forgot-password/send-otp")
-async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
-    user = db.query(Member).filter(Member.email == data.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="此信箱尚未註冊為會員")
+# @router.post("/auth/forgot-password/send-otp")
+# async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
+#     user = db.query(Member).filter(Member.email == data.email).first()
+#     if not user:
+#         raise HTTPException(status_code=404, detail="此信箱尚未註冊為會員")
 
-    # 新增：60 秒發信冷卻時間邏輯
-    last_otp = db.query(PasswordReset).filter(
-        PasswordReset.email == data.email
-    ).order_by(desc(PasswordReset.created_at)).first()
+#     # 新增：60 秒發信冷卻時間邏輯
+#     last_otp = db.query(PasswordReset).filter(
+#         PasswordReset.email == data.email
+#     ).order_by(desc(PasswordReset.created_at)).first()
 
-    if last_otp:
-        # 計算距離上一次發信過了幾秒
-        time_diff = (datetime.now() - last_otp.created_at).total_seconds()
-        if time_diff < 60:
-            raise HTTPException(
-                status_code=429, 
-                detail=f"請求過於頻繁，請於 {int(60 - time_diff)} 秒後再試"
-            )
+#     if last_otp:
+#         # 計算距離上一次發信過了幾秒
+#         time_diff = (datetime.now() - last_otp.created_at).total_seconds()
+#         if time_diff < 60:
+#             raise HTTPException(
+#                 status_code=429, 
+#                 detail=f"請求過於頻繁，請於 {int(60 - time_diff)} 秒後再試"
+#             )
 
-    otp = generate_otp()
-    expiry = datetime.now() + timedelta(minutes=5)
+#     otp = generate_otp()
+#     expiry = datetime.now() + timedelta(minutes=5)
 
-    new_reset_entry = PasswordReset(
-        user_id=user.user_id,
-        email=user.email,
-        otp_code=otp,
-        expires_at=expiry
-    )
-    db.add(new_reset_entry)
-    db.commit()
+#     new_reset_entry = PasswordReset(
+#         user_id=user.user_id,
+#         email=user.email,
+#         otp_code=otp,
+#         expires_at=expiry
+#     )
+#     db.add(new_reset_entry)
+#     db.commit()
 
-    email_success = send_otp_email(user.email, otp)
-    if not email_success:
-        raise HTTPException(status_code=500, detail="驗證信發送失敗，請稍後再試或聯繫客服")
+#     email_success = send_otp_email(user.email, otp)
+#     if not email_success:
+#         raise HTTPException(status_code=500, detail="驗證信發送失敗，請稍後再試或聯繫客服")
 
-    return {"msg": "驗證碼已寄出，請檢查您的信箱"}
+#     return {"msg": "驗證碼已寄出，請檢查您的信箱"}
 
-@router.post("/auth/forgot-password/verify-otp")
+@router.post("/auth/forgot-password/verify-otp" , summary="✅ 驗證 OTP 代碼")
 async def verify_otp(data: VerifyOTPRequest, db: Session = Depends(get_db)):
+    """
+    檢查使用者輸入的驗證碼是否有效。
+    
+    - **驗證條件**:
+        - Email 與 OTP 必須匹配。
+        - **時效性**: 必須在 5 分鐘內。
+        - **一次性**: 該 OTP 必須標記為 `is_used=False` (未被使用過)。
+    """    
+
     # 🌟 修正 Ruff E712：使用 .is_(False) 替代 == False
     record = db.query(PasswordReset).filter(
         PasswordReset.email == data.email,
@@ -320,8 +369,17 @@ async def verify_otp(data: VerifyOTPRequest, db: Session = Depends(get_db)):
     
     return {"msg": "驗證通過，請重新設定新密碼"}
 
-@router.post("/auth/forgot-password/reset")
+@router.post("/auth/forgot-password/reset" , summary="🔑 重設新密碼")
 async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    設定新的登入密碼。
+    
+    - **前置條件**: 必須先通過 OTP 驗證。
+    - **行為**: 
+        1. 更新密碼 (Hash 加密)。
+        2. 將該次 OTP 標記為 `is_used=True`，使其失效。
+    """
+    
     # 🌟 修正 Ruff E712：使用 .is_(False) 替代 == False
     record = db.query(PasswordReset).filter(
         PasswordReset.email == data.email,
@@ -342,11 +400,15 @@ async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_d
     db.commit()
     return {"msg": "密碼已成功修改！"}
 
-@router.post("/auth/token")
+@router.post("/auth/token", summary="🔓 Swagger UI 專用登入", include_in_schema=False)
 async def login_for_swagger(
     form_data: OAuth2PasswordRequestForm = Depends(), 
     db: Session = Depends(get_db)
-):
+                            ):
+    """
+    (此 API 僅供 Swagger 右上角 'Authorize' 按鈕使用，前端請勿串接此接口)
+    """
+    
     user = db.query(Member).filter(
         (Member.username == form_data.username) | (Member.email == form_data.username)
     ).first()
