@@ -1,0 +1,10 @@
+# 依賴項安全性檢查:自動偵測並提醒你們升級有漏洞的套件。
+version: 2
+updates:
+
+  # 後端 FastAPI (uv / pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # 建議先針對主要的 dependencies 進行監控
