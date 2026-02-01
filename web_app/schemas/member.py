@@ -4,10 +4,10 @@ from pydantic import BaseModel, EmailStr, Field, field_validator,ConfigDict
 
 # --- 註冊頁面用的規格 ---
 class MemberRegister(BaseModel):
-    username: str = Field(min_length=1, max_length=50, description="帳號")
-    name: str = Field(min_length=1, max_length=50, description="顯示暱稱")
-    email: EmailStr = Field(description="電子郵件")
-    password: str = Field(min_length=3, max_length=50,description="密碼，至少 3 字元,最多50字元")
+    username: str = Field(min_length=1, max_length=50, description="帳號",json_schema_extra={"example":"user"})
+    name: str = Field(min_length=1, max_length=50, description="顯示暱稱",json_schema_extra={"example":"天黑請閉眼"})
+    email: EmailStr = Field(description="電子郵件" , json_schema_extra={"example":"example@gmail.com"})
+    password: str = Field(min_length=3, max_length=50,description="密碼，至少 3 字元,最多50字元",json_schema_extra={"example":"12345678"})
     confirm_password: str = Field(description="確認密碼")
 
     # 💡 驗證：兩次密碼必須一樣
@@ -20,9 +20,13 @@ class MemberRegister(BaseModel):
 
 # --- 登入頁面用的規格 ---
 class MemberLogin(BaseModel):
-    identifier: str = Field(description="電子郵件或帳號")
-    password: str = Field(description="密碼")
-    remember_me: bool = Field(default=False)
+    identifier: str = Field(description="電子郵件或帳號",
+                            json_schema_extra={"example": "user@example.com"}
+                            )
+    password: str = Field(description="密碼",
+                            json_schema_extra={"example": "mypassword123"})
+    remember_me: bool = Field(default=False,description="是否",
+                            json_schema_extra={"example":"False"})
     
     
     
@@ -56,5 +60,5 @@ class MemberDeleteResponse(BaseModel):
 
 # 用於變更密碼的規格
 class MemberPasswordChange(BaseModel):
-    current_password: str = Field(description="目前密碼")
+    current_password: str = Field(description="目前密碼",json_schema_extra={"example":"12345678"})
     new_password: str = Field(min_length=3, max_length=50, description="新密碼")
