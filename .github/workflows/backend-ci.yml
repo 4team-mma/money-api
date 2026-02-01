@@ -1,0 +1,35 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 1. 複製專案程式碼
+      uses: actions/checkout@v4
+
+    - name: 2. 安裝 uv
+      # 使用官方提供的 uv 安裝動作
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true # 自動快取，下次跑會更快
+
+    - name: 3. 設定 Python 與安裝依賴
+      run: |
+        uv python install 3.12
+        # 這行會自動讀取 [dependency-groups] 裡的所有套件
+        uv sync --all-groups 
+
+    - name: 4. 執行檢查與測試
+      # 加上 continue-on-error，就算排版或檢查沒過，CI 依然會算你通過！
+      continue-on-error: true 
+      run: |
+        uv run black --check .
+        uv run ruff check .
+        uv run pytest

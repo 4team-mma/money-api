@@ -1,6 +1,7 @@
 """
 JWT 工具函式
 """
+
 import os
 import logging
 from datetime import datetime, timedelta, timezone
@@ -18,15 +19,11 @@ logger = logging.getLogger(__name__)
 # JWT 設定
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-keep-it-secret")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(
-    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
-)
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 
-def create_access_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     建立 Access Token
 
@@ -40,12 +37,15 @@ def create_access_token(
     to_encode = data.copy()
 
     # 設定過期時間
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire, "type": "access"}) # 🌟 標記類型
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update({"exp": expire, "type": "access"})  # 🌟 標記類型
     # 編碼 JWT
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     return encoded_jwt
+
 
 def create_refresh_token(data: dict) -> str:
     """
@@ -58,12 +58,11 @@ def create_refresh_token(data: dict) -> str:
         JWT Refresh Token 字串
     """
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(
-        days=REFRESH_TOKEN_EXPIRE_DAYS
-    )
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})  # 標記為 refresh token
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 def verify_token(token: str) -> dict:
     """
@@ -73,7 +72,7 @@ def verify_token(token: str) -> dict:
     try:
         # 解碼 JWT
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        
+
         # 1. 檢查必要欄位
         if not payload.get("sub"):
             logger.warning("Token 解析成功但缺少 'sub' 欄位")
@@ -102,9 +101,15 @@ def verify_token(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+
 def decode_token(token: str) -> Optional[dict]:
     """解碼 Token（不驗證，僅用於後端內部快速讀取）"""
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_signature": False})
+        return jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options={"verify_signature": False},
+        )
     except JWTError:
         return None

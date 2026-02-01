@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from .expenses import router as expenses_router
-from .income import router as income_router 
-from .trends import router as trends_router 
+from .income import router as income_router
+from .trends import router as trends_router
 
 router = APIRouter()
 

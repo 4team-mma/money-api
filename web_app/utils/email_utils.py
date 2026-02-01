@@ -11,40 +11,39 @@ import requests
 load_dotenv()
 
 
-# 
+#
 RECAPTCHA_SECRET = os.getenv("RECAPTCHA_SECRET_KEY")
+
+
 def verify_recaptcha(token: str) -> bool:
     """
     使用 REST API 方式驗證 Google reCAPTCHA
     """
     verify_url = "https://www.google.com/recaptcha/api/siteverify"
-    payload = {
-        "secret": RECAPTCHA_SECRET,
-        "response": token
-    }
+    payload = {"secret": RECAPTCHA_SECRET, "response": token}
     # 發送 REST 請求到 Google
     response = requests.post(verify_url, data=payload, timeout=5)
-    response.raise_for_status() 
+    response.raise_for_status()
     result = response.json()
-    
+
     # Google 會回傳 success (布林值) 與 score (0.0 ~ 1.0)
     # score 越高代表越像人類，通常設定 > 0.5 即可通過
     # Google 回傳的 success 代表 API 呼叫是否成功，score 才是分數
     return result.get("success", False) and result.get("score", 0) > 0.5
-    
 
 
 # 從 .env 讀取設定
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USER = os.getenv("SMTP_USER")      # 你的 Gmail 帳號
+SMTP_USER = os.getenv("SMTP_USER")  # 你的 Gmail 帳號
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")  # 你的 Gmail 應用程式密碼
 
 logger = logging.getLogger(__name__)
 
+
 def send_otp_email(receiver_email: str, otp_code: str):
     """實作寄送驗證碼郵件"""
-    
+
     # 1. 環境變數檢查 (改用 logger)
     if not SMTP_USER or not SMTP_PASSWORD:
         logger.error("SMTP 設定缺失：未設定 SMTP_USER 或 SMTP_PASSWORD")
@@ -70,20 +69,12 @@ def send_otp_email(receiver_email: str, otp_code: str):
     """
     message.attach(MIMEText(body, "html"))
 
-
     # 3. 連接伺服器並發信
     with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
-        server.ehlo()    # 主動向伺服器打招呼
+        server.ehlo()  # 主動向伺服器打招呼
         server.starttls()  # 啟用安全傳輸加密
-        server.ehlo()    # 加密後再次打招呼
-        server.login(SMTP_USER, SMTP_PASSWORD) 
+        server.ehlo()  # 加密後再次打招呼
+        server.login(SMTP_USER, SMTP_PASSWORD)
         server.send_message(message)
-        
+
     logger.info(f"✅ 驗證碼已成功寄送至: {receiver_email}")
-
-
-    
-
-
-
-
