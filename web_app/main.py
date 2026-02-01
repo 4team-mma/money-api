@@ -71,9 +71,25 @@ DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 limiter = Limiter(key_func=get_remote_address)
 
 
+# 貓貓
+cat_logo = r"""
+```text
+    /\_____/\
+   /  o   o  \  喵
+  ( ==  ^  == )  喵
+   )         (    1
+  (           )	  號
+ ( (  )   (  ) )
+(__(__)___(__)__)
+                                Welcome to MoneyMMA API!
+                                            Meow~ 
+    
+"""
+
+
 app = FastAPI(
     title="FastAPI MoneyMMA",
-    description="MMA server API-project",
+    description=f'這是 MoneyMMA 的後端 API 文件。 \n \n{cat_logo}',
     version="1.0.0",
     lifespan=lifespan,  # <--- 加上這一行，排程才會動！
     docs_url="/docs" if DEBUG else None,
@@ -147,7 +163,7 @@ app.add_middleware(
 
 # --- 路由註冊 (Routers) ---
 # 基礎路由
-app.include_router(root.router)
+app.include_router(root.router,tags=["根目錄顯示"])
 
 # 
 # 分支_使用 prefix 
@@ -167,11 +183,11 @@ app.include_router(
 )
 app.include_router(analysis.router,prefix="/api/analysis",tags=["消費趨勢分析"])
 app.include_router(stats_router,prefix="/api/stats",tags=["圖表分析"])
-@app.get("/favicon.ico")
+@app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():
     return RedirectResponse("/static/favicon.ico")
 
-@app.get("/jinja")
+@app.get("/jinja" ,tags=["jinja 後端頁面呈現檢測用"])
 def jinja(request:Request):
     return templates.TemplateResponse(request=request,name="test.jinja",context={"第一組":"money"})
 
