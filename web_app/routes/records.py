@@ -7,7 +7,7 @@ from ..dependencies import get_current_user
 from typing import Optional
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
-from datetime import date
+from datetime import date, timedelta
 
 import math #  用於計算總頁數
 
@@ -170,34 +170,46 @@ async def get_monthly_records(
         "data": formatted_data
     }
 
-# 2. 本月收支統計 API
 @router.get("/stats/monthly")
 async def get_monthly_stats(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     today = date.today()
-    first_day = today.replace(day=1)
+    # 本月第一天
+    this_month_first = today.replace(day=1)
+    
+    # --- 獲取上個月日期範圍 ---
+    # 邏輯：本月第一天減去 1 天就是上個月最後一天
+    last_month_end = this_month_first - timedelta(days=1)
+    last_month_first = last_month_end.replace(day=1)
 
-    expense = db.query(func.sum(AddRecord.add_amount))\
-        .filter(
-            AddRecord.user_id == current_user.user_id,
-            AddRecord.add_type == False,
-            AddRecord.add_date >= first_day
-        ).scalar() or Decimal("0")
+    # 1. 查詢本月資料 (你原有的邏輯)
+    this_expense = db.query(func.sum(AddRecord.add_amount))\
+        .filter(AddRecord.user_id == current_user.user_id, AddRecord.add_type == False, AddRecord.add_date >= this_month_first).scalar() or Decimal("0")
+    this_income = db.query(func.sum(AddRecord.add_amount))\
+        .filter(AddRecord.user_id == current_user.user_id, AddRecord.add_type == True, AddRecord.add_date >= this_month_first).scalar() or Decimal("0")
 
-    income = db.query(func.sum(AddRecord.add_amount))\
-        .filter(
-            AddRecord.user_id == current_user.user_id,
-            AddRecord.add_type == True,
-            AddRecord.add_date >= first_day
-        ).scalar() or Decimal("0")
+    # 2. 查詢上月資料 (新增)
+    last_expense = db.query(func.sum(AddRecord.add_amount))\
+        .filter(AddRecord.user_id == current_user.user_id, AddRecord.add_type == False, AddRecord.add_date >= last_month_first, AddRecord.add_date <= last_month_end).scalar() or Decimal("0")
+    last_income = db.query(func.sum(AddRecord.add_amount))\
+        .filter(AddRecord.user_id == current_user.user_id, AddRecord.add_type == True, AddRecord.add_date >= last_month_first, AddRecord.add_date <= last_month_end).scalar() or Decimal("0")
+
+    # 3. 計算成長率公式: ((本月 - 上月) / 上月) * 100
+    def calc_change(this_val, last_val):
+        if last_val == 0:
+            return 100.0 if this_val > 0 else 0.0
+        return round(float((this_val - last_val) / last_val * 100), 1)
 
     return {
         "month": today.strftime("%Y-%m"),
-        "total_expense": float(expense),
-        "total_income": float(income),
-        "net_savings": float(income - expense)
+        "total_expense": float(this_expense),
+        "total_income": float(this_income),
+        "net_savings": float(this_income - this_expense),
+        # 新增回傳欄位給前端 % 使用
+        "expense_change": calc_change(this_expense, last_expense),
+        "income_change": calc_change(this_income, last_income)
     }
 
 # 3. 新增收支紀錄 API
