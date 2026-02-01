@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote 
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, and_
@@ -141,14 +141,34 @@ def generate_pdf_response(data, display_title, period_text, summary, user_nickna
 # ==========================================
 # 3. API 路由
 # ==========================================
-@router.get("/report")
+@router.get("/report", summary="🗂️ 匯出財務報表 (PDF/ csv / Excel)")
 async def export_report(
-    report_type: str = "monthly", 
-    report_format: str = "excel",
-    time_range: str = "current-month", 
+    report_type: str = Query
+    ("monthly",description="報表類型：可選 'monthly' (月報) 或 'annual' (年報)"), 
+    report_format: str =Query( "excel",description="檔案格式：可選 'pdf' (A4正式報表) 或 'excel' (數據試算表)"),
+    time_range: str = Query("current-month",description="時間代碼：current-month, last-month, current-quarter, 或 year-2026",example="year-2026"), 
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
+    """
+    根據指定的時間區間與格式，匯出使用者的財務報表。
+
+    - **支援格式 (`report_format`)**:
+        - `pdf`: 產出包含 **收支圓餅圖**、**統計摘要** 與 **詳細表格** 的正式文件 (A4 格式)。
+        - `excel`: 產出 `.xlsx` 試算表，適合進行二次資料分析。
+        - `csv`: 產出 `.csv` 試算表。
+    
+    - **時間區間代碼 (`time_range`)**:
+        - `current-month`: 本月
+        - `last-month`: 上月
+        - `current-quarter`: 本季
+        - `last-quarter`: 上季
+        - `year-{YYYY}`: 指定年份 (例如: `year-2026`, `year-2025`)
+    
+    - **回傳**:
+        - 直接觸發瀏覽器下載檔案，檔名會自動包含使用者暱稱與報表區間 (例如: `王小明_2026年02月_月度報表.pdf`)。
+    """
+    
     user_nickname = current_user.name or current_user.username
     now = datetime.now()
     

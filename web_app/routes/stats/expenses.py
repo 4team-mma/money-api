@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date
 from web_app.dependencies import get_db, get_current_user
-from web_app.models.models import AddRecord, Account  # 🌟 修正：從 models 引入正確的類別名
+from web_app.models.models import AddRecord, Account,Member
 from enum import Enum
 
 router = APIRouter()
@@ -20,12 +20,12 @@ async def get_expense_category_stats(
     end_date: date = Query(...),
     group_by_field: GroupField = Query(GroupField.category),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Member = Depends(get_current_user)
 ):
     # 1. 初始查詢物件（包含 Join）
     # 使用 outerjoin 以防萬一該記錄的 account_id 為空或找不到對應帳號
     query = db.query(func.sum(AddRecord.add_amount).label("total_amount")) \
-              .outerjoin(Account, AddRecord.account_id == Account.account_id)
+            .outerjoin(Account, AddRecord.account_id == Account.account_id)
 
     # 2. 根據參數決定「顯示名稱」與「分組欄位」
     if group_by_field == GroupField.category:
