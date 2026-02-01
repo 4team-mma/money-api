@@ -5,10 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
-from web_app.routes import root, users, accounts, records, auth, admin, transfers, feedback, analysis, reminders
+from web_app.routes import (
+    root,
+    users,
+    accounts,
+    records,
+    auth,
+    admin,
+    transfers,
+    feedback,
+    analysis,
+    reminders,
+)
 from web_app.routes.setting import router as setting_router
 from web_app.routes.stats import router as stats_router
-from fastapi.responses import RedirectResponse, JSONResponse 
+from fastapi.responses import RedirectResponse, JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
 from .utils.cpi_crawler import fetch_and_update_cpi
@@ -18,7 +29,6 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
-
 
 
 # 1. 先載入環境變數
@@ -37,9 +47,10 @@ if log_dir:
 logging.basicConfig(
     filename=log_file_path,
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    encoding="utf-8"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    encoding="utf-8",
 )
+
 
 # --------------------------------------
 # 定義生命週期管理器 (Lifespan)
@@ -48,19 +59,21 @@ logging.basicConfig(
 async def lifespan(_: FastAPI):
     # --- 啟動時執行 ---
     scheduler = BackgroundScheduler()
-    
+
     # 設定排程：這裡設定每天凌晨 04:00 執行一次更新
     # 也可以改成 hours=1 (每小時) 或 minutes=30 (每30分)
-    scheduler.add_job(fetch_and_update_cpi, 'cron', hour=4, minute=0)
-    
+    scheduler.add_job(fetch_and_update_cpi, "cron", hour=4, minute=0)
+
     scheduler.start()
     logging.info("APScheduler 排程器已啟動 - 每日 04:00 更新 CPI 資料")
-    
-    yield # 分隔線，以上是啟動，以下是關閉
-    
+
+    yield  # 分隔線，以上是啟動，以下是關閉
+
     # --- 關閉時執行 ---
     scheduler.shutdown()
     logging.info("APScheduler 排程器已關閉")
+
+
 # --------------------------------------
 # 配置
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
@@ -89,7 +102,7 @@ cat_logo = r"""
 
 app = FastAPI(
     title="FastAPI MoneyMMA",
-    description=f'這是 MoneyMMA 的後端 API 文件。 \n \n{cat_logo}',
+    description=f"這是 MoneyMMA 的後端 API 文件。 \n \n{cat_logo}",
     version="1.0.0",
     lifespan=lifespan,  # <--- 加上這一行，排程才會動！
     docs_url="/docs" if DEBUG else None,
@@ -120,33 +133,37 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 # 建立一個專門給 main 使用的 logger
 logger = logging.getLogger(__name__)
 
+
 # 處理所有未預期的崩潰 (Exception)
 @app.exception_handler(Exception)
 async def universal_exception_handler(request: Request, exc: Exception):
     # 紀錄詳細錯誤到 logs/app.log
     # exc_info=True 會自動抓取 Traceback (哪一行的程式碼出錯)
-    logger.error(f"非預期錯誤 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True)
-    
+    logger.error(
+        f"非預期錯誤 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True
+    )
+
     # 回傳給前端安全、格式統一的訊息
     return JSONResponse(
         status_code=500,
         content={
             "success": False,
-            "detail": "系統發生非預期錯誤，請聯繫管理員或稍後再試。"
-        }
+            "detail": "系統發生非預期錯誤，請聯繫管理員或稍後再試。",
+        },
     )
+
 
 # 針對資料庫錯誤做更細緻的 Log
 @app.exception_handler(SQLAlchemyError)
 async def database_exception_handler(request: Request, exc: SQLAlchemyError):
-    logger.error(f"資料庫異常 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True)
+    logger.error(
+        f"資料庫異常 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True
+    )
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "detail": "資料庫連線或處理異常，請稍後再試。"
-        }
+        content={"success": False, "detail": "資料庫連線或處理異常，請稍後再試。"},
     )
+
 
 # 1. 讀取 .env 的字串的5173,5174
 cors_raw = os.getenv("CORS_ORIGINS", "")
@@ -163,10 +180,10 @@ app.add_middleware(
 
 # --- 路由註冊 (Routers) ---
 # 基礎路由
-app.include_router(root.router,tags=["根目錄顯示"])
+app.include_router(root.router, tags=["根目錄顯示"])
 
-# 
-# 分支_使用 prefix 
+#
+# 分支_使用 prefix
 app.include_router(auth.router, prefix="/api", tags=["認證與密碼管理"])
 app.include_router(users.router, prefix="/api/users", tags=["使用者"])
 app.include_router(accounts.router, prefix="/api/accounts", tags=["帳戶"])
@@ -176,19 +193,25 @@ app.include_router(feedback.router, prefix="/api/feedback", tags=["問題回饋"
 app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事項"])
 app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
 app.include_router(
-    admin.router, 
-    prefix="/api/admin", 
+    admin.router,
+    prefix="/api/admin",
     tags=["系統管理後台"],
-    dependencies=[Depends(admin_required)] #  admin/ 底下的所有網址都限管理員
+    dependencies=[Depends(admin_required)],  #  admin/ 底下的所有網址都限管理員
 )
-app.include_router(analysis.router,prefix="/api/analysis",tags=["消費趨勢分析"])
-app.include_router(stats_router,prefix="/api/stats",tags=["圖表分析"])
+app.include_router(analysis.router, prefix="/api/analysis", tags=["消費趨勢分析"])
+app.include_router(stats_router, prefix="/api/stats", tags=["圖表分析"])
+
+
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():
     return RedirectResponse("/static/favicon.ico")
 
-@app.get("/jinja" ,tags=["jinja 後端頁面呈現檢測用"])
-def jinja(request:Request):
-    return templates.TemplateResponse(request=request,name="test.jinja",context={"第一組":"money"})
 
-app.mount("/static",StaticFiles(directory="web_app/static"), name="static")
+@app.get("/jinja", tags=["jinja 後端頁面呈現檢測用"])
+def jinja(request: Request):
+    return templates.TemplateResponse(
+        request=request, name="test.jinja", context={"第一組": "money"}
+    )
+
+
+app.mount("/static", StaticFiles(directory="web_app/static"), name="static")

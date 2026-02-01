@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict # ConfigDict是將資料庫物件轉成Json
-from datetime import date,datetime
-from decimal import Decimal # 處理收支紀錄運算
+from pydantic import BaseModel, Field, ConfigDict  # ConfigDict是將資料庫物件轉成Json
+from datetime import date, datetime
+from decimal import Decimal  # 處理收支紀錄運算
 from typing import Optional, List
 
 
@@ -22,9 +22,9 @@ class RecordDetail(BaseModel):
     created_at: Optional[datetime] = Field(None, description="建立時間")
     updated_at: Optional[datetime] = Field(None, description="更新時間")
 
-    
     # Pydantic v2 SQLAlchemy ORM 物件直接轉換
     model_config = ConfigDict(from_attributes=True)
+
 
 # 前端點擊「儲存」時傳給後端的資料。不包含 id跟userid
 class AddRecordCreate(BaseModel):
@@ -38,16 +38,16 @@ class AddRecordCreate(BaseModel):
     add_tag: Optional[str] = None
     add_note: Optional[str] = None
 
-# 存檔成功後，回傳給前端顯示在清單上的資料。
-# Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
+    # 存檔成功後，回傳給前端顯示在清單上的資料。
+    # Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
     model_config = ConfigDict(from_attributes=True)
+
 
 class AddRecordResponse(AddRecordCreate):
     add_id: int
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
-
 
 
 # 月度匯總回應模型
@@ -69,7 +69,7 @@ class AddRecordUpdate(BaseModel):
     add_type: Optional[bool] = None
     add_class: Optional[str] = None
     add_class_icon: Optional[str] = None
-    account_id: Optional[int] = None # 可能會換帳戶扣錢
+    account_id: Optional[int] = None  # 可能會換帳戶扣錢
     add_member: Optional[str] = None
     add_tag: Optional[str] = None
     add_note: Optional[str] = None
