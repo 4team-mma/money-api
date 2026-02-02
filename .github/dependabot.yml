@@ -1,10 +1,19 @@
-# 依賴項安全性檢查:自動偵測並提醒你們升級有漏洞的套件。
 version: 2
 updates:
-
-  # 後端 FastAPI (uv / pyproject.toml)
+  # 後端 FastAPI (使用 uv 管理，但在 GitHub 識別為 pip 生態)
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/" 
     schedule:
       interval: "weekly"
-    # 建議先針對主要的 dependencies 進行監控
+      day: "sunday"
+    # 核心設定：僅在有安全漏洞 (CVE) 時才主動發送 PR
+    open-pull-requests-limit: 10
+    target-branch: "main"
+    
+    # 這裡可以過濾掉一般的版本更新，只收安全性通知
+    groups:
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
