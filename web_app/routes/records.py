@@ -114,8 +114,6 @@ async def get_monthly_records(
             AddRecord,
             Account.account_name,
             Account.currency,
-            AddRecord.created_at,
-            AddRecord.updated_at,
         )
         .join(
             Account,
@@ -157,6 +155,7 @@ async def get_monthly_records(
             "add_member": record.add_member,
             "add_tag": record.add_tag,
             "add_note": record.add_note,
+            "created_at": record.created_at,
             "currency": currency or "N/A",
             "account_name": account_name or "未分類帳戶",
         }

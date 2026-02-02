@@ -107,6 +107,7 @@ async def get_monthly_transfers(
             "to_account_id": trans.to_account_id,
             "transaction_note": trans.transaction_note,
             "amount": trans.amount,
+            "created_at": trans.created_at,
             # 將轉出帳戶資訊打包成物件
             "from_account": {
                 "account_id": trans.from_account_id,
