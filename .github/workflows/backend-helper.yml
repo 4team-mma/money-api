@@ -48,7 +48,7 @@ jobs:
       # 🌟 新增：自動加入專案看板 (編號 1)
       - name: 3. 自動加入數位財務管理系統
         if: github.event_name == 'pull_request'
-        uses: actions/add-to-project@v1
+        uses: actions/add-to-project@v0.5.0
         with:
           project-url: https://github.com/orgs/4team-mma/projects/1
           github-token: ${{ secrets.GITHUB_TOKEN }}
