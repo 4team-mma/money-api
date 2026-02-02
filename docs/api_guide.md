@@ -54,7 +54,7 @@ async def login(...):
 這一步最關鍵，決定了前端按 "Try it out" 時會自動帶入什麼值。
 ### 🅰️ 情況 A：POST/PUT Body (去 Schemas 寫)
 - **位置**：適用：Pydantic V2
-- **位置**： `schemas/xxx.py` 
+- **位置**： `schemas/xxx.py` 你想找路由對應的schemas可以看上面的`from ..schemas.`看是在哪裡。
 - **規範**：使用 `Field` 搭配 `examples` (注意是複數)。
 
 ```bash
