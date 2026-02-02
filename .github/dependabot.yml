@@ -1,19 +1,15 @@
 version: 2
 updates:
-  # 後端 FastAPI (使用 uv 管理，但在 GitHub 識別為 pip 生態)
-  - package-ecosystem: "pip"
-    directory: "/" 
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
       interval: "weekly"
-      day: "sunday"
-    # 核心設定：僅在有安全漏洞 (CVE) 時才主動發送 PR
-    open-pull-requests-limit: 10
-    target-branch: "main"
     
-    # 這裡可以過濾掉一般的版本更新，只收安全性通知
+    versioning-strategy: lockfile-only
+    open-pull-requests-limit: 5
+
     groups:
-      security-updates:
+      frontend-security:
+        applies-to: security-updates # 關鍵是這一行
         patterns:
           - "*"
-        update-types:
-          - "security"
