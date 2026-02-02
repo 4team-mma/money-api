@@ -1,14 +1,15 @@
-# 依賴項安全性檢查:自動偵測並提醒你們升級有漏洞的套件。
 version: 2
 updates:
-
-  # 後端 FastAPI (uv / pyproject.toml)
-  - package-ecosystem: "pip"
+  - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    # 建議先針對主要的 dependencies 進行監控
+    
+    versioning-strategy: lockfile-only
+    open-pull-requests-limit: 5
+
     groups:
-      python-dependencies:
+      frontend-security:
+        applies-to: security-updates # 關鍵是這一行
         patterns:
-          - "*" # 將所有 Python 套件更新合併成一個 PR
+          - "*"

@@ -44,6 +44,7 @@ async def request_password_reset_otp(
     data: SendOTPRequest,
     background_tasks: BackgroundTasks,  # 異步寄信專用
     db: Session = Depends(get_db),
+
 ):
     """
     發送 6 位數驗證碼，用於忘記密碼。具備多重資安防護機制。
@@ -192,6 +193,7 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
     - **輸入**: `identifier` 欄位可接受 **Username** 或 **Email**。
     - **回傳**: JWT Access Token 與部分使用者資訊。
     - **錯誤**: 帳號或密碼錯誤統一回傳 401，不透露具體錯誤原因。
+    - **remember_me**: `True`:保持登入狀態 30 天,`False`:1小時
     """
 
     #  1. 先從資料庫找人
@@ -207,7 +209,20 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
         # 優化：統一報錯訊息，不告知是帳號錯還是密碼錯
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
 
-    access_token = create_access_token(data={"sub": str(user.user_id)})
+    # --- 💡 處理「記住我」邏輯 ---
+    # 如果勾選記住我，設定長效期 (例如 30 天)；否則使用短效期 (例如 1 小時)
+    if data.remember_me:
+        access_token_expires = timedelta(days=30)
+    else:
+        access_token_expires = timedelta(hours=1)
+    
+    # 產生 Token 時傳入 expires_delta
+    access_token = create_access_token(
+        data={"sub": str(user.user_id)},
+        expires_delta=access_token_expires  # 傳入動態的時間
+    )
+    
+    #access_token = create_access_token(data={"sub": str(user.user_id)})
 
     return {
         "msg": "登入成功",
@@ -323,47 +338,6 @@ async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
             "name": user.name,
         },
     }
-
-
-# ==================== 忘記密碼邏輯 ====================
-
-# @router.post("/auth/forgot-password/send-otp")
-# async def send_otp(data: SendOTPRequest, db: Session = Depends(get_db)):
-#     user = db.query(Member).filter(Member.email == data.email).first()
-#     if not user:
-#         raise HTTPException(status_code=404, detail="此信箱尚未註冊為會員")
-
-#     # 新增：60 秒發信冷卻時間邏輯
-#     last_otp = db.query(PasswordReset).filter(
-#         PasswordReset.email == data.email
-#     ).order_by(desc(PasswordReset.created_at)).first()
-
-#     if last_otp:
-#         # 計算距離上一次發信過了幾秒
-#         time_diff = (datetime.now() - last_otp.created_at).total_seconds()
-#         if time_diff < 60:
-#             raise HTTPException(
-#                 status_code=429,
-#                 detail=f"請求過於頻繁，請於 {int(60 - time_diff)} 秒後再試"
-#             )
-
-#     otp = generate_otp()
-#     expiry = datetime.now() + timedelta(minutes=5)
-
-#     new_reset_entry = PasswordReset(
-#         user_id=user.user_id,
-#         email=user.email,
-#         otp_code=otp,
-#         expires_at=expiry
-#     )
-#     db.add(new_reset_entry)
-#     db.commit()
-
-#     email_success = send_otp_email(user.email, otp)
-#     if not email_success:
-#         raise HTTPException(status_code=500, detail="驗證信發送失敗，請稍後再試或聯繫客服")
-
-#     return {"msg": "驗證碼已寄出，請檢查您的信箱"}
 
 
 @router.post("/auth/forgot-password/verify-otp", summary="✅ 驗證 OTP 代碼")

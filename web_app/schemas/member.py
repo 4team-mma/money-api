@@ -26,7 +26,7 @@ class MemberRegister(BaseModel):
         description="密碼，至少 3 字元,最多50字元",
         json_schema_extra={"example": "12345678"},
     )
-    confirm_password: str = Field(description="確認密碼")
+    confirm_password: str = Field(description="確認密碼",json_schema_extra={"example":"再次確認密碼，同上"})
 
     # 💡 驗證：兩次密碼必須一樣
     @field_validator("confirm_password")
@@ -43,10 +43,10 @@ class MemberLogin(BaseModel):
         description="電子郵件或帳號", json_schema_extra={"example": "user@example.com"}
     )
     password: str = Field(
-        description="密碼", json_schema_extra={"example": "mypassword123"}
+        description="密碼", json_schema_extra={"example": "my_password123"}
     )
     remember_me: bool = Field(
-        default=False, description="是否", json_schema_extra={"example": "False"}
+        default=False, description="True:保持登入狀態 30 天,False:1小時", json_schema_extra={"example": "False"}
     )
 
 
