@@ -4,13 +4,13 @@ on:
   issues:
     types: [opened]
   pull_request:
-    types: [opened, synchronize, reopened, labeled] # 加入 labeled 確保標籤打上後觸發專案歸類
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
   issues: write
   pull-requests: write
-  repository-projects: write # 額外增加專案寫入權限
+  repository-projects: write 
 
 jobs:
   label-and-project:
@@ -19,7 +19,7 @@ jobs:
       - name: 0. 複製專案程式碼
         uses: actions/checkout@v4
 
-      # 處理 PR 的路徑標籤
+      # 處理 PR 的路徑標籤 (會用到你的 labeler-config.yml)
       - name: 1. 路徑自動標籤 (PR)
         if: github.event_name == 'pull_request'
         uses: actions/labeler@v5
@@ -45,10 +45,10 @@ jobs:
               });
             }
 
-      # 🌟 新增：自動加入專案看板 (編號 1)
-      - name: 3. 自動加入數位財務管理系統
+      # 🌟 核心功能：自動加入「數位財務管理系統」看板
+      - name: 3. 自動加入專案看板
         if: github.event_name == 'pull_request'
         uses: actions/add-to-project@v0.5.0
         with:
           project-url: https://github.com/orgs/4team-mma/projects/1
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.MY_NEW_PROJECT_TOKEN }}
