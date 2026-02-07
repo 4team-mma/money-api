@@ -24,7 +24,8 @@ engine = create_engine(
     max_overflow=6,  # 超過 pool_size 時最多再建立幾個連線
     pool_pre_ping=True,  # 每次使用前檢查連線是否有效
     pool_recycle=3600,  # 連線超過 1 小時自動回收
-    echo=DEBUG,  # 💡 DEBUG 模式下，終端機會直接印出生成的 SQL 指令，對學習很有幫助！
+    echo=False
+    #echo=DEBUG,  # 💡 DEBUG 模式下，終端機會直接印出生成的 SQL 指令，對學習很有幫助！
 )
 
 # 建立 Session

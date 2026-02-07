@@ -2,7 +2,10 @@ import requests
 import xmltodict
 import urllib3
 import logging
-from datetime import datetime
+from datetime import datetime,timedelta
+
+from decimal import Decimal
+from sqlalchemy import desc
 from ..database import SessionLocal
 from ..models import SalaryBenchmark
 import re
@@ -28,14 +31,43 @@ def clean_industry_name(raw_tag):
 def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
     logger.info(f"🚀 開始抓取薪資數據: {salary_type_name}")
     db = SessionLocal()
+    current_date = datetime.now()
     current_year = datetime.now().year
     min_save_year = current_year - 5
+    
+# --- 🧠 智慧判斷邏輯 (Smart Check) ---
+    # 薪資資料通常比 CPI 慢，可能延遲 2 個月左右
+    # 我們這裡簡單判斷：只要資料庫有今年(或上個月)的資料，就算更新過了
+    with SessionLocal() as db:
+        latest_record = (
+            db.query(SalaryBenchmark)
+            .filter(SalaryBenchmark.salary_type == salary_type_name)
+            .order_by(SalaryBenchmark.period.desc())
+            .first()
+        )
+        
+        # 取得上個月的日期字串 (例如 2026M01)
+        last_month_date = current_date.replace(day=1) - timedelta(days=1)
+        target_period_str = last_month_date.strftime("%YM%m")
 
+        if latest_record and latest_record.period >= target_period_str:
+            msg = f"✅ [薪資爬蟲] {salary_type_name} 資料已是最新 ({latest_record.period})，跳過。"
+            logger.info(msg)
+            print(msg) # 💡 直接顯示在終端機
+            return
+
+    # --- 若沒通過檢查，開始爬蟲 ---
+    db = SessionLocal()
     try:
         response = requests.get(url, timeout=30, verify=False)
         response.encoding = "utf-8"
-        data_dict = xmltodict.parse(response.text)
+        
+        # 簡單檢查 XML 是否有效
+        if response.status_code != 200:
+            logger.error(f"❌ 無法下載薪資資料: {url}")
+            return
 
+        data_dict = xmltodict.parse(response.text)
         root = data_dict.get("DataCollection", {})
         records = root.get(xml_root_tag, [])
 
@@ -44,6 +76,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
 
         new_count = 0
         update_count = 0
+        
         for rec in records:
             raw_period = rec.get("年月別_Year_and_month")
             if not raw_period:
@@ -64,8 +97,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
 
             for key, val in rec.items():
                 if (
-                    key
-                    in [
+                    key in [
                         "年月別_Year_and_month",
                         "@xmlns:xsi",
                         "@xsi:noNamespaceSchemaLocation",
@@ -77,7 +109,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
 
                 industry_name = clean_industry_name(key)
 
-                # 4. 💡 改進點：檢查是否已存在
+                # 4. 檢查是否已存在
                 existing = (
                     db.query(SalaryBenchmark)
                     .filter(
@@ -90,11 +122,14 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
                 )
 
                 try:
-                    salary_val = float(val)
+                    # ✅ 修正：改用 Decimal，解決 Pylance 報錯
+                    salary_val_decimal = Decimal(val)
+
                     if existing:
-                        # 💡 如果重複了，就更新數值 (通常後面的數值包含獎金，更具參考價值)
-                        existing.salary_val = salary_val
-                        update_count += 1
+                        # 如果數值不同才更新
+                        if existing.salary_val != salary_val_decimal:
+                            existing.salary_val = salary_val_decimal
+                            update_count += 1
                     else:
                         db.add(
                             SalaryBenchmark(
@@ -102,22 +137,22 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
                                 period=period_str,
                                 salary_type=salary_type_name,
                                 salary_is_real=is_real_val,
-                                salary_val=salary_val,
+                                salary_val=salary_val_decimal,
                             )
                         )
-                        db.flush()  # 🌟 關鍵：讓同一個 Session 內之後的查詢能看到這筆
                         new_count += 1
                 except ValueError:
-                    continue  # 跳過非數字數值
+                    continue 
+                except Exception:
+                    continue
 
         db.commit()
-        logger.info(
-            f"✅ {salary_type_name} 同步完成。新增: {new_count} 筆, 更新: {update_count} 筆 ---"
-        )
+        success_msg = f"✅ [薪資爬蟲] {salary_type_name} 更新完成。新增: {new_count}, 更新: {update_count}"
+        logger.info(success_msg)
+        print(success_msg) # 💡 顯示在終端機
 
     except Exception as e:
         db.rollback()
-        # 🌟 這裡使用 exc_info=True，Log 會紀錄哪一行爬蟲出錯
         logger.error(f"❌ 薪資抓取失敗 ({salary_type_name}): {str(e)}", exc_info=True)
     finally:
         db.close()

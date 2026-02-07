@@ -9,7 +9,8 @@
 [執行流程](docs/dependencies.md) |
 [ORM](docs/orm.md) |
 [Pydanic](docs/pydanic.md) |
-[API撰寫說明文檔](docs/api_guide.md) 
+[API撰寫說明文檔](docs/api_guide.md) |
+[爬蟲自動化說明文檔](docs/crawler.md) 
 
 
 
@@ -41,7 +42,7 @@ git clone https://github.com/4team-mma/money-api.git
 ## 安裝套件:
 - 範例: uv add <package-name>
 - 原本: pip install apscheduler
-- uv add apscheduler
+- uv add apscheduler  (定時自動執行任務的套件)
 - uv add xmltodict apscheduler requests(XML與排程套件)
 - uv add google-auth
 - uv add slowapi(IP 限制套件)

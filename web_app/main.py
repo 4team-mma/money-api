@@ -19,16 +19,19 @@ from web_app.routes import (
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.stats import router as stats_router
+from web_app.dependencies import admin_required
+from web_app.utils.cpi_crawler import fetch_and_update_cpi
+from web_app.utils.salary_crawler import run_all_salary_tasks
 from fastapi.responses import RedirectResponse, JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from contextlib import asynccontextmanager
-from .utils.cpi_crawler import fetch_and_update_cpi
-from web_app.dependencies import admin_required
 from sqlalchemy.exc import SQLAlchemyError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
+from datetime import datetime,timedelta
 
 
 # 1. 先載入環境變數
@@ -51,7 +54,6 @@ logging.basicConfig(
     encoding="utf-8",
 )
 
-
 # --------------------------------------
 # 定義生命週期管理器 (Lifespan)
 # 這裡負責在伺服器啟動時開啟排程，關閉時停止排程
@@ -60,18 +62,49 @@ async def lifespan(_: FastAPI):
     # --- 啟動時執行 ---
     scheduler = BackgroundScheduler()
 
-    # 設定排程：這裡設定每天凌晨 04:00 執行一次更新
-    # 也可以改成 hours=1 (每小時) 或 minutes=30 (每30分)
-    scheduler.add_job(fetch_and_update_cpi, "cron", hour=4, minute=0)
+    # ==========================
+    # 任務 1: CPI 爬蟲
+    # ==========================
+    # A. 開機檢查 (10秒後)
+    scheduler.add_job(
+        fetch_and_update_cpi,
+        "date",
+        run_date=datetime.now() + timedelta(seconds=10),
+        id="cpi_startup_check",
+        replace_existing=True
+    )
+    # B. 定期排程 (每月 6 號)
+    scheduler.add_job(
+        fetch_and_update_cpi, "cron", day=6, hour=10, minute=0,
+        id="cpi_monthly_update", replace_existing=True
+    )
+
+    # ==========================
+    # 任務 2: 薪資爬蟲 (新增的部分)
+    # ==========================
+    # A. 開機檢查 (20秒後 - 錯開時間避免同時搶資源)
+    scheduler.add_job(
+        run_all_salary_tasks,
+        "date",
+        run_date=datetime.now() + timedelta(seconds=20),
+        id="salary_startup_check",
+        replace_existing=True
+    )
+    
+    # B. 定期排程 (每月 20 號 - 薪資資料通常比較慢出來)
+    scheduler.add_job(
+        run_all_salary_tasks, "cron", day=20, hour=10, minute=0,
+        id="salary_monthly_update", replace_existing=True
+    )
 
     scheduler.start()
-    logging.info("APScheduler 排程器已啟動 - 每日 04:00 更新 CPI 資料")
+    logging.info("🚀 APScheduler 已啟動 - CPI(6號) & 薪資(20號) 自動更新中")
 
-    yield  # 分隔線，以上是啟動，以下是關閉
+    yield  # 伺服器運作中...
 
     # --- 關閉時執行 ---
     scheduler.shutdown()
-    logging.info("APScheduler 排程器已關閉")
+    logging.info("🛑 APScheduler 排程器已關閉")
 
 
 # --------------------------------------
