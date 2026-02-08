@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from ..database import get_db
-from ..models import AIConfig, Member
+from ..models import AIConfig, Member, AddRecord
 from ..schemas.ai import AIConfigSave, AIConfigResponse, ChatRequest
 from ..dependencies import get_current_user
 from ..utils.ai_security import decrypt_api_key
 from typing import Optional
 import httpx 
+from datetime import datetime
 
 router = APIRouter()
 
@@ -38,26 +40,51 @@ def save_ai_config(data: AIConfigSave, db: Session = Depends(get_db), current_us
 # 3. AI 對話接口 (【核心修正】：加入自動預設邏輯)
 @router.post("/chat")
 async def chat_with_meow(req: ChatRequest, db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
-    print(f"DEBUG: 當前登入 ID 為 {current_user.user_id}")
-
-    # 嘗試抓取該使用者的專屬配置
-    config = db.query(AIConfig).filter(
-        AIConfig.user_id == current_user.user_id, 
-        AIConfig.is_active == True
-    ).first()
-
-    # 【重要改動】：如果找不到配置，不噴 400 錯誤，而是直接給它一套預設大腦
+    # 1. 抓取 AI 配置 (預設或專屬)
+    config = db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id, AIConfig.is_active == True).first()
     if not config:
-        print(f"DEBUG: 使用者 {current_user.user_id} 沒有設定，套用全域預設 Ollama 喵！")
-        # 這裡我們手動建立一個虛擬的 config 物件，內容指向你正在跑的 Ollama
-        config = AIConfig(
-            provider="ollama",
-            base_url="http://localhost:11434",
-            model_version="gemma3:1b",
-            system_prompt=f"你現在是理財助手喵喵。當前使用者是 {current_user.name}。請親切地回答財務問題，說話結尾要帶喵。"
-        )
+        config = AIConfig(provider="ollama", base_url="http://localhost:11434", model_version="gemma3:1b")
 
-    # 接下來的呼叫邏輯完全相同
+    # 2. 【核心升級】：從資料庫抓取使用者的財務上下文
+    # A. 計算本月總支出 (add_type=0 為支出)
+    this_month = datetime.now().strftime("%Y-%m")
+    monthly_expense = db.query(func.sum(AddRecord.add_amount)).filter(
+        AddRecord.user_id == current_user.user_id,
+        AddRecord.add_type == 0,
+        func.date_format(AddRecord.add_date, "%Y-%m") == this_month
+    ).scalar() or 0
+
+    # B. 抓取最近 3 筆消費紀錄
+    recent_records = db.query(AddRecord).filter(
+        AddRecord.user_id == current_user.user_id
+    ).order_by(AddRecord.add_date.desc()).limit(3).all()
+    
+    records_text = "\n".join([f"- {r.add_date}: {r.add_class} 花了 {r.add_amount}元" for r in recent_records])
+
+    # 3. 組合「有記憶」的系統提示詞
+    # 我們把使用者的職位、XP 等級、以及剛算好的數據都塞進去
+    financial_context = f"""
+    當前使用者資訊：
+    - 姓名：{current_user.name}
+    - 職業：{current_user.job}
+    - 修仙等級：Lv.{current_user.level} (XP: {current_user.xp})
+    
+    財務現況：
+    - 本月({this_month})總支出目前為：{float(monthly_expense)} 元。
+    - 最近的三筆紀錄：
+    {records_text if recent_records else "尚無紀錄"}
+    """
+
+    system_prompt = f"""
+    你現在是理財助手喵喵。
+    以下是使用者的實際財務數據，請根據這些數據回答問題。
+    如果使用者問支出，請直接參考下方的數據，不要再問使用者在哪裡紀錄。
+    說話結尾務必帶「喵~」。
+    
+    {financial_context}
+    """
+    
+    # 4. 呼叫 Ollama
     if config.provider == "ollama":
         async with httpx.AsyncClient() as client:
             try:
@@ -66,7 +93,7 @@ async def chat_with_meow(req: ChatRequest, db: Session = Depends(get_db), curren
                     json={
                         "model": config.model_version,
                         "messages": [
-                            {"role": "system", "content": config.system_prompt},
+                            {"role": "system", "content": system_prompt},
                             {"role": "user", "content": req.message}
                         ],
                         "stream": False,
@@ -76,11 +103,6 @@ async def chat_with_meow(req: ChatRequest, db: Session = Depends(get_db), curren
                 res_data = response.json()
                 return {"reply": res_data["message"]["content"]}
             except Exception as e:
-                return {"reply": f"喵... 聯絡不到地端 Ollama，請確認它有開啟喵！錯誤：{str(e)}"}
+                return {"reply": f"喵... 聯絡不到 Ollama，錯誤：{str(e)}"}
     
-    elif config.provider == "gemini":
-        # 如果是預設值，這裡的 api_key 會是 None，所以要防呆
-        real_key = decrypt_api_key(config.api_key) if config.api_key else None
-        return {"reply": "喵！Google 套件更新中，請切換至 Ollama 模式測試喵！"}
-    
-    return {"reply": "喵喵目前迷路了。"}
+    return {"reply": "喵~ Gemini 功能還在串接中。"}
