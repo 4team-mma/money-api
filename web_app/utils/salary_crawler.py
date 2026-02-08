@@ -2,7 +2,7 @@ import requests
 import xmltodict
 import urllib3
 import logging
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 
 from decimal import Decimal
 from sqlalchemy import desc
@@ -30,12 +30,13 @@ def clean_industry_name(raw_tag):
 
 def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
     logger.info(f"🚀 開始抓取薪資數據: {salary_type_name}")
-    db = SessionLocal()
+    
+    # ✅ 修正 1: 確保變數有先定義
     current_date = datetime.now()
-    current_year = datetime.now().year
+    current_year = current_date.year
     min_save_year = current_year - 5
     
-# --- 🧠 智慧判斷邏輯 (Smart Check) ---
+    # --- 判斷邏輯 (Smart Check) ---
     # 薪資資料通常比 CPI 慢，可能延遲 2 個月左右
     # 我們這裡簡單判斷：只要資料庫有今年(或上個月)的資料，就算更新過了
     with SessionLocal() as db:
@@ -122,7 +123,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
                 )
 
                 try:
-                    # ✅ 修正：改用 Decimal，解決 Pylance 報錯
+                    # ✅ 修正 2: 改用 Decimal，解決 Pylance 報錯
                     salary_val_decimal = Decimal(val)
 
                     if existing:
@@ -140,6 +141,9 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
                                 salary_val=salary_val_decimal,
                             )
                         )
+                        # ✅ 修正 3 (關鍵): 加入 flush() 避免 Duplicate Entry 報錯
+                        db.flush()
+                        
                         new_count += 1
                 except ValueError:
                     continue 
