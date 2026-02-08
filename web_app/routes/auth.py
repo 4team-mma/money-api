@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Backgrou
 from sqlalchemy.orm import Session
 from sqlalchemy import desc  # 用於排序找出最後一筆 OTP 紀錄
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.security import OAuth2PasswordRequestForm
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -240,7 +240,7 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
 
 # --- Google 登入相關 ---
 class GoogleAuthRequest(BaseModel):
-    token: str
+    token: str = Field(..., description="Google ID Token", examples=["GOOGLE_ID_TOKEN_EXAMPLE"])
 
 
 # key寫在.env
@@ -250,14 +250,21 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 @router.post("/auth/google", summary="📍Google 第三方登入/註冊")
 async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
     """
-    接收前端 Google SDK 的 `id_token` 進行驗證。
+    接收前端 Google SDK 產生的 `id_token` 進行後端驗證。
 
-    - **智慧流程**:
-        - **登入**: 若 Email 已存在，直接登入並回傳 Token。
-        - **註冊**: 若 Email 不存在，系統將自動：
-            1. 建立新會員 (隨機密碼)。
-            2. 建立預設現金與銀行帳戶。
-            3. 直接登入並回傳 Token。
+    - **核心邏輯 (智慧流程)**:
+        - **自動登入**: 若 Email 已存在，直接簽發 JWT Token 登入。
+        - **自動註冊**: 若 Email 不存在，系統將自動完成以下動作：
+            1. **建立帳號**: 隨機生成密碼與使用者名稱。
+            2. **初始化帳產**: 自動建立「我的錢包」與「預設銀行」帳戶。
+            3. **完成登入**: 直接回傳 JWT Token，不需額外註冊。
+
+    - **資安機制**:
+        - 使用 `google-auth` 官方庫進行 Token 簽章驗證。
+        - 採用資料庫 Transaction (原子化)，確保會員與帳戶資料一致性。
+
+    - **錯誤代碼**:
+        - `400`: Google Token 驗證無效或過期。
     """
 
     # 1. 驗證 Google Token (保持 ValueError 捕獲，因為這是特定的業務錯誤)

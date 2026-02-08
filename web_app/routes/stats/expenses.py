@@ -6,7 +6,8 @@ from web_app.dependencies import get_db, get_current_user
 from web_app.models.models import AddRecord, Account, Member
 from collections import defaultdict
 from enum import Enum
-
+from typing import List
+from web_app.schemas.expenses import ExpenseStatItem
 router = APIRouter()
 
 
@@ -17,14 +18,29 @@ class GroupField(str, Enum):
     member = "add_member"
     tag = "add_tag"
 
-@router.get("/category")
+@router.get("/category", response_model=List[ExpenseStatItem], summary="📊 支出統計與占比分析")
 async def get_expense_category_stats(
-    start_date: date = Query(...),
-    end_date: date = Query(...),
-    group_by_field: GroupField = Query(GroupField.category),
+    start_date: date = Query(..., description="起始日期", examples=["2026-02-01"]),
+    end_date: date = Query(..., description="結束日期", examples=["2026-02-28"]),
+    group_by_field: GroupField = Query(
+        GroupField.category,
+        description="分組維度: category(分類), account(帳戶), member(成員), tag(標籤)"
+        ),
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
+    """
+    根據指定日期區間與維度，計算支出總額與佔比。常用於繪製圓餅圖。
+
+    - **分組邏輯**:
+        - **category**: 按消費分類（如：飲食、交通）。
+        - **account**: 按支付帳戶（如：我的錢包、某銀行）。
+        - **member**: 按消費者。
+        - **tag**: 按標籤（支援「一筆紀錄多個標籤」的拆分計算）。
+    
+    - **標籤特殊處理**:
+        - 若一筆 100 元紀錄含標籤 "A, B"，則 A 與 B 分類下都會計入 100 元，比例會重新依總額計算。
+    """
     # 如果是按標籤分組，我們先查出所有含標籤的紀錄
     if group_by_field == GroupField.tag:
         # 查詢所有相關紀錄的標籤與金額
