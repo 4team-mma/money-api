@@ -48,6 +48,10 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add slowapi(IP 限制套件)
 - uv add pandas openpyxl (資料處理/Excel 檔案引擎)
 - uv add reportlab (PDF轉換套件)
+- uv add google-genai (Google 的 AI 套件)
+
+## 移除套件:
+- 執行:uv remove google-generativeai
 
 # 安裝依賴:
 - 執行：uv sync 

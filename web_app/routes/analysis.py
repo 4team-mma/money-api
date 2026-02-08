@@ -154,7 +154,7 @@ def get_cpi_comparison(
     for ui_cat, my_total in my_category_totals.items():
         # 透過橋接表拿到資料庫全名，確保 JOIN 成功
         full_db_name = GOV_NAME_BRIDGE.get(ui_cat)
-        gov_rate = gov_data_map.get(full_db_name, 0)
+        gov_rate = gov_data_map.get(full_db_name, 0) if full_db_name else 0
 
         result.append(
             {

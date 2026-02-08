@@ -11,6 +11,8 @@ from .models import (
     Feedback,
     CpiData,
     SalaryBenchmark,
+    Setting,
+    AIConfig
 )
 
 # 這樣別人在寫 from ..models import Member 時，Python 才知道要去哪裡找
