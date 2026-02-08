@@ -88,13 +88,22 @@ CATEGORY_MAPPING = {
 
 
 # --- 1. 消費 CPI 支出比對路由 ---
-@router.get("/cpi-comparison")
+@router.get("/cpi-comparison", summary="📊 個人支出與 CPI 指數比對")
 def get_cpi_comparison(
-    year: str,
-    month: str,
+    year: str = Query(..., description="年份 (YYYY)", examples=["2025"]),
+    month: str = Query(..., description="月份 (MM)", examples=["12"]),
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
+    """
+    將使用者的當月支出按類別分類，並與政府公布的 **CPI (消費者物價指數) 年增率** 進行比對。
+
+    - **比對邏輯**: 
+        - 系統自動將您的記帳標籤（如：午餐、房租）對應到政府的七大類別。
+        - **年增率**: 顯示政府資料庫中該類別物價較去年同期漲幅。
+    - **自動補償**: 
+        - 若該月政府尚未公布資料，系統會自動回溯並參考上個月的趨勢。
+    """
     # 1. 驗證輸入參數 (業務邏輯錯誤攔截)
     if not (year.isdigit() and month.isdigit()):
         raise HTTPException(status_code=400, detail="年份或月份格式錯誤")
@@ -170,13 +179,20 @@ def get_cpi_comparison(
 
 
 # --- 2. 薪資比對路由 ---
-@router.get("/salary-comparison")
+@router.get("/salary-comparison", summary="💰 個人薪資與行業基準比對")
 def get_salary_comparison(
-    year: str,
-    month: str,
+    year: str = Query(..., description="年份", examples=["2025"]),
+    month: str = Query(..., description="月份", examples=["12"]),
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
+    """
+    根據使用者的**職業類型**，比對其收入與政府調查的同行業「平均薪資」。
+
+    - **比對基準**:
+        - **名目薪資**: 包含經常性薪資與獎金。
+        - **自動匹配**: 根據您個人資料中設定的 `job` 欄位進行匹配（預設為製造業）。
+    """
     # 1. 取得使用者職業
     user = db.query(Member).filter(Member.user_id == current_user.user_id).first()
     user_job = user.job if user and user.job else "製造業"
@@ -235,12 +251,18 @@ def get_salary_comparison(
 
 
 # --- 3. 實質薪資趨勢路由 (供 Vue 圖表使用) ---
-@router.get("/real-salary-trend")
+@router.get("/real-salary-trend", summary="📈 實質薪資變動趨勢")
 def get_real_salary_trend(
-    industry: str = Query(..., description="行業別"), db: Session = Depends(get_db)
+    industry: str = Query(..., description="行業別", examples=["資訊傳輸業"]), 
+    db: Session = Depends(get_db)
 ):
     """
-    計算實質薪資：(名目薪資 / CPI 總指數) * 100
+    計算並回傳過去 12 個月的實質薪資趨勢圖表資料。
+
+    - **計算公式**: 
+        - $實質薪資 = (名目薪資 / CPI 總指數) \times 100$
+    - **意義**: 剔除通膨因素後的真實購買力變化。
+    - **回傳**: 包含「名目薪資」與「實質薪資」的對照清單。
     """
     total_index_full_name = GOV_NAME_BRIDGE["總指數"]
 

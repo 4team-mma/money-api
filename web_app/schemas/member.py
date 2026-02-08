@@ -1,34 +1,26 @@
+# web_app/schemas/member.py
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 
-
 # --- 註冊頁面用的規格 ---
 class MemberRegister(BaseModel):
     username: str = Field(
-        min_length=1,
-        max_length=50,
-        description="帳號",
-        json_schema_extra={"example": "user"},
+        ..., min_length=1, max_length=50, description="帳號", examples=["user123"]
     )
     name: str = Field(
-        min_length=1,
-        max_length=50,
-        description="顯示暱稱",
-        json_schema_extra={"example": "天黑請閉眼"},
+        ..., min_length=1, max_length=50, description="顯示暱稱", examples=["小明"]
     )
     email: EmailStr = Field(
-        description="電子郵件", json_schema_extra={"example": "example@gmail.com"}
+        ..., description="電子郵件", examples=["user@example.com"]
     )
     password: str = Field(
-        min_length=3,
-        max_length=50,
-        description="密碼，至少 3 字元,最多50字元",
-        json_schema_extra={"example": "12345678"},
+        ..., min_length=3, max_length=50, description="密碼", examples=["password123"]
     )
-    confirm_password: str = Field(description="確認密碼",json_schema_extra={"example":"再次確認密碼，同上"})
+    confirm_password: str = Field(
+        ..., description="確認密碼", examples=["password123"]
+    )
 
-    # 💡 驗證：兩次密碼必須一樣
     @field_validator("confirm_password")
     @classmethod
     def passwords_match(cls, v: str, info):
@@ -36,54 +28,44 @@ class MemberRegister(BaseModel):
             raise ValueError("兩次輸入的密碼不一致")
         return v
 
-
 # --- 登入頁面用的規格 ---
 class MemberLogin(BaseModel):
     identifier: str = Field(
-        description="電子郵件或帳號", json_schema_extra={"example": "user@example.com"}
+        ..., description="電子郵件或帳號", examples=["user@example.com"]
     )
     password: str = Field(
-        description="密碼", json_schema_extra={"example": "my_password123"}
+        ..., description="密碼", examples=["mypassword123"]
     )
     remember_me: bool = Field(
-        default=False, description="True:保持登入狀態 30 天,False:1小時", json_schema_extra={"example": "False"}
+        default=False, description="保持登入狀態 (True: 30天, False: 1小時)", examples=[True]
     )
 
-
-# ====修改
+# --- 修改個人資料規格 ---
 class MemberUpdate(BaseModel):
-    username: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    job: Optional[str] = None  #  允許修改職稱
+    username: Optional[str] = Field(None, description="新帳號名稱", examples=["new_username"])
+    name: Optional[str] = Field(None, description="新暱稱", examples=["新暱稱"])
+    email: Optional[EmailStr] = Field(None, description="新電子郵件", examples=["new_email@example.com"])
+    job: Optional[str] = Field(None, description="職稱", examples=["全端工程師"])
 
-
-# --- 回傳給前端用的規格 (不含密碼) ---
+# --- 回傳給前端用的規格 ---
 class MemberResponse(BaseModel):
-    # user_id: int
-    email: str
-    username: str
-    name: str
-    role: str
-    job: Optional[str] = None
-    xp: int = 0
-    level: int = 1
-    points: int = 0
-    created_at: Optional[datetime] = None
+    email: str = Field(..., examples=["user@example.com"])
+    username: str = Field(..., examples=["user123"])
+    name: str = Field(..., examples=["小明"])
+    role: str = Field(..., examples=["user"])
+    job: Optional[str] = Field(None, description="職稱", examples=["一般用戶"])
+    xp: int = Field(0, examples=[100])
+    level: int = Field(1, examples=[5])
+    points: int = Field(0, examples=[500])
+    created_at: Optional[datetime] = Field(None, examples=["2026-02-08T14:59:56.021Z"])
 
-    # Pydantic v2 建議統一使用
     model_config = ConfigDict(from_attributes=True)
 
-
-# 刪除
-class MemberDeleteResponse(BaseModel):
-    message: str
-    # user_id: int
-
-
-# 用於變更密碼的規格
+# --- 變更密碼規格 ---
 class MemberPasswordChange(BaseModel):
     current_password: str = Field(
-        description="目前密碼", json_schema_extra={"example": "12345678"}
+        ..., description="目前密碼", examples=["old_password123"]
     )
-    new_password: str = Field(min_length=3, max_length=50, description="新密碼")
+    new_password: str = Field(
+        ..., min_length=3, max_length=50, description="新密碼", examples=["new_secure_pass"]
+    )

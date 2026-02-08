@@ -191,7 +191,6 @@ class PasswordReset(Base):
         DateTime, nullable=False, server_default=func.now()
     )
 
-
 # 8. 回饋表格 (育育)
 class Feedback(Base):
     __tablename__ = "feedbacks"
@@ -209,13 +208,23 @@ class Feedback(Base):
     feedback_name: Mapped[str] = mapped_column(String(50), nullable=False)
     # 問題類型 (例如：Bug、建議)
     question_type: Mapped[str] = mapped_column(String(10), nullable=False)
-    # 使用頁面 (後端自動帶入，例如 'web')
+    # 使用頁面 (例如 'web')
     use_page: Mapped[str] = mapped_column(String(10), nullable=False)
-    # 詳細內容 (對應 SQL 的 TEXT 型態)
+    # 詳細內容
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # --- 新增/修改的管理者回覆欄位 ---
+    # 管理者回覆內容 (可為空)
+    admin_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    # 是否已回覆 (0: 未回, 1: 已回)
+    is_replied: Mapped[int] = mapped_column(Integer, server_default="0") 
+    # 註：SQLAlchemy 中 Boolean 通常對應 TINYINT，也可以寫 Mapped[bool] = mapped_column(Boolean, default=False)
+    # 回覆時間
+    replied_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     # 建立時間
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    # 如果有需要，可以建立與 Member 的關聯
+    # user = relationship("Member")
 
 # 9. CPI 物價指數資料 (白)
 class CpiData(Base):
