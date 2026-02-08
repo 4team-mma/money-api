@@ -288,3 +288,73 @@ class SalaryBenchmark(Base):
             name="unique_salary_record",
         ),
     )
+    
+# 11. 系統/個人偏好設定 (User Settings)
+class Setting(Base):
+    __tablename__ = "settings"
+
+    setting_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+
+    # 【區塊一：個人檔案 Profile】
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(255), comment="頭像路徑")
+    birthday: Mapped[Optional[date]] = mapped_column(Date, comment="生日")
+    about: Mapped[Optional[str]] = mapped_column(String(500), comment="自我介紹")
+
+    # 【區塊二：系統功能偏好 Logic】
+    # 使用 String(20) 來對應 SQL 的 ENUM
+    budget_cycle: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="monthly", comment="預算週期: monthly, weekly, yearly"
+    )
+    budget_alert_threshold: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="75", comment="預算提醒水位(%)"
+    )
+    start_of_week: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", comment="週起始日 0=週日, 1=週一"
+    )
+
+    # 【區塊三：介面外觀 Appearance】
+    app_theme: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="light", comment="前台網頁主題"
+    )
+    admin_theme: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="mma_light", comment="後台管理系統主題"
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 建立與 Member 的一對一關係 (可選)
+    # member = relationship("Member", back_populates="setting")
+
+
+# 12. AI 模型配置 (AI Configs)
+class AIConfig(Base):
+    __tablename__ = "ai_configs"
+
+    config_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
+
+    # 對應 ENUM('gemini', 'ollama')
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    
+    api_key: Mapped[Optional[str]] = mapped_column(String(500), comment="加密後的金鑰")
+    base_url: Mapped[str] = mapped_column(
+        String(255), server_default="http://localhost:11434", comment="Ollama 地端網址"
+    )
+    model_version: Mapped[str] = mapped_column(String(50), nullable=False, comment="模型名稱")
+
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, comment="AI 的人格設定")
+    max_tokens: Mapped[int] = mapped_column(Integer, server_default="2000")
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="0")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )

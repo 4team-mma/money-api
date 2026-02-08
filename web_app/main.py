@@ -16,6 +16,7 @@ from web_app.routes import (
     feedback,
     analysis,
     reminders,
+    ai_models
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.stats import router as stats_router
@@ -225,6 +226,7 @@ app.include_router(transfers.router, prefix="/api/transfers", tags=["轉帳紀�
 app.include_router(feedback.router, prefix="/api/feedback", tags=["問題回饋"])
 app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事項"])
 app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
+app.include_router(ai_models.router, prefix="/api/ai_models", tags=["AI模型設定"])
 app.include_router(
     admin.router,
     prefix="/api/admin",
