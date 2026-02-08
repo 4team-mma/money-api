@@ -8,22 +8,30 @@ from ..dependencies import get_current_user
 
 router = APIRouter()
 
-
-@router.post("/", response_model=FeedbackResponse)
+# ===== POST 提交回饋 =====
+@router.post(
+    "/", 
+    response_model=FeedbackResponse,
+    summary="提交新的意見回饋",
+    description="""
+    讓登入使用者針對系統提交意見、Bug回報或功能建議。
+    系統會自動抓取使用者 Token 中的身份資訊，並將初始狀態設定為「待處理」。
+    """,
+    response_description="成功建立回饋記錄並回傳資料內容"
+)
 def create_feedback(
     data: FeedbackCreate,
     db: Session = Depends(get_db),
-    # 這裡會從 Token 自動抓取 user_id，不需要前端傳
     current_user: Member = Depends(get_current_user),
 ):
-
-    # 將前端傳來的 4 個欄位 + 後端抓到的 user_id 組合起來
+    # 將前端傳來的欄位 + 後端抓到的 user_id 組合，並給予初始狀態
     new_feedback = Feedback(
         user_id=current_user.user_id,
         feedback_name=data.feedback_name,
         question_type=data.question_type,
         use_page=data.use_page,
         content=data.content,
+        status="待處理"  # 確保資料庫有此欄位
     )
 
     db.add(new_feedback)
@@ -32,15 +40,22 @@ def create_feedback(
     return new_feedback
 
 
-@router.get("/my", response_model=List[FeedbackResponse])
+# ===== GET 我的回饋 =====
+@router.get(
+    "/my", 
+    response_model=List[FeedbackResponse],
+    summary="取得使用者個人的回饋歷史",
+    description="取得當前登入使用者過去所有提交過的回饋紀錄，包含處理狀態與提交時間。",
+    response_description="回傳該使用者的回饋紀錄列表"
+)
 def get_my_feedbacks(
-    db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
 ):
-    """
-    讓使用者查看自己過往提交的意見回饋
-    """
-
     feedbacks = (
-        db.query(Feedback).filter(Feedback.user_id == current_user.user_id).all()
+        db.query(Feedback)
+        .filter(Feedback.user_id == current_user.user_id)
+        .order_by(Feedback.created_at.desc()) # 新增排序，讓最新的顯示在前面
+        .all()
     )
     return feedbacks

@@ -7,6 +7,7 @@ import logging
 from web_app.database import get_db
 from web_app.models.models import AddRecord, Member
 from web_app.dependencies import get_current_user
+from ...schemas.trends import NetWorthHistoryResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -66,9 +67,26 @@ async def get_cash_flow_trend(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/net-worth-history")
+from sqlalchemy import text
+# ... 確保引入了上面的 NetWorthHistoryResponse
+
+@router.get(
+    "/net-worth-history", 
+    response_model=NetWorthHistoryResponse,
+    summary="取得淨資產歷史走勢",
+    description="""
+    計算並回傳使用者在日、月、年三個維度的淨資產變化趨勢。
+    
+    **運作邏輯：**
+    1. 抓取所有帳戶的當前總餘額作為基準點。
+    2. 從 `adds` 表中抓取收支記錄，利用「當前總額」配合「收支變動」進行倒推計算（Running Balance）。
+    3. 分別聚合為每日、每月、每年數據。
+    """,
+    response_description="回傳包含 daily, monthly, yearly 三個維度的歷史淨資產物件"
+)
 def get_net_worth_history(
-    db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
 ):
     user_id = current_user.user_id
 
@@ -77,13 +95,13 @@ def get_net_worth_history(
         text("SELECT SUM(current_balance) FROM accounts WHERE user_id = :uid"),
         {"uid": user_id},
     ).fetchone()
+    
     current_total = (
         float(res_total[0]) if res_total and res_total[0] is not None else 0.0
     )
 
     # --- 2. 處理每日資料 (Daily) ---
-    query_daily = text(
-        """
+    query_daily = text("""
         SELECT 
             DATE(add_date) as day_key,
             SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
@@ -91,8 +109,7 @@ def get_net_worth_history(
         WHERE user_id = :uid
         GROUP BY day_key
         ORDER BY day_key DESC
-    """
-    )
+    """)
     daily_changes = db.execute(query_daily, {"uid": user_id}).fetchall()
 
     daily_results = []
@@ -100,20 +117,17 @@ def get_net_worth_history(
     for row in daily_changes:
         d_key = str(row[0])
         change = float(row[1])
-        daily_results.append(
-            {
-                "id": f"d_{d_key}",
-                "date": d_key,
-                "period": d_key,
-                "net": round(running_balance_d, 2),
-                "diff": round(change, 2),
-            }
-        )
+        daily_results.append({
+            "id": f"d_{d_key}",
+            "date": d_key,
+            "period": d_key,
+            "net": round(running_balance_d, 2),
+            "diff": round(change, 2),
+        })
         running_balance_d -= change
 
     # --- 3. 處理月資料 (Monthly) ---
-    query_monthly = text(
-        """
+    query_monthly = text("""
         SELECT 
             CONCAT(YEAR(add_date), '-', LPAD(MONTH(add_date), 2, '0')) as month_key,
             SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
@@ -121,8 +135,7 @@ def get_net_worth_history(
         WHERE user_id = :uid
         GROUP BY month_key
         ORDER BY month_key DESC
-    """
-    )
+    """)
     monthly_changes = db.execute(query_monthly, {"uid": user_id}).fetchall()
 
     monthly_results = []
@@ -130,20 +143,17 @@ def get_net_worth_history(
     for row in monthly_changes:
         m_key = row[0]
         change = float(row[1])
-        monthly_results.append(
-            {
-                "id": f"m_{m_key}",
-                "date": f"{m_key}-01",
-                "period": f"{m_key.split('-')[0]}年{m_key.split('-')[1]}月",
-                "net": round(running_balance_m, 2),
-                "diff": round(change, 2),
-            }
-        )
+        monthly_results.append({
+            "id": f"m_{m_key}",
+            "date": f"{m_key}-01",
+            "period": f"{m_key.split('-')[0]}年{m_key.split('-')[1]}月",
+            "net": round(running_balance_m, 2),
+            "diff": round(change, 2),
+        })
         running_balance_m -= change
 
     # --- 4. 處理年資料 (Yearly) ---
-    query_yearly = text(
-        """
+    query_yearly = text("""
         SELECT 
             YEAR(add_date) as year_key,
             SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
@@ -151,8 +161,7 @@ def get_net_worth_history(
         WHERE user_id = :uid
         GROUP BY year_key
         ORDER BY year_key DESC
-    """
-    )
+    """)
     yearly_changes = db.execute(query_yearly, {"uid": user_id}).fetchall()
 
     yearly_results = []
@@ -160,15 +169,13 @@ def get_net_worth_history(
     for row in yearly_changes:
         y_key = str(row[0])
         change = float(row[1])
-        yearly_results.append(
-            {
-                "id": f"y_{y_key}",
-                "date": f"{y_key}-01-01",
-                "period": f"{y_key}年",
-                "net": round(running_balance_y, 2),
-                "diff": round(change, 2),
-            }
-        )
+        yearly_results.append({
+            "id": f"y_{y_key}",
+            "date": f"{y_key}-01-01",
+            "period": f"{y_key}年",
+            "net": round(running_balance_y, 2),
+            "diff": round(change, 2),
+        })
         running_balance_y -= change
 
     return {

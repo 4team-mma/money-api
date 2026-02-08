@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from decimal import Decimal
 from typing import Optional
 from datetime import datetime
@@ -10,7 +10,7 @@ class AccountCreate(BaseModel):
     # 設定預設值，因為資料庫有 Default，但前端可能不傳
     account_type: str = "現金"
     currency: str = "NT$"
-    initial_balance: Decimal
+    initial_balance: float = Field(default=0.0)
     exclude_from_assets: bool = False
 
     # 修正：資料庫欄位是 account_icon，這裡必須同名才能自動對應
@@ -22,7 +22,7 @@ class AccountCreate(BaseModel):
 class AccountResponse(AccountCreate):
     account_id: int
     # user_id: int
-    current_balance: Decimal
+    current_balance: float
     created_at: datetime  # 新增
     updated_at: datetime  # 新增
 
