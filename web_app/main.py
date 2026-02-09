@@ -34,6 +34,35 @@ from slowapi.errors import RateLimitExceeded
 import logging
 from datetime import datetime,timedelta
 
+# 圖片加載
+
+app = FastAPI()
+
+# 1. 取得 main.py 當前所在的絕對目錄路徑 (也就是 web_app 資料夾)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 2. 拼接出 static 的絕對路徑
+static_dir = os.path.join(current_dir, "static")
+
+# 3. 打印出來檢查 (這步很重要，你可以看終端機輸出的路徑對不對)
+print(f"DEBUG: 靜態檔案目錄正指向: {static_dir}")
+
+# 1. 取得絕對路徑
+current_dir = os.path.dirname(os.path.abspath(__file__))
+static_dir = os.path.join(current_dir, "static")
+
+# 2. 【關鍵檢查】印出這個路徑，看它到底在哪裡
+print(f"--- 靜態路徑檢查 ---")
+print(f"目前 main.py 位置: {current_dir}")
+print(f"預計掛載的 static 位置: {static_dir}")
+print(f"該資料夾是否存在: {os.path.exists(static_dir)}")
+print(f"------------------")
+
+
+
+
+
+
 
 # 1. 先載入環境變數
 load_dotenv()
@@ -144,6 +173,8 @@ app = FastAPI(
     openapi_url="/openapi.json" if DEBUG else None,
 )
 
+
+
 # ----------------------------------------------------------------
 # 🔥slowapi：相關設定02
 # ----------------------------------------------------------------
@@ -248,5 +279,4 @@ def jinja(request: Request):
         request=request, name="test.jinja", context={"第一組": "money"}
     )
 
-
-app.mount("/static", StaticFiles(directory="web_app/static"), name="static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
