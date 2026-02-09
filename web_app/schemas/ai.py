@@ -9,28 +9,35 @@ class AIProvider(str, Enum):
     anythingllm = "anythingllm"
 
 class AIConfigSave(BaseModel):
-    provider: AIProvider = Field(..., description="模型供應商", examples=["ollama"])
-    api_key: Optional[str] = Field(None, description="API 金鑰 (選填)", examples=["your-api-key-here"])
-    base_url: str = Field("http://localhost:11434", description="伺服器位址", examples=["http://localhost:11434"])
-    model_version: str = Field("gemma3:1b", description="模型版本", examples=["gemma3:1b"])
+    provider: AIProvider = Field(..., description="模型供應商", examples=["gemini"])
+    # 🔐 api_key 保持選填，因為有時候只是想切換模型而不更新 Key
+    api_key: Optional[str] = Field(None, description="API 金鑰 (選填)")
+    
+    # 🌐 base_url 設為選填 (Optional)，因為 Gemini 走 SDK 不需要此欄位
+    base_url: Optional[str] = Field(None, description="伺服器位址 (Ollama/Anything 需要)", examples=["http://localhost:11434"])
+    
+    # 🤖 model_version 建議給一個通用的預設值
+    model_version: str = Field("gemini-1.5-flash", description="模型版本", examples=["gemini-2.0-flash"])
+    
     system_prompt: Optional[str] = Field(
         "你是一個親切的理財助手喵喵，說話結尾要帶喵~", 
-        description="系統提示詞 (人格設定)",
-        examples=["你現在是精明的主管喵，專門盯預算。"]
+        description="系統提示詞 (人格設定)"
     )
 
 class AIConfigResponse(BaseModel):
-    # config_id: int # 註解掉若不需回傳
-    provider: str = Field(..., examples=["ollama"])
-    base_url: str = Field(..., examples=["http://localhost:11434"])
-    model_version: str = Field(..., examples=["gemma3:1b"])
+    provider: str = Field(..., examples=["gemini"])
+    base_url: Optional[str] = Field(None, examples=["http://localhost:11434"])
+    model_version: str = Field(..., examples=["gemini-1.5-flash"])
+    system_prompt: Optional[str] = Field(None, description="目前生效的提示詞")
     is_active: bool = Field(..., examples=[True])
+    has_key: bool = Field(default=False, description="資料庫是否已存在此供應商的金鑰") # 👈 確保有 default
 
     model_config = ConfigDict(from_attributes=True)
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., description="使用者輸入的訊息", examples=["幫我分析一下這個月的花費喵"])
+    message: str = Field(..., description="使用者輸入的訊息")
 
+# 若未來要支援連續對話 (Context)，這會派上用場
 class ChatMessage(BaseModel):
-    role: str = Field(..., description="角色: user, assistant, system", examples=["user"])
-    content: str = Field(..., description="對話內容", examples=["你好喵！"])
+    role: str = Field(..., description="角色: user, assistant, system")
+    content: str = Field(..., description="對話內容")
