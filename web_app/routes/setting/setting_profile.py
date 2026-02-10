@@ -28,7 +28,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def upload_avatar(
     user_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)
 ):
-    # 1. 確保資料夾存在
+    # 1-1. 檢查檔名是否存在 (解決 Pylance 報錯關鍵)
+    if not file.filename:
+        return {"error": "上傳失敗，找不到檔案名稱"}
+
+    # 1-2. 確保資料夾存在
     if not os.path.exists(UPLOAD_DIR):
         os.makedirs(UPLOAD_DIR)
 
