@@ -6,68 +6,100 @@ from ..models import AIConfig, Member
 from ..schemas.ai import AIConfigSave, AIConfigResponse, ChatRequest
 from ..dependencies import get_current_user
 from ..utils.ai_security import decrypt_api_key, encrypt_api_key
-from ..services.anything_service import AnythingService 
+
+# 引入服務層 (Services)
 from ..services.gemini_service import GeminiService 
+from ..services.ollama_service import OllamaService     # 本地模型
+from ..services.anything_service import AnythingService # 保留原本的 Anything 服務
+from ..services.finance_agent_service import FinanceAgentService # 🆕 引入新大腦
+
 from typing import Optional
-import httpx 
 import os
-import datetime
-import logging
 import time
 import traceback
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
-# --- 1. 獲取配置 (完美修正 Pylance 紅線與描述) ---
-@router.get("/config", response_model=Optional[AIConfigResponse])
+# --- 1. 獲取配置 (保留完整的 API 文件說明) ---
+@router.get(
+    "/config", 
+    response_model=Optional[AIConfigResponse],
+    summary="取得 AI 模型配置",
+    description="根據 provider 參數取得對應的設定；若未指定，則回傳目前生效 (is_active=True) 的設定。"
+)
 def get_ai_robot_config(
-    provider: Optional[str] = Query(None, description="指定查詢的模型供應商"), 
+    provider: Optional[str] = Query(None, description="指定查詢的模型供應商 (gemini, ollama, anythingllm)"), 
     db: Session = Depends(get_db), 
     current_user: Member = Depends(get_current_user)
 ):
     query = db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id)
     
+    target_config = None
     if provider:
         # 查特定大腦的最新一筆
-        config = query.filter(AIConfig.provider == provider).order_by(AIConfig.created_at.desc()).first()
+        target_config = query.filter(AIConfig.provider == provider).order_by(AIConfig.created_at.desc()).first()
     else:
         # 預設查目前生效中的
-        config = query.filter(AIConfig.is_active == True).first()
+        target_config = query.filter(AIConfig.is_active == True).first()
+        # 防呆：如果完全沒設定過，至少回傳一個預設值，避免前端壞掉
+        if not target_config:
+            # 嘗試找任一筆，或直接回傳 None 讓下方處理預設值
+            target_config = query.first()
 
-    if config:
-        # 🚀 終極修正：先轉字典，再用解包方式建立，Pylance 絕對不會報錯
+    if target_config:
+        # 🚀 修正：先轉字典，再用解包方式建立，Pylance 絕對不會報錯
         data_dict = {
-            "provider": str(config.provider),
-            "base_url": config.base_url,
-            "model_version": config.model_version,
-            "system_prompt": config.system_prompt,
-            "is_active": bool(config.is_active),
-            "has_key": config.api_key is not None and config.api_key != "none"
+            "provider": str(target_config.provider),
+            "base_url": target_config.base_url,
+            "model_version": target_config.model_version, # 這裡就是解決選單空白的關鍵
+            "system_prompt": target_config.system_prompt,
+            "is_active": bool(target_config.is_active),
+            "has_key": target_config.api_key is not None and target_config.api_key != "none"
         }
         return AIConfigResponse(**data_dict)
     
-    return None
+    # 若資料庫完全無資料，回傳預設結構
+    return AIConfigResponse(
+        provider="gemini",
+        base_url="",
+        model_version="gemini-1.5-flash",
+        system_prompt="你是理財小助手喵喵...",
+        is_active=False,
+        has_key=False
+    )
 
-# --- 2. 儲存配置 (保留喵喵語氣與完整邏輯) ---
-@router.post("/save")
-def save_ai_config(payload: AIConfigSave, db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+# --- 2. 儲存配置 (保留完整邏輯與錯誤處理) ---
+@router.post(
+    "/save", 
+    summary="儲存或更新 AI 配置",
+    description="儲存 API Key (自動加密)、切換生效模型，並更新 System Prompt。"
+)
+def save_ai_config(
+    payload: AIConfigSave, 
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
     try:
-        # 先將該使用者所有設定設為不生效
+        # 先將該使用者所有設定設為不生效 (單選邏輯)
         db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id).update({"is_active": False})
         
         # 決定金鑰：如果有傳入新 Key 就加密，否則嘗試抓取該 provider 舊有的 Key
         new_key = payload.api_key
-        if new_key and new_key != "none":
+        secured_key = "none"
+
+        if new_key and new_key != "none" and new_key.strip():
             secured_key = encrypt_api_key(new_key)
         else:
+            # 嘗試找舊的 Key 繼承使用
             old = db.query(AIConfig).filter(
                 AIConfig.user_id == current_user.user_id,
                 AIConfig.provider == payload.provider
             ).order_by(AIConfig.created_at.desc()).first()
-            secured_key = old.api_key if old else "none"
+            if old and old.api_key:
+                secured_key = old.api_key
 
         new_config = AIConfig(
             user_id=current_user.user_id,
@@ -85,30 +117,50 @@ def save_ai_config(payload: AIConfigSave, db: Session = Depends(get_db), current
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- 3. AI 對話接口 (保留所有調試日誌與邏輯) ---
-@router.post("/chat")
-async def chat_with_meow(req: ChatRequest, db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+# --- 3. AI 對話接口 (整合智能篩選器) ---
+@router.post(
+    "/chat",
+    summary="與 AI 喵喵對話",
+    description="接收使用者訊息，透過智能篩選器 (FinanceAgent) 抓取財務數據，並轉發給指定的 AI 模型 (Gemini/Ollama)。"
+)
+async def chat_with_meow(
+    req: ChatRequest, 
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
     start_time = time.time()
     db.expire_all() 
 
+    # 1. 取得目前生效配置
     config = db.query(AIConfig).filter(
         AIConfig.user_id == current_user.user_id, 
         AIConfig.is_active == True
     ).first()
 
+    # 防呆預設
     if not config:
         config = AIConfig(provider="gemini", model_version="gemini-1.5-flash", system_prompt="你是理財小助手喵喵喵")
 
-    target_id = config.model_version if config.model_version else "gemini-1.5-flash"
-    print(f"🔥 [AI DEBUG] 呼叫模型: {target_id} | 使用者: {current_user.name}")
+    print(f"🔥 [AI DEBUG] 呼叫模型: {config.model_version} | 使用者: {current_user.name}")
 
+    # 2. 🧠 呼叫大腦：獲取智能篩選後的財務上下文
+    # 這是原本只有 AnythingService 的地方，現在升級成 FinanceAgentService
     try:
-        financial_data = AnythingService.get_structured_financial_context(db, current_user.user_id)
-    except Exception:
-        financial_data = "暫時抓不到財務明細喵。"
+        # 這裡會根據使用者問 "餘額" 還是 "支出" 自動決定抓什麼資料
+        financial_context_instruction = FinanceAgentService.get_context(db, current_user.user_id, req.message)
+    except Exception as e:
+        print(f"❌ 數據讀取失敗: {e}")
+        financial_context_instruction = "【系統訊息】暫時無法讀取財務資料，請依一般常識回答。"
 
+    # 3. 組合最終指令 (使用者自訂 Prompt + 財務數據)
+    final_system_prompt = f"{config.system_prompt}\n\n{financial_context_instruction}"
+
+    # 4. 根據 Provider 分流呼叫
     try:
+        reply = "喵喵不知道該說什麼..."
+        
         if config.provider == "gemini":
+            # 處理 Key 解密
             env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             db_key = "none"
             if config.api_key and config.api_key != "none":
@@ -121,35 +173,48 @@ async def chat_with_meow(req: ChatRequest, db: Session = Depends(get_db), curren
 
             reply = await GeminiService.chat_async(
                 api_key=final_key,
-                model_id=target_id,
+                model_id=config.model_version,
                 prompt=req.message,
-                system_instruction=f"{config.system_prompt}\n【事實數據】：{financial_data}"
+                system_instruction=final_system_prompt
             )
 
         elif config.provider == "ollama":
-            async with httpx.AsyncClient() as client:
-                res = await client.post(f"{config.base_url}/api/chat", json={
-                    "model": config.model_version,
-                    "messages": [{"role": "user", "content": f"{config.system_prompt}\n數據：{financial_data}\n問題：{req.message}"}],
-                    "stream": False
-                }, timeout=120.0)
-                reply = res.json()["message"]["content"]
+            # 呼叫我們整理好的 OllamaService
+            reply = await OllamaService.chat_async(
+                base_url=config.base_url,
+                model_id=config.model_version,
+                prompt=req.message,
+                system_instruction=final_system_prompt
+            )
 
         elif config.provider == "anythingllm":
-            any_key = decrypt_api_key(config.api_key) if config.api_key != "none" else os.getenv("ANYTHINGLLM_KEY")
+            # 保留你原本的 AnythingLLM 邏輯
+            # (雖然 AnythingLLM 有自己的 RAG，但我們這裡還是可以用簡單的方式串接)
+            any_key = decrypt_api_key(config.api_key) if (config.api_key and config.api_key != "none") else os.getenv("ANYTHINGLLM_KEY")
             any_ws = os.getenv("ANYTHINGLLM_WORKSPACE", "finance-al-agent")
             api_url = f"{config.base_url.rstrip('/')}/api/v1/workspace/{any_ws}/chat"
+            
             async with httpx.AsyncClient() as client:
-                res = await client.post(api_url, 
-                    json={"message": f"{config.system_prompt}\n數據：{financial_data}\n問題：{req.message}", "mode": "chat"}, 
-                    headers={"Authorization": f"Bearer {any_key}"}, timeout=120.0)
+                res = await client.post(
+                    api_url, 
+                    json={
+                        "message": f"{final_system_prompt}\n問題：{req.message}", 
+                        "mode": "chat"
+                    }, 
+                    headers={"Authorization": f"Bearer {any_key}"}, 
+                    timeout=120.0
+                )
                 reply = res.json().get("textResponse", "喵... AnyThingLLM 沒回應。")
         else:
             reply = "喵喵目前不知道該用哪個大腦。"
 
         duration = round(time.time() - start_time, 2)
         print(f"✨ [AI DEBUG] 回應成功！耗時: {duration}s")
-        return {"reply": reply, "duration": duration, "provider": config.provider}
+        return {
+            "reply": reply, 
+            "duration": duration, 
+            "provider": f"{config.provider} ({config.model_version})"  #  這樣前端會顯示 "gemini (gemini-1.5-flash)"
+        }
 
     except Exception as e:
         traceback.print_exc()
