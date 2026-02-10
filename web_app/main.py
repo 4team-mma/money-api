@@ -45,18 +45,18 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 static_dir = os.path.join(current_dir, "static")
 
 # 3. 打印出來檢查 (這步很重要，你可以看終端機輸出的路徑對不對)
-print(f"DEBUG: 靜態檔案目錄正指向: {static_dir}")
+# print(f"DEBUG: 靜態檔案目錄正指向: {static_dir}")
 
 # 1. 取得絕對路徑
 current_dir = os.path.dirname(os.path.abspath(__file__))
 static_dir = os.path.join(current_dir, "static")
 
 # 2. 【關鍵檢查】印出這個路徑，看它到底在哪裡
-print(f"--- 靜態路徑檢查 ---")
-print(f"目前 main.py 位置: {current_dir}")
-print(f"預計掛載的 static 位置: {static_dir}")
-print(f"該資料夾是否存在: {os.path.exists(static_dir)}")
-print(f"------------------")
+# print(f"--- 靜態路徑檢查 ---")
+# print(f"目前 main.py 位置: {current_dir}")
+# print(f"預計掛載的 static 位置: {static_dir}")
+# print(f"該資料夾是否存在: {os.path.exists(static_dir)}")
+# print(f"------------------")
 
 
 
