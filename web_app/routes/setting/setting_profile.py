@@ -3,6 +3,8 @@ import shutil
 from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from pydantic import BaseModel
+from typing import Optional # 建議加上這個
 
 # 這裡要匯入你定義 get_db 的地方，以及你的 Model
 # 從上一層匯入 database.py 裡的 get_db
@@ -11,6 +13,15 @@ from ... import models
 
 
 router = APIRouter()
+
+# --- 模型定義 ---
+
+class ProfileUpdate(BaseModel):
+    name: str      # 對應 members.name
+    email: str     # 對應 members.email
+    birthday: Optional[str] = None  # 對應 settings.birthday
+    about: Optional[str] = None     # 對應 settings.about
+
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -98,3 +109,74 @@ async def remove_avatar(
     except Exception as e:
         db.rollback()
         return {"success": False, "message": str(e)}
+
+# =================================
+# 文字欄位(暱稱、Email、生日、關於我)
+# =================================
+
+
+@router.put("/update-profile/{username}")
+async def update_profile(username: str, data: ProfileUpdate, db: Session = Depends(get_db)):
+    try:
+        # 1️⃣ 先找 member (這是主表)
+        member = db.query(models.Member).filter(models.Member.username == username).first()
+        if not member:
+            return {"success": False, "message": "找不到該使用者"}
+
+        # 2️⃣ 更新 members 表格 (暱稱與 Email)
+        member.name = data.name
+        member.email = data.email
+
+        # 3️⃣ 更新或建立 settings 表格 (生日與關於我)
+        setting = db.query(models.Setting).filter(models.Setting.user_id == member.user_id).first()
+
+        if not setting:
+            # 如果萬一沒有設定檔，就建立一個
+            setting = models.Setting(user_id=member.user_id)
+            db.add(setting)
+
+        setting.birthday = data.birthday
+        setting.about = data.about  # 根據截圖，欄位名稱是 about
+
+        db.commit()
+        return {"success": True, "message": "個人資料已同步更新！"}
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "message": str(e)}
+
+# =================================
+# 文字欄位(抓既有的暱稱、Email)
+# =================================
+
+@router.get("/get-profile/{username}")
+async def get_profile(username: str, db: Session = Depends(get_db)):
+    # 使用 JOIN 同時從 members 和 settings 抓取資料
+    # models.Member.name 和 email 在 members 表
+    # models.Setting.birthday, about, avatar_url 在 settings 表
+    result = db.query(
+        models.Member.name,
+        models.Member.email,
+        models.Setting.birthday,
+        models.Setting.about,
+        models.Setting.avatar_url
+    ).join(
+        models.Setting, 
+        models.Member.user_id == models.Setting.user_id, 
+        isouter=True  # 使用 Left Join，避免使用者還沒有 setting 資料時抓不到人
+    ).filter(models.Member.username == username).first()
+
+    if not result:
+        return {"success": False, "message": "找不到該使用者"}
+
+    # 回傳 JSON 給前端
+    return {
+        "success": True,
+        "data": {
+            "name": result.name,
+            "email": result.email,
+            "birthday": result.birthday,
+            "about": result.about,
+            "avatar_url": result.avatar_url
+        }
+    }
