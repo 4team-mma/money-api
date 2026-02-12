@@ -4,6 +4,14 @@
 ## 新手指南
 api裡面有需多名詞不太理解，會記錄在這邊供參考。
 
+
+## 前端Api引用說明:
+有兩種風格：
+1.直接匯出函式 (Function Export): 如 analysis.js 的 export const getCpiComparison = ...
+2.物件匯出法 (Object Export): 如 record.js 的 export const recordApi = { ... }
+
+
+
 ## Depends
 1.Depends會確保`get_current_user` 存在。
 2.有些會使用`uid = current_user.user_id` 就不用寫這麼長。
