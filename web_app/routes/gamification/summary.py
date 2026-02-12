@@ -9,7 +9,6 @@ router = APIRouter()
 @router.get("/info", response_model=schemas.GameSummary)
 def get_game_summary(
     
-    current_user: Member=Depends(get_current_user), 
-    db: Session = Depends(get_db)):
+    current_user: Member=Depends(get_current_user)):
         
     return current_user

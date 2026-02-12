@@ -52,6 +52,12 @@ from ..schemas.accounts import AccountCreate
 因為那是資料庫SQLAlchemy對應的欄位user_id是要int但你卻給他物件，會報錯混淆。
 ### 2.db.query()的使用:
 - 當使用`db: Session = Depends(get_db)`是因為要使用`db.query`，如果不用其實就不用寫。
+- **用途：**`db` 這個變數是用來執行資料庫操作的，例如：
+1.查詢：db.query(...)
+2.新增：db.add(...)
+3.存檔：db.commit()
+4.更新：db.refresh(...)
+- **結論：**如果你的路由函式（Route Function）裡面 完全沒有用到 上述任何一個指令，你就可以把它拿掉。
 ```bash
 # 通常都會有user
 # 當user被當成物件時(我們是用這種寫法):
@@ -59,6 +65,12 @@ def get_dashboard_summary(current_user: Member=Depend(get_current_user), db: Ses
 
 # 當user不是物件:
 def get_dashboard_summary(user_id: int, db: Session = Depends(get_db)):
+
+# 當只回傳current_user，不需要查看資料庫，所以拿掉 db:
+@router.get("/info", response_model=schemas.GameSummary)
+def get_game_summary(current_user: Member = Depends(get_current_user)):
+    return current_user
+
 ```
 
 ## Return 的寫法：什麼時候可以偷懶？
