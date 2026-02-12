@@ -67,6 +67,7 @@ def get_daily_missions(
         })
     return result
 
+#  在遊戲、保險、法律、以及軟體開發 的領域中，claim 有另一個非常核心的意義：「索取、領取（屬於我的權利或獎勵）」
 @router.post("/{miss_id}/claim", response_model=schemas.ClaimRewardResponse)
 def claim_mission_reward(
     miss_id: int, 
