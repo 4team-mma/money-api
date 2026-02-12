@@ -40,7 +40,7 @@ async def get_admin_rankings(db: Session = Depends(get_db)):
         db.query(
             AddRecord.add_class, func.sum(AddRecord.add_amount).label("total_amount")
         )
-        .filter(AddRecord.add_type is False)
+        .filter(AddRecord.add_type == False)
         .group_by(AddRecord.add_class)
         .order_by(func.sum(AddRecord.add_amount).desc())
         .limit(10)
@@ -93,7 +93,7 @@ async def get_admin_rankings(db: Session = Depends(get_db)):
             func.count(AddRecord.add_id).label("tx_count"),
         )
         .join(AddRecord, Member.user_id == AddRecord.user_id)
-        .filter(Member.role == "user", AddRecord.add_type is False)
+        .filter(Member.role == "user", AddRecord.add_type == False)
         .group_by(Member.user_id)
         .order_by(func.sum(AddRecord.add_amount).desc())
         .limit(10)

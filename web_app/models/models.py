@@ -367,91 +367,174 @@ class AIConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now()
     )
-
-#####新增
+# ==========================================
+# 新增的遊戲化與成就系統 (Gamification)
+# ==========================================
 
 # 13. 每日打卡紀錄 (Julia 負責)
-# class Checkin(Base):
-#     __tablename__ = "checkin"
+class Checkin(Base):
+    __tablename__ = "checkin"
+    __table_args__ = (
+        UniqueConstraint("user_id", "checkin_date", name="uk_user_date"),
+    )
 
-#     checkin_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-#     user_id: Mapped[int] = mapped_column(
-#         Integer, ForeignKey("members.user_id"), nullable=False
-#     )
-
-#     checkin_date: Mapped[date] = mapped_column(Date, nullable=False)
+    checkin_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="打卡紀錄唯一ID"
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id"), nullable=False, comment="關聯用戶ID"
+    )
+    checkin_date: Mapped[date] = mapped_column(
+        Date, nullable=False, comment="打卡日期(YYYY-MM-DD)"
+    )
     
-#     # 當前連續天數
-#     streak_count: Mapped[int] = mapped_column(Integer, server_default="1", comment="當前連續天數")
-#     # 生涯累計打卡數
-#     total_checkins: Mapped[int] = mapped_column(Integer, server_default="1", comment="生涯累計打卡數")
-
-#     updated_at: Mapped[datetime] = mapped_column(
-#         TIMESTAMP, server_default=func.now(), onupdate=func.now()
-#     )
-
-#     # 建立複合唯一鍵，確保同一用戶在同一日期只能有一筆打卡紀錄
-#     __table_args__ = (
-#         UniqueConstraint("user_id", "checkin_date", name="uk_user_date"),
-#     )
-
-
-# 14. 每日隨機任務 (沛青 負責)
-# class DailyMission(Base):
-#     __tablename__ = "daily_missions"
-
-#     miss_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-#     user_id: Mapped[int] = mapped_column(
-#         Integer, ForeignKey("members.user_id"), nullable=False
-#     )
-
-#     title: Mapped[str] = mapped_column(String(100), nullable=False)
-#     # 任務難度 (EASY, NORMAL, HARD)
-#     difficulty: Mapped[str] = mapped_column(String(20), nullable=False)
-#     # 屬性分類 (例如: Analysis(T), Feeling(F) 等，用於 MBTI 成就判定)
-#     category: Mapped[Optional[str]] = mapped_column(String(20), comment="對應屬性標籤")
+    streak_count: Mapped[int] = mapped_column(
+        Integer, default=1, comment="目前連續打卡天數"
+    )
+    total_checkins: Mapped[int] = mapped_column(
+        Integer, default=0, comment="該用戶歷來總打卡次數"
+    )
+    earned_xp: Mapped[int] = mapped_column(
+        Integer, default=0, comment="本次打卡獲得的經驗值"
+    )
     
-#     xp_reward: Mapped[int] = mapped_column(Integer, nullable=False)
-    
-#     # 任務狀態 (0:進行中, 1:待領取, 2:已領取)
-#     status: Mapped[int] = mapped_column(Integer, server_default="0", comment="0:進行中, 1:待領取, 2:已領取")
-
-#     created_at: Mapped[date] = mapped_column(Date, nullable=False)
-#     updated_at: Mapped[datetime] = mapped_column(
-#         TIMESTAMP, server_default=func.now(), onupdate=func.now()
-#     )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="最後更新時間"
+    )
 
 
-# 15. 萬能成就與卡牌表 (組長 負責 - 整合圖鑑與進度)
-# class AchievementCard(Base):
-#     __tablename__ = "ach_cards"
+# 14. 任務與卡牌倉庫 (白/沛青)
+class MissCardsLibrary(Base):
+    __tablename__ = "misscards_library"
 
-#     ac_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-#     user_id: Mapped[int] = mapped_column(
-#         Integer, ForeignKey("members.user_id"), nullable=False
-#     )
+    lib_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="唯一識別碼"
+    )
     
-#     # 成就/卡片編號 (用於對應前端的資產或定義)
-#     ach_id: Mapped[int] = mapped_column(Integer, nullable=False, comment="成就/卡片編號")
+    # 對應 ENUM('MISSION', 'CARD', 'ACHIEVEMENT')
+    type: Mapped[str] = mapped_column(
+        String(20), nullable=False, comment="類型：MISSION, CARD, ACHIEVEMENT"
+    )
     
-#     mbti_type: Mapped[Optional[str]] = mapped_column(String(10), comment="MBTI 屬性")
-#     series_name: Mapped[str] = mapped_column(String(50), server_default="普通")
-#     title: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="名稱(如：策略喵-INTJ)"
+    )
     
-#     # 達成門檻與目前進度
-#     target_val: Mapped[int] = mapped_column(Integer, nullable=False, comment="達成門檻")
-#     current_val: Mapped[int] = mapped_column(Integer, server_default="0", comment="目前進度")
+    # 對應 ENUM('NORMAL', 'RARE', 'EPIC')
+    difficulty: Mapped[str] = mapped_column(
+        String(20), server_default="NORMAL", comment="稀有度/難度"
+    )
     
-#     # 狀態標籤
-#     is_unlocked: Mapped[bool] = mapped_column(Boolean, server_default="0")
-#     is_hidden: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    category: Mapped[Optional[str]] = mapped_column(
+        String(20), comment="屬性(如：I/E/T/F，或 Analysis/Saving)"
+    )
     
-#     unlocked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-#     updated_at: Mapped[datetime] = mapped_column(
-#         TIMESTAMP, server_default=func.now(), onupdate=func.now()
-#     )
+    series_name: Mapped[str] = mapped_column(
+        String(50), server_default="普通", comment="系列名稱"
+    )
+    
+    target_val: Mapped[int] = mapped_column(
+        Integer, default=1, comment="解鎖門檻"
+    )
+    xp_reward: Mapped[int] = mapped_column(
+        Integer, default=0, comment="達成後獲得的XP"
+    )
+    
+    # 自關聯：如果是任務，獎勵的卡片 ID 指向自己這張表的 lib_id
+    card_reward_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("misscards_library.lib_id"), nullable=True, comment="任務贈送的卡牌lib_id"
+    )
+    
+    reward_unlock_feature: Mapped[Optional[str]] = mapped_column(
+        String(100), comment="集滿系列後解鎖的功能代碼"
+    )
+    
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否為隱藏項目"
+    )
+    
+    image_url: Mapped[Optional[str]] = mapped_column(
+        String(255), comment="喵喵圖片檔案名稱"
+    )
+    
+    description: Mapped[Optional[str]] = mapped_column(
+        Text, comment="成就/卡牌描述"
+    )
 
-#     # 確保同一用戶對同一成就 ID 只有一筆進度資料
-#     __table_args__ = (
-#         UniqueConstraint("user_id", "ach_id", name="uk_user_ach"),
-#     )
+    # 建立關聯以便查詢獎勵卡片詳情 (可選)
+    # reward_card = relationship("MissCardsLibrary", remote_side=[lib_id])
+
+
+# 15. 每日隨機任務 (沛青 負責)
+class DailyMission(Base):
+    __tablename__ = "daily_missions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "slot_num", "created_at", name="uk_user_slot_date"),
+        UniqueConstraint("user_id", "lib_id", "created_at", name="uk_user_lib_date"),
+    )
+
+    miss_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id"), nullable=False
+    )
+    lib_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("misscards_library.lib_id"), nullable=False, comment="關聯 Library"
+    )
+    
+    # 0:進行中, 1:待領取, 2:已領取
+    miss_status: Mapped[int] = mapped_column(
+        Integer, default=0, comment="0:進行中, 1:待領取, 2:已領取"
+    )
+    
+    current_val: Mapped[int] = mapped_column(
+        Integer, default=0, comment="今日任務進度"
+    )
+    
+    slot_num: Mapped[Optional[int]] = mapped_column(
+        Integer, comment="任務槽位：1, 2, 3"
+    )
+    
+    # 使用 server_default=func.current_date() 對應 SQL 的 DEFAULT (CURRENT_DATE)
+    created_at: Mapped[date] = mapped_column(
+        Date, server_default=func.current_date(), comment="任務產生日期"
+    )
+    
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )
+
+
+# 16. 萬能成就與卡牌表 (組長 負責)
+class AchCard(Base):
+    __tablename__ = "ach_cards"
+    __table_args__ = (
+        UniqueConstraint("user_id", "lib_id", name="uk_user_lib"),
+    )
+
+    uac_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="用戶持有項ID"
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id"), nullable=False, comment="用戶ID"
+    )
+    lib_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("misscards_library.lib_id"), nullable=False, comment="關聯 Library"
+    )
+    
+    is_unlocked: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否已獲得/解鎖"
+    )
+    
+    unlocked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment="正式解鎖的時間"
+    )
+    
+    current_val: Mapped[int] = mapped_column(
+        Integer, default=0, comment="累積型數據(如：累積打卡天數)"
+    )
+    
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="進度最後更新時間"
+    )

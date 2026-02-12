@@ -12,7 +12,12 @@ from .models import (
     CpiData,
     SalaryBenchmark,
     Setting,
-    AIConfig
+    AIConfig,
+    Checkin,
+    MissCardsLibrary,
+    DailyMission,
+    AchCard
+    
 )
 
 # 這樣別人在寫 from ..models import Member 時，Python 才知道要去哪裡找

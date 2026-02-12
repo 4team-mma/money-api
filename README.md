@@ -11,7 +11,8 @@
 [Pydanic](docs/pydanic.md) |
 [API撰寫說明文檔](docs/api_guide.md) |
 [爬蟲自動化說明文檔](docs/crawler.md) |
-[AI機器人說明文檔](docs/ai_models.md) 
+[AI機器人說明文檔](docs/ai_models.md) |
+[新手開發注意事項](docs/beginner.md)
 
 
 

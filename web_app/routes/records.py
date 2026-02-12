@@ -66,12 +66,12 @@ async def get_records(
         "success": True,
         "data": records,
         "pagination": {
-            "current_page": page,
-            "page_size": page_size,
-            "total_rows": total_count,
-            "total_pages": total_pages,
-            "has_next": page < total_pages,
-            "has_prev": page > 1,
+        "current_page": page,
+        "page_size": page_size,
+        "total_rows": total_count,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
         },
     }
 
