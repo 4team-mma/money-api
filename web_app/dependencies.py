@@ -1,4 +1,6 @@
 # web_app/dependencies.py
+# 我是守門員!從http header抓取token,然後用jwt驗證是否偽造過期,
+# 再去資料庫抓user物件,把user物件交給路由。
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -7,6 +9,7 @@ from .models import Member
 from .utils.jwt import verify_token
 from fastapi.security import OAuth2PasswordBearer
 
+# 這是 FastAPI 用來告訴 Swagger UI "Token 網址在哪" 的設定
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 

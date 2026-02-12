@@ -22,11 +22,17 @@ class FinanceAgentService:
         if any(k in msg for k in ["錢", "資產", "餘額", "銀行", "存款", "台新", "錢包", "多少"]):
             context_parts.append(FinanceTools.get_account_summary(db, user_id))
             
-        # B. 詢問收支、花費、統計
-        if any(k in msg for k in ["花", "支出", "收入", "統計", "分析", "占比", "吃飯", "交通", "買了"]):
+        # B. 詢問收支、花費、統計、薪水 (⚡️ 已更新：加入收入相關關鍵字)
+        # 這裡補上了：工資, 薪水, 薪資, 賺, 領錢, 獎金, 股息, 利息
+        expense_keywords = [
+            "花", "支出", "收入", "統計", "分析", "占比", "吃飯", "交通", "買了",
+            "工資", "薪水", "薪資", "賺", "領錢", "獎金", "股息", "利息"
+        ]
+        
+        if any(k in msg for k in expense_keywords):
             context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
             context_parts.append(FinanceTools.get_expense_analysis(db, user_id, days=30))
-            # 補上最近明細
+            # 補上最近明細 (這就是讓 AI 看到你 18000 工資的關鍵)
             context_parts.append(FinanceTools.get_recent_transactions(db, user_id, limit=8))
 
         # C. 詢問物價、通膨、CPI
@@ -37,7 +43,7 @@ class FinanceAgentService:
         if any(k in msg for k in ["提醒", "繳費", "行事曆", "忘記"]):
             context_parts.append(FinanceTools.get_upcoming_reminders(db, user_id))
 
-        # E. 預設：如果什麼都沒對到，給基礎背景
+        # E. 預設：如果什麼都沒對到，給基礎背景 (避免 AI 瞎掰)
         if len(context_parts) <= 1:
             context_parts.append(FinanceTools.get_account_summary(db, user_id))
             context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
