@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Optional, List
 
 class AccountInfo(BaseModel):
-    account_id: int = Field(..., examples=[1])
+    account_id: Optional[int] = Field(None, examples=[1])
     account_name: str = Field(..., description="帳戶名", examples=["國泰世華"])
     account_icon: Optional[str] = Field(None, description="帳戶圖示", examples=["🏦"])
     currency: Optional[str] = Field(None, description="幣別", examples=["NT$"])
@@ -13,8 +13,8 @@ class AccountInfo(BaseModel):
 class TransferDetail(BaseModel):
     transaction_id: int = Field(..., examples=[101])
     transaction_date: date = Field(..., description="日期", examples=["2026-02-08"])
-    from_account_id: int = Field(..., description="來源帳戶ID", examples=[1])
-    to_account_id: int = Field(..., description="去向帳戶ID", examples=[2])
+    from_account_id: Optional[int] = Field(None, description="來源帳戶ID", examples=[1])
+    to_account_id: Optional[int] = Field(None, description="去向帳戶ID", examples=[2])
     amount: Decimal = Field(..., description="金額", examples=[5000.0])
     transaction_note: Optional[str] = Field(None, description="備註", examples=["儲蓄轉帳"])
     from_account: AccountInfo
