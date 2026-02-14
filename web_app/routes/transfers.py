@@ -91,6 +91,8 @@ async def get_monthly_transfers(
             fromAcc.account_icon.label("from_account_icon"),
             fromAcc.currency.label("from_currency"),
             toAcc.account_name.label("to_account_name"),
+            toAcc.account_icon.label("to_account_icon"), # 建議也把目標帳戶圖示補上
+            toAcc.currency.label("to_currency"),        # 以及目標帳戶幣別
         )
         .join(fromAcc, Transaction.from_account_id == fromAcc.account_id, isouter=True)
         .join(toAcc, Transaction.to_account_id == toAcc.account_id, isouter=True)
@@ -115,13 +117,16 @@ async def get_monthly_transfers(
             "created_at": trans.created_at,
             "from_account": {
                 "account_id": trans.from_account_id,
-                "account_name": row.from_account_name or "未知帳戶",
-                "account_icon": row.from_account_icon,
+                # 如果帳戶被刪除，提供優雅的預設值
+                "account_name": row.from_account_name or "已刪除帳戶",
+                "account_icon": row.from_account_icon or "delete-bin-line", # 預設圖示
                 "currency": row.from_currency or "N/A",
             },
             "to_account": {
                 "account_id": trans.to_account_id,
-                "account_name": row.to_account_name or "未知帳戶",
+                "account_name": row.to_account_name or "已刪除帳戶",
+                "account_icon": getattr(row, "to_account_icon", None) or "delete-bin-line",
+                "currency": getattr(row, "to_currency", None) or "N/A",
             },
         }
         formatted_data.append(item)
