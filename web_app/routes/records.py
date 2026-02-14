@@ -13,7 +13,7 @@ from typing import Optional
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
 from datetime import date, timedelta
-
+from web_app.services.game_service import GameService
 import math  #  用於計算總頁數
 
 router = APIRouter()
@@ -257,9 +257,20 @@ async def create_record(
         account.current_balance -= amt_decimal
     else:  # 收入
         account.current_balance += amt_decimal
-
+    
     db.commit()
     db.refresh(new_record)
+    
+    # 🌟 這裡加入全域掃描器
+    # 根據 add_type 判斷類別 (True: 收入, False: 支出)
+    category_label = '記帳' 
+    GameService.update_mission_progress(
+        db, 
+        user_id=current_user.user_id, 
+        category=category_label,
+        amount=float(new_record.add_amount) # 傳入金額供「大額支出」判定
+    )
+    
     return new_record
 
 
