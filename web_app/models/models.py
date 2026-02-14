@@ -126,10 +126,10 @@ class Transaction(Base):
 
     # 1. 這是外鍵欄位，指向小寫的資料表 'accounts'
     from_account_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.account_id"), nullable=False, index=True
+        Integer, ForeignKey("accounts.account_id"), nullable=True, index=True
     )
     to_account_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.account_id"), nullable=False, index=True
+        Integer, ForeignKey("accounts.account_id"), nullable=True, index=True
     )
     transaction_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
