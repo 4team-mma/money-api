@@ -6,9 +6,9 @@ from web_app.database import get_db # 假設你的 db session 在這裡
 from web_app.models import Checkin, Member, Setting
 from web_app.schemas.gamification import checkin as schemas
 from web_app.dependencies import get_current_user
+from web_app.services.game_service import GameService
 
 router = APIRouter()
-
 
 
 @router.post("/action", response_model=schemas.CheckinResponse)
@@ -64,6 +64,13 @@ def perform_checkin(
     
     db.commit()
     db.refresh(new_checkin)
+    
+    GameService.update_mission_progress(
+        db, 
+        user_id=current_user.user_id, 
+        category='系統'
+    )
+    
     return new_checkin
     
 
