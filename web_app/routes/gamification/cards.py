@@ -23,26 +23,24 @@ def get_user_collection(
     for lib, ach in results:
         is_owned = ach is not None and ach.is_unlocked
         
-        # 🌟 處理圖片 URL 邏輯
         final_image_url = None
         if lib.image_url:
-            # 如果資料庫存的是完整網址 (http...) 且已獲得，直接使用
             if lib.image_url.startswith("http"):
                 final_image_url = lib.image_url
-            # 如果存的是檔名且已獲得，則拼接路徑
             elif is_owned:
                 base_url = str(request.base_url).rstrip("/")
                 final_image_url = f"{base_url}/static/images/{lib.category}/{lib.image_url}"
 
-        # 隱藏卡邏輯：未擁有的隱藏項目不回傳
         if lib.is_hidden and not is_owned:
             continue
-            
+        print(f"DEBUG: 處理卡片 {lib.title}, 難度: {lib.difficulty}, 是否擁有: {is_owned}") # 🌟 觀察 Console
+        
         display_list.append({
             "lib_id": lib.lib_id,
             "title": lib.title,
             "type": lib.type,
-            "category": lib.category, # 🌟 確保回傳 NT, SJ 等代碼
+            "difficulty": lib.difficulty, # 🌟 關鍵修正：必須回傳難度，前端才找得到 Rare 卡！
+            "category": lib.category,
             "series_name": lib.series_name,
             "image_url": final_image_url,
             "is_owned": is_owned,
