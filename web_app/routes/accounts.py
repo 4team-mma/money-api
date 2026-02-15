@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from ..schemas.accounts import AccountCreate, AccountResponse, AccountUpdate
-from ..models import Account, Member
+from ..models import Account, Member, AddRecord, Transaction
 from ..database import get_db
 from ..dependencies import get_current_user
 
@@ -61,10 +61,11 @@ def delete_account(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
+    # 1. 查找帳戶
     account_query = db.query(Account).filter(
-        Account.account_id == account_id, Account.user_id == current_user.user_id
+        Account.account_id == account_id, 
+        Account.user_id == current_user.user_id
     )
-
     account = account_query.first()
 
     if not account:
@@ -72,8 +73,33 @@ def delete_account(
             status_code=status.HTTP_404_NOT_FOUND, detail="找不到該帳戶或無權限操作"
         )
 
-    account_query.delete(synchronize_session=False)
-    db.commit()
+    try:
+        # 2. 刪除相關的收支紀錄 (AddRecords) -> 這些通常跟隨帳戶消失
+        db.query(AddRecord).filter(AddRecord.account_id == account_id).delete(synchronize_session=False)
+
+        # 3. 斷開轉帳連結 (Transactions) -> 不刪除紀錄，只將相關欄位設為 NULL
+        # 將由此帳戶轉出的轉帳，來源設為 NULL
+        db.query(Transaction).filter(Transaction.from_account_id == account_id).update(
+            {Transaction.from_account_id: None}, synchronize_session=False
+        )
+        # 將轉入此帳戶的轉帳，目標設為 NULL
+        db.query(Transaction).filter(Transaction.to_account_id == account_id).update(
+            {Transaction.to_account_id: None}, synchronize_session=False
+        )
+
+        # 4. 刪除帳戶本身
+        account_query.delete(synchronize_session=False)
+
+        # 提交所有變更
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"刪除失敗，資料庫發生錯誤: {str(e)}"
+        )
+
     return None
 
 

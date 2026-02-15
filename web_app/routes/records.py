@@ -13,7 +13,7 @@ from typing import Optional
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
 from datetime import date, timedelta
-
+from web_app.services.game_service import GameService
 import math  #  用於計算總頁數
 
 router = APIRouter()
@@ -257,9 +257,24 @@ async def create_record(
         account.current_balance -= amt_decimal
     else:  # 收入
         account.current_balance += amt_decimal
-
+    
     db.commit()
     db.refresh(new_record)
+    
+    # 🌟 這裡加入全域掃描器
+    # 根據 add_type 判斷類別 (True: 收入, False: 支出)
+    category_label = '記帳' 
+    GameService.update_mission_progress(
+        db, 
+        user_id=current_user.user_id, 
+        category=category_label,
+        amount=float(new_record.add_amount), # 傳入金額供「大額支出」判定
+        tag=new_record.add_tag,         # 🌟 傳入標籤內容
+        record_class=new_record.add_class, # 🌟 傳入消費類別
+        note=new_record.add_note,       # 🌟 傳入備註字串
+        add_type=new_record.add_type    # 🌟 傳入布林值 (True=收入, False=支出)
+    )
+    
     return new_record
 
 
@@ -313,6 +328,16 @@ async def update_record(
 
     db.commit()
     db.refresh(db_record)
+    # 🌟 這裡加入全域掃描器：觸發「除錯大師」
+    # 只要成功執行 Patch 請求，就視為完成一次除錯
+    GameService.update_mission_progress(
+        db, 
+        user_id=current_user.user_id, 
+        category='記帳', # 因為除錯大師的 category 是記帳
+        increment=1
+    )
+    
+    
     return db_record
 
 
