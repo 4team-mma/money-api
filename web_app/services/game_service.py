@@ -101,6 +101,14 @@ class GameService:
                     dm.current_val += increment
                 elif lib.title == '人際開銷' and record_class == '社交':
                     dm.current_val += increment
+                    
+                # 🌟 10. 智慧的洞察：AI 聊天觸發 (NT 稀有任務)
+                elif lib.title == '智慧的洞察':
+                    if category == 'AI_聊天' and note:
+                        msg = note.upper()
+                        # 判定關鍵字組合：必須有 CPI，且包含「最高」或「指標」
+                        if 'CPI' in msg and any(k in msg for k in ['最高', '指標']):
+                            dm.current_val = lib.target_val
 
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
