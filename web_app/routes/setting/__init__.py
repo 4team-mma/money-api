@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from .setting_export import router as setting_export_router
 from .setting_profile import router as setting_profile_router
+from .setting_preference import router as setting_preference_router
 
 
 router = APIRouter()
@@ -9,3 +10,5 @@ router = APIRouter()
 router.include_router(setting_export_router, prefix="/setting_export")
 
 router.include_router(setting_profile_router, prefix="/setting_profile")
+
+router.include_router(setting_preference_router, prefix="/setting_preference") 
