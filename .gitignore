@@ -13,4 +13,3 @@ logs/
 .env
 app.log
 
-web_app/assets/fonts/NotoSansTC-Regular.ttf

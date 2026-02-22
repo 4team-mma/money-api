@@ -1,17 +1,19 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 class CardDisplay(BaseModel):
     lib_id: int
     title: str
     type: str # CARD or ACHIEVEMENT
+    difficulty: str
+    category: str  # 🌟 必須加入此欄位 (NT, SJ, SP, NF)
     series_name: Optional[str]
     image_url: Optional[str]
     is_owned: bool
     is_hidden: bool
     description: Optional[str]
-    current_val: int # 針對成就進度
+    current_val: int 
     target_val: int
     
     class Config:

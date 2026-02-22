@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, Request  # <--- 加入 Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import outerjoin
 from web_app.database import get_db
 from web_app.models import Member, MissCardsLibrary, AchCard
 from web_app.schemas.gamification import card as schemas
@@ -10,7 +9,7 @@ router = APIRouter()
 
 @router.get("/collection", response_model=list[schemas.CardDisplay])
 def get_user_collection(
-    request: Request,  # <--- 注入 Request 以取得 Base URL
+    request: Request,
     current_user: Member = Depends(get_current_user), 
     db: Session = Depends(get_db)
 ):
@@ -21,40 +20,29 @@ def get_user_collection(
         
     display_list = []
     
-    # 取得基礎 URL (例如 http://127.0.0.1:8000/)
-    base_url = str(request.base_url).rstrip("/")
-    
     for lib, ach in results:
         is_owned = ach is not None and ach.is_unlocked
         
-        # 處理圖片 URL
-        # 假設 DB 裡的 lib.image_url 存的是檔名 (如 "ENTJ.png" 或 "NT_SP01.png")
-        # 假設 lib.series_name 是資料夾名稱 (如 "NT", "SJ")
-        
         final_image_url = None
-        
-        if is_owned:
-            if lib.image_url:
-                # 拼接完整路徑: http://.../static/images/{Group}/{Filename}
-                # 這裡對應第一步 mount 的路徑
-                final_image_url = f"{base_url}/static/images/{lib.series_name}/{lib.image_url}"
-            else:
-                # 若 DB 沒存圖片，這是一個後端資料缺失的警訊
-                final_image_url = f"{base_url}/static/images/placeholder.png"
-        else:
-            # 未獲得時顯示鎖頭圖 (請確保你有 locked.png)
-            final_image_url = None 
+        if lib.image_url:
+            if lib.image_url.startswith("http"):
+                final_image_url = lib.image_url
+            elif is_owned:
+                base_url = str(request.base_url).rstrip("/")
+                final_image_url = f"{base_url}/static/images/{lib.category}/{lib.image_url}"
 
-        # 隱藏卡邏輯
         if lib.is_hidden and not is_owned:
             continue
-            
+        print(f"DEBUG: 處理卡片 {lib.title}, 難度: {lib.difficulty}, 是否擁有: {is_owned}") # 🌟 觀察 Console
+        
         display_list.append({
             "lib_id": lib.lib_id,
-            "title": lib.title, # 不要在這裡改 ???，前端會根據 is_owned 處理顯示邏輯
+            "title": lib.title,
             "type": lib.type,
+            "difficulty": lib.difficulty, # 🌟 關鍵修正：必須回傳難度，前端才找得到 Rare 卡！
+            "category": lib.category,
             "series_name": lib.series_name,
-            "image_url": final_image_url, # 這裡回傳的是真實可連線的 URL
+            "image_url": final_image_url,
             "is_owned": is_owned,
             "is_hidden": lib.is_hidden,
             "description": lib.description,

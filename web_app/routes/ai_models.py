@@ -210,6 +210,22 @@ async def chat_with_meow(
 
         duration = round(time.time() - start_time, 2)
         print(f"✨ [AI DEBUG] 回應成功！耗時: {duration}s")
+        
+        # 🌟 核心：在回傳前觸發任務進度掃描
+        from web_app.services.game_service import GameService
+        try:
+            GameService.update_mission_progress(
+                db=db,
+                user_id=current_user.user_id,
+                category='AI_聊天', # 對應上面的邏輯
+                note=req.message,   # 傳入使用者的問題
+                increment=1
+            )
+        except Exception as game_err:
+            print(f"⚠️ 任務進度更新失敗: {game_err}")
+        
+        
+        
         return {
             "reply": reply, 
             "duration": duration, 
