@@ -20,6 +20,7 @@ from web_app.routes import (
     gamification
 )
 from web_app.routes.setting import router as setting_router
+from web_app.routes.planning import router as planning_router
 from web_app.routes.stats import router as stats_router
 from web_app.dependencies import admin_required
 from web_app.utils.cpi_crawler import fetch_and_update_cpi
@@ -257,6 +258,7 @@ app.include_router(
 )
 app.include_router(analysis.router, prefix="/api/analysis", tags=["消費趨勢分析"])
 app.include_router(stats_router, prefix="/api/stats", tags=["圖表分析"])
+app.include_router(planning_router, prefix="/api/planning", tags=["理財規劃"])
 
 
 @app.get("/favicon.ico", tags=["api圖標"])

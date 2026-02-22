@@ -538,3 +538,21 @@ class AchCard(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="進度最後更新時間"
     )
+
+class Budget(Base):
+    __tablename__ = "budgets"
+
+    budget_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
+    
+    # 預算金額
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    
+    # 如果 category 和 tag 都是 Null，則視為「月總預算」
+    category: Mapped[Optional[str]] = mapped_column(String(50))
+    tag: Mapped[Optional[str]] = mapped_column(String(50))
+
+    category_icon: Mapped[Optional[str]] = mapped_column(String(20)) # 儲存 🍔, 🚗 等
+    tag_color: Mapped[Optional[str]] = mapped_column(String(20))     # 儲存 #004B97 等
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
