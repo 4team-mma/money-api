@@ -130,3 +130,23 @@ async def delete_my_account(
     db.commit()
 
     return None
+
+# 6. 取得特定用戶資料 (為了解決前端獲取等級的問題)
+@router.get("/{user_id}", response_model=MemberResponse, summary="🔍 取得特定用戶資料")
+def get_member_by_id(
+    user_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
+    """
+    透過 user_id 取得用戶詳細資料，主要供前端主題系統判斷等級。
+    """
+    # 權限檢查：只能看自己，或是管理員可以看任何人
+    if current_user.user_id != user_id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="權限不足")
+
+    user = db.query(Member).filter(Member.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="找不到該使用者")
+    
+    return user
