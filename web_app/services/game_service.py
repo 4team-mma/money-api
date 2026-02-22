@@ -1,11 +1,61 @@
 # web_app/services/game_service.py
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import date
+from datetime import date,datetime
 from typing import Optional
 from web_app.models import DailyMission, MissCardsLibrary, AddRecord
 
 class GameService:
+    @staticmethod
+    def check_end_of_day_missions(db: Session, user_id: int):
+        """
+        結算判定：檢查所有需要到晚上或結算時點才能判定的任務
+        如：預算控制、節能減碳 (交通支出)
+        """
+        now = datetime.now()
+        # 只要超過 23:00 或是手動觸發結算邏輯
+        # 這裡我們設定只要調用就檢查，但你也可以加 if now.hour >= 23:
+        
+        today = date.today()
+        active_missions = db.query(DailyMission, MissCardsLibrary)\
+            .join(MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id)\
+            .filter(
+                DailyMission.user_id == user_id,
+                DailyMission.miss_status == 1,
+                DailyMission.created_at == today
+            ).all()
+
+        for dm, lib in active_missions:
+            # 1. 預算控制：今日總支出控制在 $500 以內
+            if lib.title == '預算控制':
+                total_exp = db.query(func.sum(AddRecord.add_amount)).filter(
+                    AddRecord.user_id == user_id,
+                    AddRecord.add_date == today,
+                    AddRecord.add_type == False
+                ).scalar() or 0
+                
+                if float(total_exp) <= 500:
+                    dm.current_val = lib.target_val # 500/500 完成
+                else:
+                    dm.current_val = 0 # 失敗或重置
+
+            # 2. 節能減碳：今日交通類總消費不超過 $100
+            elif lib.title == '節能減碳':
+                traffic_exp = db.query(func.sum(AddRecord.add_amount)).filter(
+                    AddRecord.user_id == user_id,
+                    AddRecord.add_date == today,
+                    AddRecord.add_type == False,
+                    AddRecord.add_class == '交通' # 確保你的分類名稱正確
+                ).scalar() or 0
+                
+                if float(traffic_exp) <= 100:
+                    dm.current_val = lib.target_val # 100/100 完成
+                else:
+                    dm.current_val = 0
+
+        db.commit()
+    
+
     @staticmethod
     def update_mission_progress(
         db: Session, 
@@ -120,3 +170,4 @@ class GameService:
 
         # 執行 commit 將進度寫入資料庫
         db.commit()
+        
