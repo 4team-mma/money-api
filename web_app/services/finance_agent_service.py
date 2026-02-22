@@ -1,9 +1,8 @@
 # web_app/services/finance_agent_service.py
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
 from .finance_tools import FinanceTools
 from datetime import date
-from ..models import CpiData
+
 class FinanceAgentService:
     @staticmethod
     def get_context(db: Session, user_id: int, message: str) -> str:
@@ -36,16 +35,9 @@ class FinanceAgentService:
             # 補上最近明細 (這就是讓 AI 看到你 18000 工資的關鍵)
             context_parts.append(FinanceTools.get_recent_transactions(db, user_id, limit=8))
 
-        #  C. 詢問物價 (準確度優化核心)
-        if any(k in msg for k in ["物價", "漲價", "通膨", "cpi", "貴", "嚴重", "指標"]):
-            # 抓取原始數據字串
-            cpi_raw_data = FinanceTools.get_cpi_insight(db, user_id)
-            context_parts.append(cpi_raw_data)
-            
-            # 🚀 主動找出漲幅最高的類別，直接告訴 AI 答案
-            latest_cpi = db.query(CpiData).order_by(desc(CpiData.period), desc(CpiData.val)).first()
-            if latest_cpi:
-                context_parts.append(f"[關鍵洞察]: 目前 CPI 漲幅最高的是「{latest_cpi.category}」，漲幅達 {latest_cpi.val}%。")
+        # C. 詢問物價、通膨、CPI
+        if any(k in msg for k in ["物價", "漲價", "通膨", "cpi", "貴"]):
+            context_parts.append(FinanceTools.get_cpi_insight(db, user_id))
 
         # D. 詢問提醒、繳費
         if any(k in msg for k in ["提醒", "繳費", "行事曆", "忘記"]):
