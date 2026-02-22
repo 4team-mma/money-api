@@ -32,10 +32,11 @@ def get_daily_missions(current_user: Member = Depends(get_current_user), db: Ses
         
         if needed > 0:
             active_lib_ids = [m[0].lib_id for m in all_today_missions]
-            # 排除稀有標題
+            # 排除稀有標題，防止隨機抽取到挑戰任務
             ex_titles = ['守護長老：金字塔貓', '幻夢領袖：獨角獸貓', '戰神：狂暴山貓', '永恆智者：宇宙貓', '智慧的洞察', '極限的挑戰', '夢想的積累', '紀律的試煉']
             query = db.query(MissCardsLibrary).filter(MissCardsLibrary.type == 'MISSION', ~MissCardsLibrary.title.in_(ex_titles))
-            if active_lib_ids: query = query.filter(~MissCardsLibrary.lib_id.in_(active_lib_ids))
+            if active_lib_ids: 
+                query = query.filter(~MissCardsLibrary.lib_id.in_(active_lib_ids))
             
             pool = query.all()
             if pool:
@@ -59,7 +60,8 @@ def get_daily_missions(current_user: Member = Depends(get_current_user), db: Ses
 @router.post("/{miss_id}/accept")
 def accept_mission(miss_id: int, current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
     m = db.query(DailyMission).filter(DailyMission.miss_id == miss_id, DailyMission.user_id == current_user.user_id).first()
-    if m is None: raise HTTPException(status_code=404, detail="找不到任務")
+    if m is None: 
+        raise HTTPException(status_code=404, detail="找不到任務")
     m.miss_status = 1
     db.commit()
     return {"message": "接取成功"}
@@ -67,16 +69,17 @@ def accept_mission(miss_id: int, current_user: Member = Depends(get_current_user
 @router.post("/{miss_id}/claim", response_model=schemas.ClaimRewardResponse)
 def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
     mission = db.query(DailyMission).filter(DailyMission.miss_id == miss_id, DailyMission.user_id == current_user.user_id).first()
-    if not mission: raise HTTPException(status_code=404, detail="任務不存在")
+    if not mission: 
+        raise HTTPException(status_code=404, detail="任務不存在")
     
     lib = db.query(MissCardsLibrary).filter(MissCardsLibrary.lib_id == mission.lib_id).first()
-    if lib is None:  # 🌟 徹底修正 Pylance 紅線：使用 is None 檢查
+    if lib is None:
         raise HTTPException(status_code=404, detail="定義遺失")
     
     current_user.xp += lib.xp_reward
     card_msg = ""
     
-    # 2. 卡牌暴力解鎖邏輯 (解決「紀錄存在但鎖死」的問題)
+    # 卡牌解鎖邏輯
     if lib.card_reward_id is not None:
         reward_id = lib.card_reward_id
         existing = db.query(AchCard).filter(AchCard.user_id == current_user.user_id, AchCard.lib_id == reward_id).first()
@@ -93,7 +96,7 @@ def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_curren
             card_msg = "獲得新卡牌！"
         db.flush()
 
-    # 3. 稀有任務遞補
+    # 稀有任務遞補邏輯
     rare_mission_map = {'理財初心者': '紀律的試煉', '節流冒險者': '夢想的積累', '投資先鋒': '極限的挑戰', '財富領主': '智慧的洞察'}
     rare_titles = list(rare_mission_map.values())
     current_series = (lib.series_name or "").strip()
@@ -128,3 +131,43 @@ def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_curren
         "new_balance_xp": current_user.xp, 
         "card_reward": card_msg if card_msg else None
     }
+
+@router.post("/trigger/{action_code}")
+def trigger_mission_action(action_code: str, current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    統一瀏覽型任務觸發器：嚴格要求必須是「已接取 (status=1)」
+    """
+    action_map = {
+        "view_accounts": "資產確認",
+        "view_charts_pie_inn": "圖表分析",
+        "view_charts_pie_exp": "月度結算",
+        "view_calendar": "回顧過去",
+        "view_trends": "溫故知新",
+        "view_salary": "了解行情",
+        "view_targets": "設定目標",
+        "change_theme": "品味生活"
+    }
+    
+    target_title = action_map.get(action_code)
+    if not target_title:
+        return {"status": "error", "message": "未知行為代碼"}
+
+    # 僅針對「修煉中 (status=1)」的對應任務進行進度補滿
+    mission_record = db.query(DailyMission).join(
+        MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id
+    ).filter(
+        DailyMission.user_id == current_user.user_id,
+        MissCardsLibrary.title == target_title,
+        DailyMission.miss_status == 1
+    ).first()
+
+    if mission_record:
+        lib = db.query(MissCardsLibrary).filter(MissCardsLibrary.lib_id == mission_record.lib_id).first()
+        target_val = lib.target_val if lib else 1
+        
+        if mission_record.current_val < target_val:
+            mission_record.current_val = target_val
+            db.commit()
+            return {"status": "updated", "mission": target_title}
+    
+    return {"status": "skipped", "reason": "無對應修煉中任務"}
