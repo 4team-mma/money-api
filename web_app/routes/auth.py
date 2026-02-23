@@ -8,7 +8,7 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 from ..database import get_db
-from ..models import Member, PasswordReset, Account
+from ..models import PasswordReset, Account
 from ..schemas.member import MemberRegister, MemberLogin
 from ..schemas.forgot_password import (
     SendOTPRequest,
@@ -24,6 +24,9 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from ..utils.email_utils import verify_recaptcha, send_otp_email
 import os
+# ✨ 新增 Model 引入 (用來操作資料庫)
+# 根據你的 models.py 內容，Member 和 Setting 都在這裡
+from ..models.models import Member, Setting
 
 
 router = APIRouter()
@@ -224,6 +227,10 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
     
     #access_token = create_access_token(data={"sub": str(user.user_id)})
 
+    # 去 Settings 表格找這個人的頭像
+    # 假設 Settings 表格中有一個 user_id 欄位與 Member 關聯
+    user_setting = db.query(Setting).filter(Setting.user_id == user.user_id).first()
+
     return {
         "msg": "登入成功",
         "access_token": access_token,
@@ -234,6 +241,7 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
             "email": user.email,
             "role": user.role,
             "name": user.name,
+            "avatar_url": user_setting.avatar_url if user_setting else None, #補上回傳照片
         },
     }
 
