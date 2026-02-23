@@ -10,6 +10,7 @@ from typing import Optional # 建議加上這個
 # 從上一層匯入 database.py 裡的 get_db
 from ...database import get_db
 from ... import models
+import time
 
 
 router = APIRouter()
@@ -42,42 +43,43 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # =========================
 @router.post("/upload-avatar/{username}")
 async def upload_avatar(
-    username: str, # 改為接收 username
+    username: str, 
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-
-    # ✨ 限制大小為 2MB (2 * 1024 * 1024 bytes)
+    # ✨ 限制大小為 2MB
     MAX_FILE_SIZE = 2 * 1024 * 1024
-
-    # 讀取檔案內容來檢查大小
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
         return {"success": False, "message": "檔案太大了！請上傳小於 2MB 的照片"}
 
-    # 記得要把指標移回開頭，否則後面 shutil 存檔會存到空的
     await file.seek(0)
-    # 1️⃣ 根據 username 抓取 user_id
+    
+    # 1️⃣ 抓取使用者
     member = db.query(models.Member).filter(models.Member.username == username).first()
     if not member:
         return {"success": False, "message": "找不到該使用者"}
     user_id = member.user_id
 
-    # 2️⃣ 組檔名與路徑
+    # 2️⃣ 組檔名與路徑 (✨ 加入時間戳記避免快取)
     extension = os.path.splitext(file.filename)[1]
-    filename = f"user_{user_id}{extension}"
+    timestamp = int(time.time()) # 取得目前時間秒數
+    filename = f"user_{user_id}_{timestamp}{extension}" # 檔名變成 user_6_1708675200.png
     file_path = os.path.join(UPLOAD_DIR, filename)
 
     # 3️⃣ 存實體檔案
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        # 💡 使用 file.file.read() 確保讀取完整
+        buffer.write(await file.read())
 
+    # 資料庫存的路徑
     db_url = f"/static/ProfilePicture/{filename}"
 
     # 4️⃣ 更新或建立 setting
     setting = db.query(models.Setting).filter(models.Setting.user_id == user_id).first()
 
     if setting:
+        # ✨ 治本關鍵：如果舊的有圖，可以考慮先刪除舊圖 (選做)
         setting.avatar_url = db_url
     else:
         setting = models.Setting(user_id=user_id, avatar_url=db_url)
@@ -85,7 +87,11 @@ async def upload_avatar(
 
     db.commit()
     db.refresh(setting)
+
+    # 回傳新的 URL 給前端，前端拿到後也要更新 localStorage
     return {"success": True, "message": "上傳成功", "avatar_url": db_url}
+
+
 
 
 # =========================
