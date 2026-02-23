@@ -1,8 +1,9 @@
 from pydantic import BaseModel
 from typing import Optional
+from decimal import Decimal
 
 class BudgetUpdate(BaseModel):
-    amount: float
+    amount: Decimal
     category: Optional[str] = None
     category_icon: Optional[str] = None
     tag: Optional[str] = None

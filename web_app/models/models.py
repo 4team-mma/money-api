@@ -188,6 +188,9 @@ class Budget(Base):
     tag_color: Mapped[Optional[str]] = mapped_column(String(20))     # 儲存 #004B97 等
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )
 
 
 # 7. 忘記密碼表格 (白)
