@@ -558,3 +558,22 @@ class AchCard(Base):
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="進度最後更新時間"
     )
 
+# 17. 儲蓄目標
+class SavingsGoal(Base):
+    __tablename__ = "savings_goals"
+
+    goal_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
+
+    account_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("accounts.account_id"), nullable=True)
+
+    goal_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    current_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.0)
+
+    start_date: Mapped[date] = mapped_column(Date, default=date.today)
+    target_date: Mapped[Optional[date]] = mapped_column(Date)
+
+    # 目標狀態 (例如: active, completed, failed)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    account: Mapped[Optional["Account"]] = relationship("Account")
