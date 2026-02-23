@@ -3,7 +3,7 @@ import shutil
 from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from pydantic import BaseModel
+from pydantic import BaseModel, validator  # 確保有匯入 validator
 from typing import Optional # 建議加上這個
 
 # 這裡要匯入你定義 get_db 的地方，以及你的 Model
@@ -22,6 +22,12 @@ class ProfileUpdate(BaseModel):
     birthday: Optional[str] = None  # 對應 settings.birthday
     about: Optional[str] = None     # 對應 settings.about
 
+# ✨ 新增這個驗證器，處理前端傳來的空字串
+    @validator('birthday', pre=True)
+    def blank_string_to_none(cls, v):
+        if v == "":
+            return None
+        return v
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -135,7 +141,9 @@ async def update_profile(username: str, data: ProfileUpdate, db: Session = Depen
             setting = models.Setting(user_id=member.user_id)
             db.add(setting)
 
-        setting.birthday = data.birthday
+        # 如果前端傳來的是空字串 ""，將其轉為 None (也就是資料庫的 NULL)
+        setting.birthday = data.birthday if data.birthday and data.birthday.strip() != "" else None
+
         setting.about = data.about  # 根據截圖，欄位名稱是 about
 
         db.commit()
