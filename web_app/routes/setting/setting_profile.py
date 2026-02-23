@@ -46,6 +46,17 @@ async def upload_avatar(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+
+    # ✨ 限制大小為 2MB (2 * 1024 * 1024 bytes)
+    MAX_FILE_SIZE = 2 * 1024 * 1024
+
+    # 讀取檔案內容來檢查大小
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        return {"success": False, "message": "檔案太大了！請上傳小於 2MB 的照片"}
+
+    # 記得要把指標移回開頭，否則後面 shutil 存檔會存到空的
+    await file.seek(0)
     # 1️⃣ 根據 username 抓取 user_id
     member = db.query(models.Member).filter(models.Member.username == username).first()
     if not member:
