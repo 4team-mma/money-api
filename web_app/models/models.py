@@ -52,7 +52,7 @@ class Member(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)
     points: Mapped[int] = mapped_column(Integer, default=0)
     job: Mapped[str] = mapped_column(String(100), default="一般民眾")
-
+    feedbacks = relationship("Feedback", back_populates="user")
 
 # 2. 帳戶管理 (育育同學)
 class Account(Base):
@@ -243,7 +243,7 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # 如果有需要，可以建立與 Member 的關聯
-    # user = relationship("Member")
+    user = relationship("Member", back_populates="feedbacks")
 
 # 9. CPI 物價指數資料 (白)
 class CpiData(Base):
