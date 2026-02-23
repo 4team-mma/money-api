@@ -8,13 +8,20 @@ from web_app.models import DailyMission, MissCardsLibrary, Member, AchCard
 from web_app.schemas.gamification import mission as schemas
 from web_app.dependencies import get_current_user
 from sqlalchemy import func
-
+from web_app.services.game_service import GameService
 router = APIRouter()
 
 @router.get("/today", response_model=List[schemas.MissionDisplay])
 def get_daily_missions(current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
     today = date.today()
     uid = current_user.user_id
+    
+    # --- 新增：在獲取任務前，先判斷是否需要自動結算進度 ---
+    # 只要時間超過 23:00，就執行自動結算判定
+    if datetime.now().hour >= 23:
+        GameService.check_end_of_day_missions(db, uid)
+    # ----------------------------------------------
+    
     
     # 抓取該用戶「今天」的所有任務紀錄，確保槽位固定不重生
     all_today_missions = db.query(DailyMission, MissCardsLibrary).join(
