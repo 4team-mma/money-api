@@ -52,7 +52,7 @@ class Member(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)
     points: Mapped[int] = mapped_column(Integer, default=0)
     job: Mapped[str] = mapped_column(String(100), default="一般民眾")
-
+    feedbacks = relationship("Feedback", back_populates="user")
 
 # 2. 帳戶管理 (育育同學)
 class Account(Base):
@@ -224,7 +224,7 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # 如果有需要，可以建立與 Member 的關聯
-    # user = relationship("Member")
+    user = relationship("Member", back_populates="feedbacks")
 
 # 9. CPI 物價指數資料 (白)
 class CpiData(Base):
@@ -538,21 +538,3 @@ class AchCard(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="進度最後更新時間"
     )
-
-class Budget(Base):
-    __tablename__ = "budgets"
-
-    budget_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
-    
-    # 預算金額
-    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    
-    # 如果 category 和 tag 都是 Null，則視為「月總預算」
-    category: Mapped[Optional[str]] = mapped_column(String(50))
-    tag: Mapped[Optional[str]] = mapped_column(String(50))
-
-    category_icon: Mapped[Optional[str]] = mapped_column(String(20)) # 儲存 🍔, 🚗 等
-    tag_color: Mapped[Optional[str]] = mapped_column(String(20))     # 儲存 #004B97 等
-
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

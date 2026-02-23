@@ -1,37 +1,81 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List
-from ..schemas.feedback import FeedbackResponse, FeedbackCreate
+from datetime import datetime
+
+from ..schemas.feedback import FeedbackResponse, FeedbackCreate, FeedbackAdminReply
 from ..models import Feedback, Member
 from ..database import get_db
-from ..dependencies import get_current_user
+from ..dependencies import get_current_user # 假設這裡會驗證 Token
 
 router = APIRouter()
 
-# ===== POST 提交回饋 =====
+# ===== [管理者專用] 取得所有回饋列表 =====
+@router.get(
+    "/all", 
+    response_model=List[FeedbackResponse],
+    summary="管理端：取得系統所有回饋",
+    description="取得所有使用者的回饋，並透過 joinedload 抓取使用者資訊（如用戶名、Email）。"
+)
+def get_all_feedbacks(
+    db: Session = Depends(get_db),
+    # current_user: Member = Depends(get_admin_user) # 實務上建議加一個管理者權限驗證
+):
+    # 使用 joinedload 確保 user 物件被載入，對應 Schema 中的 UserSimpleInfo
+    feedbacks = (
+        db.query(Feedback)
+        .options(joinedload(Feedback.user)) 
+        .order_by(Feedback.created_at.desc())
+        .all()
+    )
+    return feedbacks
+
+
+# ===== [管理者專用] 更新回饋狀態 (下拉選單觸發) =====
+@router.patch(
+    "/{feedback_id}",
+    response_model=FeedbackResponse,
+    summary="管理端：更新回饋處理狀態",
+    description="更新 is_replied (0, 1, 2) 或填寫 admin_answer。"
+)
+def update_feedback_status(
+    feedback_id: int,
+    data: FeedbackAdminReply,
+    db: Session = Depends(get_db)
+):
+    feedback = db.query(Feedback).filter(Feedback.feedback_id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="找不到該回饋紀錄")
+
+    # 更新狀態與內容
+    feedback.is_replied = data.is_replied
+    if data.admin_answer:
+        feedback.admin_answer = data.admin_answer
+        feedback.replied_at = datetime.now() # 紀錄回覆時間
+
+    db.commit()
+    db.refresh(feedback)
+    return feedback
+
+
+# ===== [一般用戶] 提交新回饋 =====
 @router.post(
     "/", 
     response_model=FeedbackResponse,
-    summary="提交新的意見回饋",
-    description="""
-    讓登入使用者針對系統提交意見、Bug回報或功能建議。
-    系統會自動抓取使用者 Token 中的身份資訊，並將初始狀態設定為「待處理」。
-    """,
-    response_description="成功建立回饋記錄並回傳資料內容"
+    summary="提交新的意見回饋"
 )
 def create_feedback(
     data: FeedbackCreate,
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
-    # 將前端傳來的欄位 + 後端抓到的 user_id 組合，並給予初始狀態
     new_feedback = Feedback(
         user_id=current_user.user_id,
         feedback_name=data.feedback_name,
         question_type=data.question_type,
         use_page=data.use_page,
         content=data.content,
-        status="待處理"  # 確保資料庫有此欄位
+        is_replied=0  # 💡 統一使用 int 狀態：0 = 待處理
     )
 
     db.add(new_feedback)
@@ -39,23 +83,35 @@ def create_feedback(
     db.refresh(new_feedback)
     return new_feedback
 
+# 在你的 router 檔案中補上這個，前端下拉選單改變時打這個 API
+@router.patch("/{feedback_id}/status")
+def update_feedback_status(
+    feedback_id: int, 
+    is_replied: int, 
+    db: Session = Depends(get_db)
+):
+    feedback = db.query(Feedback).filter(Feedback.feedback_id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="找不到此回饋")
+    
+    feedback.is_replied = is_replied
+    db.commit()
+    return {"message": "更新成功"}
 
-# ===== GET 我的回饋 =====
+
+# ===== [一般用戶] 取得個人歷史 =====
 @router.get(
     "/my", 
     response_model=List[FeedbackResponse],
-    summary="取得使用者個人的回饋歷史",
-    description="取得當前登入使用者過去所有提交過的回饋紀錄，包含處理狀態與提交時間。",
-    response_description="回傳該使用者的回饋紀錄列表"
+    summary="取得使用者個人的回饋歷史"
 )
 def get_my_feedbacks(
     db: Session = Depends(get_db), 
     current_user: Member = Depends(get_current_user)
 ):
-    feedbacks = (
+    return (
         db.query(Feedback)
         .filter(Feedback.user_id == current_user.user_id)
-        .order_by(Feedback.created_at.desc()) # 新增排序，讓最新的顯示在前面
+        .order_by(Feedback.created_at.desc())
         .all()
     )
-    return feedbacks
