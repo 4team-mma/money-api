@@ -49,6 +49,7 @@ class MemberUpdate(BaseModel):
 
 # --- 回傳給前端用的規格 ---
 class MemberResponse(BaseModel):
+    user_id: int = Field(..., description="使用者唯一識別碼", examples=[1])
     email: str = Field(..., examples=["user@example.com"])
     username: str = Field(..., examples=["user123"])
     name: str = Field(..., examples=["小明"])

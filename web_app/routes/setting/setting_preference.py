@@ -1,18 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ...database import get_db
-from ...models import Setting as SettingModel  # 為了避免跟 Schema 撞名，加上 Model 字尾
-from ...schemas import Setting as schemas      # 引入你的 Setting.py Schema 檔案
+from ...models import Setting as SettingModel
+from ...schemas import Setting as schemas
+# 🌟 引入你的守門員
+from ...dependencies import get_current_user 
+from ...models import Member
 
 router = APIRouter()
 
-# 獲取當前使用者的設定
+# 1. 獲取當前使用者的設定
 @router.get("/me", response_model=schemas.SettingRead)
-def get_user_settings(user_id: int, db: Session = Depends(get_db)):
+def get_user_settings(
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user) # 🌟 改用守門員取得 user 物件
+):
     """
-    獲取指定使用者的偏好設定，如果不存在則自動建立一筆預設值
+    獲取當前登入使用者的偏好設定，不需要在 URL 帶 ID。
     """
-    # 這裡的 SettingModel 對應你 models/__init__.py 裡的 Setting 類別
+    user_id = current_user.user_id # 從 Token 解析出來的物件中拿 ID
+    
     settings = db.query(SettingModel).filter(SettingModel.user_id == user_id).first()
     
     if not settings:
@@ -26,18 +33,17 @@ def get_user_settings(user_id: int, db: Session = Depends(get_db)):
     return settings
 
 
-
-# 專門更新前台主題 (對應你 Vue 的 changeTheme)
+# 2. 專門更新主題顏色
 @router.patch("/update-theme", response_model=schemas.SettingRead)
 def update_app_theme(
     theme_data: schemas.ThemeUpdate, 
-    user_id: int, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user) # 🌟 守門員
 ):
     """
-    更新 app_theme 欄位
+    更新主題，自動識別是誰發出的請求
     """
-    settings = db.query(SettingModel).filter(SettingModel.user_id == user_id).first()
+    settings = db.query(SettingModel).filter(SettingModel.user_id == current_user.user_id).first()
     
     if not settings:
         raise HTTPException(status_code=404, detail="找不到設定檔")
@@ -48,14 +54,17 @@ def update_app_theme(
     return settings
 
 
-
+# 3. 更新所有偏好設定
 @router.put("/update-all", response_model=schemas.SettingRead)
 def update_all_settings(
-    settings_data: schemas.SettingBase, # 👈 這裡成功引入了你的 SettingBase Schema
-    user_id: int, 
-    db: Session = Depends(get_db)
+    settings_data: schemas.SettingBase, 
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user) # 🌟 守門員
 ):
-    settings = db.query(SettingModel).filter(SettingModel.user_id == user_id).first()
+    """
+    全面更新設定，由 Token 決定對象
+    """
+    settings = db.query(SettingModel).filter(SettingModel.user_id == current_user.user_id).first()
     
     if not settings:
         raise HTTPException(status_code=404, detail="找不到設定檔")
@@ -63,11 +72,9 @@ def update_all_settings(
     # 將 Schema 元素轉換為字典 (排除未設定的欄位)
     update_data = settings_data.model_dump(exclude_unset=True)
 
-    # 這裡就是關鍵：將 Schema 裡的元素一一塞進資料庫 Model
     for key, value in update_data.items():
         setattr(settings, key, value)
 
     db.commit()
     db.refresh(settings)
     return settings
-
