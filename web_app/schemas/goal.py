@@ -19,7 +19,6 @@ class SavingsUpdate(SavingsGoalBase):
 class SavingsGoalResponse(SavingsGoalBase):
     """用於 API 回傳的資料結構"""
     goal_id: int = Field(..., description="資料庫內唯一識別 ID")
-    user_id: int = Field(..., description="所屬會員 ID")
     current_amount: Decimal = Field(..., description="目前進度 (可能根據帳戶餘額動態計算)")
     start_date: date = Field(..., description="目標創建日期")
 
@@ -29,7 +28,6 @@ class SavingsGoalResponse(SavingsGoalBase):
         json_schema_extra={
             "example": {
                 "goal_id": 1,
-                "user_id": 101,
                 "goal_name": "買房基金",
                 "target_amount": 2000000.0,
                 "current_amount": 500000.0,
