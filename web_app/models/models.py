@@ -557,3 +557,4 @@ class AchCard(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="進度最後更新時間"
     )
+
