@@ -212,6 +212,24 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
         # 優化：統一報錯訊息，不告知是帳號錯還是密碼錯
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
 
+    # 1. 檢查是否正在鎖定期間 (加入防錯處理)
+    if user.lockout_until and isinstance(user.lockout_until, datetime):
+        if user.lockout_until > datetime.now():
+            wait_time = int((user.lockout_until - datetime.now()).total_seconds() / 60)
+            # 這裡彈出 403，你的 interceptors.js 會捕捉到並報錯「無權限存取」
+            raise HTTPException(status_code=403, detail=f"嘗試次數過多，帳號已被鎖定，請於 {max(1, wait_time)} 分鐘後再試")
+
+    # 2. 驗證密碼
+    if not verify_password(data.password, user.password):
+        # 密碼錯誤：次數 +1
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= 5:
+            user.lockout_until = datetime.now() + timedelta(minutes=15)
+            db.commit()
+            raise HTTPException(status_code=403, detail="嘗試次數過多，帳號已被暫時鎖定 15 分鐘")
+        db.commit()
+        raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    
     # --- 💡 處理「記住我」邏輯 ---
     # 如果勾選記住我，設定長效期 (例如 30 天)；否則使用短效期 (例如 1 小時)
     if data.remember_me:
