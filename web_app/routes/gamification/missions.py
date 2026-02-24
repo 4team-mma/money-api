@@ -18,33 +18,44 @@ def get_daily_missions(current_user: Member = Depends(get_current_user), db: Ses
     today = date.today()
     uid = current_user.user_id
     
-    # 23:00 自動結算判定
+    # 🌟 1. 精準清理：只刪除「昨天以前」且「未接取 (status=0)」的殘留任務
+    # 這樣已接取的 (status=1) 就會被保留
+    db.query(DailyMission).filter(
+        DailyMission.user_id == uid,
+        DailyMission.created_at < today,
+        DailyMission.miss_status == 0
+    ).delete()
+    db.commit() 
+    
+    # 2. 23:00 自動結算判定 (維持原樣)
     if datetime.now().hour >= 23:
         GameService.check_end_of_day_missions(db, uid)
     
-    all_today_missions = db.query(DailyMission, MissCardsLibrary).join(
+    # 🌟 3. 獲取所有「有效」任務：包含今天的，或過去接取還在修煉中的
+    all_active_missions = db.query(DailyMission, MissCardsLibrary).join(
         MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id
     ).filter(
-        DailyMission.user_id == uid, 
-        DailyMission.created_at == today
+        DailyMission.user_id == uid,
+        (DailyMission.created_at == today) | (DailyMission.miss_status == 1)
     ).all()
 
-    occupied_slots = [m[0].slot_num for m in all_today_missions if m[0].slot_num is not None]
+    # 4. 找出已被佔用的 Slot
+    occupied_slots = [m[0].slot_num for m in all_active_missions if m[0].slot_num is not None]
     
-    if len(all_today_missions) < 3:
+    # 🌟 5. 如果不足 3 個，開始補貨
+    if len(all_active_missions) < 3:
+        # 找出還空著的數字 (1, 2, 3)
         available_slots = [s for s in [1, 2, 3] if s not in occupied_slots]
         needed = len(available_slots)
         
         if needed > 0:
-            active_lib_ids = [m[0].lib_id for m in all_today_missions]
+            active_lib_ids = [m[0].lib_id for m in all_active_missions]
             
-            # 🌟 [修正點]：將 ex_titles 宣告移到這裡，並加入連貫性邏輯
             ex_titles = [
                 '守護長老：金字塔貓', '幻夢領袖：獨角獸貓', '戰神：狂暴山貓', '永恆智者：宇宙貓', 
                 '智慧的洞察', '極限的挑戰', '夢想的積累', '紀律的試煉'
             ]
             
-            # 💡 連貫性檢查：如果還沒設定過目標，就不會抽到 90% 門檻的任務
             goal_count = db.query(SavingsGoal).filter(SavingsGoal.user_id == uid).count()
             if goal_count == 0:
                 ex_titles.append("預算規劃")
@@ -60,25 +71,39 @@ def get_daily_missions(current_user: Member = Depends(get_current_user), db: Ses
             pool = query.all()
             if pool:
                 temp_pool = list(pool)
+                # 🌟 按照缺少的數量補滿
                 for _ in range(min(needed, len(temp_pool))):
                     pick = random.choice(temp_pool)
                     db.add(DailyMission(
-                        user_id=uid, lib_id=pick.lib_id, created_at=today, 
-                        current_val=0, miss_status=0, slot_num=available_slots.pop(0)
+                        user_id=uid, 
+                        lib_id=pick.lib_id, 
+                        created_at=today, 
+                        current_val=0, 
+                        miss_status=0, 
+                        slot_num=available_slots.pop(0) # 從空位補進去
                     ))
                     temp_pool.remove(pick)
                 db.commit()
+                # 遞迴呼叫一次，確保回傳包含新抽出的任務
                 return get_daily_missions(current_user, db)
 
+    # 6. 格式化輸出
     result = []
-    for dm, lib in all_today_missions:
+    for dm, lib in all_active_missions:
         result.append({
-            "miss_id": dm.miss_id, "title": lib.title, "difficulty": lib.difficulty, "category": lib.category, 
-            "description": lib.description, "xp_reward": lib.xp_reward, "current_val": dm.current_val, 
-            "target_val": lib.target_val, "miss_status": dm.miss_status, 
+            "miss_id": dm.miss_id, 
+            "title": lib.title, 
+            "difficulty": lib.difficulty, 
+            "category": lib.category, 
+            "description": lib.description, 
+            "xp_reward": lib.xp_reward, 
+            "current_val": dm.current_val, 
+            "target_val": lib.target_val, 
+            "miss_status": dm.miss_status, 
             "slot_num": dm.slot_num if dm.slot_num is not None else 0, 
             "has_card_reward": lib.card_reward_id is not None
         })
+    # 最後依照 Slot 排序回傳給前端
     return sorted(result, key=lambda x: x["slot_num"])
 
 @router.post("/{miss_id}/accept")

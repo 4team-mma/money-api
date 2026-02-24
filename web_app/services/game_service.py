@@ -91,6 +91,22 @@ class GameService:
                     dm.current_val = lib.target_val # 100/100 完成
                 else:
                     dm.current_val = 0
+            
+            # 🌟 新增 3. 減少外食：今日飲食類消費不超過 $300
+            elif lib.title == '減少外食':
+                food_exp = db.query(func.sum(AddRecord.add_amount)).filter(
+                AddRecord.user_id == user_id,
+                AddRecord.add_date == today,
+                AddRecord.add_type == False,
+                AddRecord.add_class == '飲食' # ⚠️ 請確認你資料庫定義的分類名稱是「飲食」
+            ).scalar() or 0
+            
+            # 如果整天吃不到 300，進度填滿 (1/1 或 300/300)
+            # 根據你 SQL 的 target_val 是 300，我們把 current_val 設為 300 表示達成
+            if float(food_exp) <= 300:
+                dm.current_val = lib.target_val 
+            else:
+                dm.current_val = 0 # 超過就失敗
 
         db.commit()
     
