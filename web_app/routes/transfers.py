@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy import select, extract
 from ..database import get_db
-from ..models import Account, Transaction, Member
+from ..models import Account, Transaction, Member, Notification
+from web_app.models.models import SavingsGoal
 from ..dependencies import get_current_user
 from ..schemas.transfers import (
     TransferCreate,
@@ -12,6 +13,8 @@ from ..schemas.transfers import (
     MonthlyTransferResponse,
 )
 from typing import List
+from decimal import Decimal
+from datetime import date, datetime
 
 router = APIRouter()
 
@@ -168,6 +171,40 @@ async def create_transfer(
     from_acc.current_balance -= data.amount
     to_acc.current_balance += data.amount
 
+    # 儲蓄目標同步 (來源帳戶：進度減少)
+    goal_from = db.query(SavingsGoal).filter(
+        SavingsGoal.account_id == data.from_account_id,
+        SavingsGoal.user_id == current_user.user_id,
+        SavingsGoal.status != "failed"
+    ).first()
+    if goal_from:
+        goal_from.current_amount -= data.amount
+        # 若扣除後低於目標，狀態改回 active
+        if goal_from.current_amount < goal_from.target_amount and goal_from.status == "completed":
+            goal_from.status = "active"
+
+    # 儲蓄目標同步 (目標帳戶：進度增加)
+    goal_to = db.query(SavingsGoal).filter(
+        SavingsGoal.account_id == data.to_account_id,
+        SavingsGoal.user_id == current_user.user_id,
+        SavingsGoal.status == "active"
+    ).first()
+    if goal_to:
+        goal_to.current_amount += data.amount
+        if goal_to.current_amount >= goal_to.target_amount:
+            goal_to.status = "completed"
+            new_note = Notification(
+                    user_id=current_user.user_id,
+                    reminder_title=f"🎉 恭喜！儲蓄目標「{goal_to.goal_name}」已達成！",
+                    category="savings",
+                    description=f"太棒了！透過這次轉帳，您已成功存下 {goal_to.current_amount:,.0f} 元，完成了「{goal_to.goal_name}」目標！",
+                    reminder_date_start=date.today(),
+                    reminder_time=datetime.now().time(),
+                    is_active=True,
+                    is_read=False
+                )
+            db.add(new_note)
+
     new_tx = Transaction(
         user_id=current_user.user_id,
         transaction_date=data.transaction_date,
@@ -205,6 +242,14 @@ async def update_transfer(
     old_from_acc.current_balance += old_tx.amount
     old_to_acc.current_balance -= old_tx.amount
 
+    # 還原儲蓄進度
+    goal_old_from = db.query(SavingsGoal).filter(SavingsGoal.account_id == old_tx.from_account_id, SavingsGoal.user_id == current_user.user_id).first()
+    if goal_old_from: goal_old_from.current_amount += old_tx.amount # 還原原本被轉出的錢
+    
+    goal_old_to = db.query(SavingsGoal).filter(SavingsGoal.account_id == old_tx.to_account_id, SavingsGoal.user_id == current_user.user_id).first()
+    if goal_old_to: goal_old_to.current_amount -= old_tx.amount # 扣除原本存入的錢
+
+
     # 計算新邏輯
     new_from_id = data.from_account_id if data.from_account_id is not None else old_tx.from_account_id
     new_to_id = data.to_account_id if data.to_account_id is not None else old_tx.to_account_id
@@ -218,6 +263,34 @@ async def update_transfer(
 
     new_from_acc.current_balance -= new_amount
     new_to_acc.current_balance += new_amount
+
+    # 套用新儲蓄進度與狀態判斷
+    def update_goal_status(goal, delta):
+        if goal:
+            goal.current_amount += delta
+            if goal.current_amount >= goal.target_amount and goal.status != "completed":
+                goal.status = "completed"
+                new_notification = Notification(
+                        user_id=current_user.user_id,
+                        reminder_title=f"🎉 恭喜！儲蓄目標「{goal.goal_name}」已達成！",
+                        category="savings",
+                        description=f"修改轉帳金額後，您的儲蓄已達標！目前總額：{goal.current_amount:,.0f} 元。",
+                        reminder_date_start=date.today(),
+                        reminder_time=datetime.now().time(),
+                        is_active=True,
+                        is_read=False
+                )
+                db.add(new_notification)
+            elif goal.current_amount < goal.target_amount and goal.status == "completed":
+                goal.status = "active"
+
+    # 更新新來源帳戶 (扣除新金額)
+    new_goal_from = db.query(SavingsGoal).filter(SavingsGoal.account_id == new_from_id, SavingsGoal.user_id == current_user.user_id).first()
+    update_goal_status(new_goal_from, -new_amount)
+
+    # 更新新目標帳戶 (增加新金額)
+    new_goal_to = db.query(SavingsGoal).filter(SavingsGoal.account_id == new_to_id, SavingsGoal.user_id == current_user.user_id).first()
+    update_goal_status(new_goal_to, new_amount)
 
     # 更新欄位
     old_tx.from_account_id = new_from_id
@@ -254,6 +327,41 @@ async def delete_transfer(
 
     if from_acc: from_acc.current_balance += tx.amount
     if to_acc: to_acc.current_balance -= tx.amount
+
+    # 儲蓄目標進度同步還原
+    # A. 處理「轉入」帳戶 (原先存錢進去，現在刪除 => 儲蓄減少)
+    goal_to = db.query(SavingsGoal).filter(
+        SavingsGoal.account_id == tx.to_account_id,
+        SavingsGoal.user_id == current_user.user_id
+    ).first()
+    if goal_to:
+        goal_to.current_amount -= tx.amount
+        # 若減完後未達標，狀態改回 active
+        if goal_to.current_amount < goal_to.target_amount and goal_to.status == "completed":
+            goal_to.status = "active"
+
+    # B. 處理「轉出」帳戶 (原先錢被轉走，現在刪除 => 儲蓄增加/回流)
+    goal_from = db.query(SavingsGoal).filter(
+        SavingsGoal.account_id == tx.from_account_id,
+        SavingsGoal.user_id == current_user.user_id
+    ).first()
+    if goal_from:
+        goal_from.current_amount += tx.amount
+        # 若加完後重新達標，狀態改為 completed 並可觸發通知
+        if goal_from.current_amount >= goal_from.target_amount and goal_from.status != "completed":
+            goal_from.status = "completed"
+            # 建立賀報通知
+            new_note = Notification(
+                user_id=current_user.user_id,
+                reminder_title=f"🎉 儲蓄回流！目標「{goal_from.goal_name}」重新達標",
+                category="savings",
+                description=f"由於刪除了一筆從此帳戶轉出的紀錄，您的儲蓄進度已回補至 {goal_from.current_amount:,.0f} 元。",
+                reminder_date_start=date.today(),
+                reminder_time=datetime.now().time(),
+                is_active=True,
+                is_read=False
+            )
+            db.add(new_note)
 
     db.delete(tx)
     db.commit()

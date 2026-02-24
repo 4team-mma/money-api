@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AddRecord, Account, Member
+from ..models import AddRecord, Account, Member, Notification
+from web_app.models.models import Budget, SavingsGoal
 from ..schemas.add import (
     AddRecordCreate,
     AddRecordResponse,
@@ -12,7 +13,7 @@ from ..dependencies import get_current_user
 from typing import Optional
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from web_app.services.game_service import GameService
 import math  #  用於計算總頁數
 
@@ -254,13 +255,110 @@ async def create_record(
         raise HTTPException(status_code=404, detail="找不到指定帳戶")
 
     if data.add_type is False:  # 支出
-        account.current_balance -= amt_decimal
+        account.current_balance -=  amt_decimal
+        
+        # 預算檢查邏輯
+        today = date.today()
+        first_day_of_month = today.replace(day=1)
+
+        # 判斷：只有當新增的是「本月」的紀錄時才檢查預算
+        if data.add_date >= first_day_of_month:
+            budget = db.query(Budget).filter(
+                Budget.user_id == current_user.user_id,
+                Budget.category == data.add_class
+            ).first()
+
+            if budget and budget.amount > 0:
+                # 計算本月該分類總支出
+                total_spent = db.query(func.sum(AddRecord.add_amount)).filter(
+                    AddRecord.user_id == current_user.user_id,
+                    AddRecord.add_class == data.add_class,
+                    AddRecord.add_type == False,
+                    AddRecord.add_date >= first_day_of_month
+                ).scalar() or Decimal(0)
+                
+                # 加上本次新增金額 (因為 db 尚未 commit，需手動加上)
+                total_spent += amt_decimal
+                usage_percent = (total_spent / budget.amount) * 100
+
+                if usage_percent >= 90:
+                    # 檢查今日是否已對該分類發過預算通知
+                    existing_note = db.query(Notification).filter(
+                        Notification.user_id == current_user.user_id,
+                        Notification.category == "budget",
+                        Notification.reminder_title.like(f"%{data.add_class}%"),
+                        func.date(Notification.created_at) == today
+                    ).first()
+
+                    if not existing_note:
+                        new_notification = Notification(
+                            user_id=current_user.user_id,
+                            reminder_title=f"⚠️ 預算警報：{data.add_class} 已達 {usage_percent:.0f}%",
+                            category="budget",
+                            description=f"您在「{data.add_class}」的支出已達 {total_spent:,.0f} 元，接近預算上限 {budget.amount:,.0f} 元。",
+                            reminder_date_start=today,
+                            reminder_time=datetime.now().time(),
+                            is_active=True,
+                            is_read=False
+                        )
+                        db.add(new_notification)
+            elif budget and budget.amount == 0:
+                # 如果預算為 0 代表「禁止支出」，則任何一筆支出都發警告
+                if amt_decimal > 0:
+                    # 檢查今天是否已發過「禁止支出」警告
+                    new_notification = Notification(
+                        user_id=current_user.user_id,
+                        reminder_title=f"🚫 超額警報：{data.add_class} 已超出預算",
+                        category="budget",
+                        description=f"您在「{data.add_class}」並未編列預算，但已有支出 {amt_decimal:,.0f} 元。",
+                        reminder_date_start=date.today(),
+                        reminder_time=datetime.now().time(),
+                        is_active=True,
+                        is_read=False
+                    )
+                    db.add(new_notification)
     else:  # 收入
         account.current_balance += amt_decimal
+
+        # 尋找與此帳戶關聯且進行中的儲蓄目標
+        goal = db.query(SavingsGoal).filter(
+            SavingsGoal.account_id == data.account_id,
+            SavingsGoal.user_id == current_user.user_id,
+            SavingsGoal.status == "active"
+        ).first()
+
+        if goal:
+            # 更新目標目前的金額
+            goal.current_amount += amt_decimal
+            
+            # 檢查是否達標
+            if goal.current_amount >= goal.target_amount:
+                # 檢查是否已發過「達成通知」(避免重複發送)
+                existing_note = db.query(Notification).filter(
+                    Notification.user_id == current_user.user_id,
+                    Notification.category == "savings",
+                    Notification.reminder_title.like(f"%{goal.goal_name}%")
+                ).first()
+
+                if not existing_note:
+                    # 建立賀報通知
+                    new_notification = Notification(
+                        user_id=current_user.user_id,
+                        reminder_title=f"🎉 恭喜！儲蓄目標「{goal.goal_name}」已達成！",
+                        category="savings",
+                        description=f"太棒了！您已成功存下 {goal.current_amount:,.0f} 元，完成了「{goal.goal_name}」的目標。繼續保持優良的理財習慣！",
+                        reminder_date_start=date.today(),
+                        reminder_time=datetime.now().time(),
+                        is_active=True,
+                        is_read=False
+                    )
+                    db.add(new_notification)
+                    # 同時將目標狀態改為已完成
+                    goal.status = "completed"
     
     db.commit()
     db.refresh(new_record)
-    
+
     # 🌟 這裡加入全域掃描器
     # 根據 add_type 判斷類別 (True: 收入, False: 支出)
     category_label = '記帳' 
@@ -323,8 +421,103 @@ async def update_record(
 
     if db_record.add_type is False:
         new_account.current_balance -= db_record.add_amount
+
+        # 預算檢查邏輯 (修改後若為支出則觸發)
+        today = date.today()
+        first_day_of_this_month = today.replace(day=1)
+        
+        # 只有當紀錄日期落在「本月」時才檢查預算
+        if db_record.add_date >= first_day_of_this_month:
+            budget = db.query(Budget).filter(
+                Budget.user_id == current_user.user_id,
+                Budget.category == db_record.add_class
+            ).first()
+
+            if budget and budget.amount > 0:
+                # 計算本月總支出 (確保只抓本月的 adds 表紀錄)
+                total_spent = db.query(func.sum(AddRecord.add_amount)).filter(
+                    AddRecord.user_id == current_user.user_id,
+                    AddRecord.add_class == db_record.add_class,
+                    AddRecord.add_type == False,
+                    AddRecord.add_date >= first_day_of_this_month
+                ).scalar() or Decimal(0)
+
+                usage_percent = (total_spent / budget.amount) * 100
+
+                if usage_percent >= 90:
+                    # 檢查今日是否已發過通知 (避免重複)
+                    existing_note = db.query(Notification).filter(
+                        Notification.user_id == current_user.user_id,
+                        Notification.category == "budget",
+                        Notification.reminder_title.like(f"%{db_record.add_class}%"),
+                        func.date(Notification.created_at) == date.today()
+                    ).first()
+
+                    if not existing_note:
+                        new_notification = Notification(
+                            user_id=current_user.user_id,
+                            reminder_title=f"⚠️ 預算警報：{db_record.add_class} 已達 {usage_percent:.0f}%",
+                            category="budget",
+                            description=f"修改紀錄後，您本月在「{db_record.add_class}」的支出已達 {total_spent:,.0f} 元，接近預算上限 {budget.amount:,.0f} 元。",
+                            reminder_date_start=date.today(),
+                            reminder_time=datetime.now().time(),
+                            is_active=True,
+                            is_read=False
+                        )
+                        db.add(new_notification)
+            elif budget and budget.amount == 0:
+                # 如果預算為 0 代表「禁止支出」，則任何一筆支出都發警告
+                if db_record.add_amount > 0:
+                    # 檢查今天是否已發過「禁止支出」警告
+                    new_notification = Notification(
+                        user_id=current_user.user_id,
+                        reminder_title=f"🚫 超額警報：{data.add_class} 已超出預算",
+                        category="budget",
+                        description=f"您在「{data.add_class}」並未編列預算，但已有支出 {db_record.add_amount:,.0f} 元。",
+                        reminder_date_start=date.today(),
+                        reminder_time=datetime.now().time(),
+                        is_active=True,
+                        is_read=False
+                    )
+                    db.add(new_notification)
     else:
         new_account.current_balance += db_record.add_amount
+
+        # 尋找與此帳戶關聯且進行中的儲蓄目標
+        goal = db.query(SavingsGoal).filter(
+            SavingsGoal.account_id == data.account_id,
+            SavingsGoal.user_id == current_user.user_id,
+            SavingsGoal.status == "active"
+        ).first()
+
+        if goal:
+            # 更新目標目前的金額
+            goal.current_amount += db_record.add_amount
+            
+            # 檢查是否達標
+            if goal.current_amount >= goal.target_amount:
+                # 檢查是否已發過「達成通知」(避免重複發送)
+                existing_note = db.query(Notification).filter(
+                    Notification.user_id == current_user.user_id,
+                    Notification.category == "savings",
+                    Notification.reminder_title.like(f"%{goal.goal_name}%")
+                ).first()
+
+                if not existing_note:
+                    # 建立賀報通知
+                    new_notification = Notification(
+                        user_id=current_user.user_id,
+                        reminder_title=f"🎉 恭喜！儲蓄目標「{goal.goal_name}」已達成！",
+                        category="savings",
+                        description=f"太棒了！您已成功存下 {goal.current_amount:,.0f} 元，完成了「{goal.goal_name}」的目標。繼續保持優良的理財習慣！",
+                        reminder_date_start=date.today(),
+                        reminder_time=datetime.now().time(),
+                        is_active=True,
+                        is_read=False
+                    )
+                    db.add(new_notification)
+                    # 同時將目標狀態改為已完成
+                    goal.status = "completed"
 
     db.commit()
     db.refresh(db_record)
@@ -364,6 +557,22 @@ async def delete_record(
             account.current_balance += record.add_amount
         else:
             account.current_balance -= record.add_amount
+
+            # 儲蓄目標同步還原
+            # 只有刪除「收入」時，才需要扣除對應儲蓄目標的進度
+            goal = db.query(SavingsGoal).filter(
+                SavingsGoal.account_id == record.account_id,
+                SavingsGoal.user_id == current_user.user_id
+            ).first()
+
+            if goal:
+                # 扣除進度
+                goal.current_amount -= record.add_amount
+                
+                # 狀態判定：如果扣除後低於目標，且原本狀態是已完成 (completed)
+                if goal.current_amount < goal.target_amount and goal.status == "completed":
+                    goal.status = "active"  # 改回進行中
+                    
 
     db.delete(record)
     db.commit()
