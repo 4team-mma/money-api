@@ -74,7 +74,14 @@ def perform_checkin(
         earned_xp=earned_xp
     )
     db.add(new_checkin)
-    current_user.xp += earned_xp
+    
+    # 原本current_user.xp += earned_xp
+    # 🌟 修改這裡：不再只是 += earned_xp，而是呼叫自動升級邏輯
+    # 假設你把 add_user_xp 放在 GameService 裡面
+    from web_app.services.game_service import GameService 
+    # 這裡會自動處理：增加 XP -> 判斷是否超過門檻 -> 提升 Level -> 剩餘 XP 歸扣
+    GameService.add_user_xp(db, current_user, earned_xp)
+
 
     # 🌟 7. 你的全域掃描器：觸發「每日報到」任務 (Category='系統')
     GameService.update_mission_progress(
