@@ -4,8 +4,47 @@ from sqlalchemy import func
 from datetime import date,datetime
 from typing import Optional
 from web_app.models import DailyMission, MissCardsLibrary, AddRecord
+from web_app.models import Member
 
 class GameService:
+    @staticmethod
+    def get_required_xp(level: int) -> int:
+        """
+        計算該等級升級所需的總 XP (階層式公式)
+        """
+        if level < 10: return 100 + (level * 20)
+        if level < 20: return 300 + (level * 30)
+        if level < 50: return 1000 + (level * 50)
+        if level < 100: return 3000 + (level * 100)
+        return 10000
+
+    @staticmethod
+    def add_user_xp(db: Session, user: Member, xp_to_add: int):
+        """
+        替使用者增加經驗值，並處理自動升級邏輯 (支援連續跳級)
+        """
+        # 確保初始數值不是 None
+        if user.xp is None: user.xp = 0
+        if user.level is None: user.level = 1
+        
+        user.xp += xp_to_add
+        
+        # 溢位升級判斷
+        while True:
+            required = GameService.get_required_xp(user.level)
+            
+            # 如果目前經驗值超過門檻，且尚未達到等級上限
+            if user.xp >= required and user.level < 100:
+                user.xp -= required  # 扣除升級消耗，剩餘 XP 繼續累積
+                user.level += 1      # 等級加 1
+            else:
+                # XP 不足或已滿級，停止判斷
+                break
+        
+        # 這裡不需要 db.commit()，由呼叫此 Service 的 Router 決定何時 commit
+        db.add(user)
+        return user
+    
     @staticmethod
     def check_end_of_day_missions(db: Session, user_id: int):
         """
