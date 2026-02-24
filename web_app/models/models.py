@@ -1,5 +1,6 @@
 from decimal import Decimal
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time
+
 from typing import Optional
 from ..database import Base
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     func,
     Text,
     UniqueConstraint,
+    Time,
 )
 
 # 物件關係映射 (ORM)負責將「Python 物件」與「資料表」串接。
@@ -153,25 +155,33 @@ class Transaction(Base):
 class Notification(Base):
     __tablename__ = "notifications"
 
-    reminder_id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("members.user_id"), nullable=False
-    )
+    reminder_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
 
-    reminder_title: Mapped[str] = mapped_column(String(20), nullable=False)
+    reminder_title: Mapped[str] = mapped_column(String(50), nullable=False)
+    # 提醒類型：'manual' (手動), 'budget' (預算警告), 'savings' (目標達成)
+    category: Mapped[str] = mapped_column(String(20), server_default="manual")
+    
     reminder_date_start: Mapped[date] = mapped_column(Date, nullable=False)
-    reminder_date_end: Mapped[Optional[date]] = mapped_column(Date)
 
-    reminder_time: Mapped[timedelta] = mapped_column(String(10), default="10:00:00")
-    repeat_cycle: Mapped[Optional[str]] = mapped_column(String(20))
-    description: Mapped[Optional[str]] = mapped_column(String(200))
-    # 補上時間戳記
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    # 就算忘記傳時間，資料庫也能自動填入「寫入當下」的時間
+    reminder_time: Mapped[time] = mapped_column(
+        Time, 
+        server_default=func.current_time(),
+        default=lambda: datetime.now().time()
     )
+    
+    # 週期：none, daily, weekly, monthly
+    repeat_cycle: Mapped[str] = mapped_column(String(20), server_default="none")
+    
+    description: Mapped[Optional[str]] = mapped_column(String(200))
+    
+    # 狀態控制
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="1") # 是否啟用提醒
+    is_read: Mapped[bool] = mapped_column(Boolean, server_default="0")   # 是否已讀(針對系統通知)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
 # 6.預算表格
 class Budget(Base):
