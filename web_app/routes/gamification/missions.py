@@ -4,7 +4,7 @@ from datetime import date, datetime
 import random
 from typing import List
 from web_app.database import get_db
-from web_app.models import DailyMission, MissCardsLibrary, Member, AchCard
+from web_app.models import DailyMission, MissCardsLibrary, Member, AchCard,Account
 from web_app.schemas.gamification import mission as schemas
 from web_app.dependencies import get_current_user
 from sqlalchemy import func
@@ -142,8 +142,20 @@ def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_curren
 @router.post("/trigger/{action_code}")
 def trigger_mission_action(action_code: str, current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    統一瀏覽型任務觸發器：嚴格要求必須是「已接取 (status=1)」
+    統一任務觸發器
     """
+    # 🌟 特殊處理：安全存款 (即時對帳)
+    if action_code == "view_accounts":
+        savings_mission = db.query(DailyMission).join(MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id).filter(
+            DailyMission.user_id == current_user.user_id, MissCardsLibrary.title == "安全存款", DailyMission.miss_status == 1
+        ).first()
+        if savings_mission:
+            total_bal = db.query(func.sum(Account.current_balance)).filter(
+                Account.user_id == current_user.user_id, Account.account_type == 'savings'
+            ).scalar() or 0
+            savings_mission.current_val = int(total_bal)
+            db.commit()
+
     action_map = {
         "view_accounts": "資產確認",
         "view_charts_pie_inn": "圖表分析",
@@ -151,15 +163,14 @@ def trigger_mission_action(action_code: str, current_user: Member = Depends(get_
         "view_calendar": "回顧過去",
         "view_trends": "溫故知新",
         "view_salary": "了解行情",
-        "view_targets": "設定目標",
+        "save_budget": "預算規劃",   # 🌟 對應 NT 任務
+        "save_goal": "設定目標",     # 🌟 對應 NF 任務
         "change_theme": "品味生活"
     }
     
     target_title = action_map.get(action_code)
-    if not target_title:
-        return {"status": "error", "message": "未知行為代碼"}
+    if not target_title: return {"status": "error", "message": "未知行為"}
 
-    # 僅針對「修煉中 (status=1)」的對應任務進行進度補滿
     mission_record = db.query(DailyMission).join(
         MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id
     ).filter(
@@ -171,10 +182,9 @@ def trigger_mission_action(action_code: str, current_user: Member = Depends(get_
     if mission_record:
         lib = db.query(MissCardsLibrary).filter(MissCardsLibrary.lib_id == mission_record.lib_id).first()
         target_val = lib.target_val if lib else 1
-        
         if mission_record.current_val < target_val:
             mission_record.current_val = target_val
             db.commit()
             return {"status": "updated", "mission": target_title}
     
-    return {"status": "skipped", "reason": "無對應修煉中任務"}
+    return {"status": "skipped"}
