@@ -52,6 +52,9 @@ class Member(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)
     points: Mapped[int] = mapped_column(Integer, default=0)
     job: Mapped[str] = mapped_column(String(100), default="一般民眾")
+    #記錄登入失敗次數與鎖定時間
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lockout_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     feedbacks = relationship("Feedback", back_populates="user")
 
 # 2. 帳戶管理 (育育同學)
