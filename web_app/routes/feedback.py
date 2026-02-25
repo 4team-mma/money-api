@@ -10,7 +10,7 @@ from ..dependencies import get_current_user # 假設這裡會驗證 Token
 
 router = APIRouter()
 
-# ===== [管理者專用] 取得所有回饋列表 =====
+# 2===== [管理者專用] 取得所有回饋列表 =====
 @router.get(
     "/all", 
     response_model=List[FeedbackResponse],
@@ -31,34 +31,46 @@ def get_all_feedbacks(
     return feedbacks
 
 
-# ===== [管理者專用] 更新回饋狀態 (下拉選單觸發) =====
+# 3===== [管理者專用] 更新回饋狀態 (下拉選單觸發) =====
 @router.patch(
     "/{feedback_id}",
     response_model=FeedbackResponse,
     summary="管理端：更新回饋處理狀態",
     description="更新 is_replied (0, 1, 2) 或填寫 admin_answer。"
 )
-def update_feedback_status(
+def update_feedback_admin(
     feedback_id: int,
     data: FeedbackAdminReply,
     db: Session = Depends(get_db)
 ):
-    feedback = db.query(Feedback).filter(Feedback.feedback_id == feedback_id).first()
+    # 這裡記得也要載入 user 資訊，否則回傳 FeedbackResponse 時會噴錯
+    feedback = (
+        db.query(Feedback)
+        .options(joinedload(Feedback.user))
+        .filter(Feedback.feedback_id == feedback_id)
+        .first()
+    )
+    
     if not feedback:
         raise HTTPException(status_code=404, detail="找不到該回饋紀錄")
 
-    # 更新狀態與內容
+    # 更新狀態 (0=待處理, 1=處理中, 2=已解決)
     feedback.is_replied = data.is_replied
-    if data.admin_answer:
+    
+    # 如果有填寫回覆內容
+    if data.admin_answer is not None:
         feedback.admin_answer = data.admin_answer
         feedback.replied_at = datetime.now() # 紀錄回覆時間
+        # 💡 如果有填內容，通常自動設為「已解決 (2)」是很合理的 UI 邏輯
+        if feedback.is_replied == 0:
+            feedback.is_replied = 2
 
     db.commit()
     db.refresh(feedback)
     return feedback
 
 
-# ===== [一般用戶] 提交新回饋 =====
+# 1===== [一般用戶] 提交新回饋 =====
 @router.post(
     "/", 
     response_model=FeedbackResponse,
@@ -83,23 +95,8 @@ def create_feedback(
     db.refresh(new_feedback)
     return new_feedback
 
-# 在你的 router 檔案中補上這個，前端下拉選單改變時打這個 API
-@router.patch("/{feedback_id}/status")
-def update_feedback_status(
-    feedback_id: int, 
-    is_replied: int, 
-    db: Session = Depends(get_db)
-):
-    feedback = db.query(Feedback).filter(Feedback.feedback_id == feedback_id).first()
-    if not feedback:
-        raise HTTPException(status_code=404, detail="找不到此回饋")
-    
-    feedback.is_replied = is_replied
-    db.commit()
-    return {"message": "更新成功"}
 
-
-# ===== [一般用戶] 取得個人歷史 =====
+# 4===== [一般用戶] 取得個人歷史 =====
 @router.get(
     "/my", 
     response_model=List[FeedbackResponse],
