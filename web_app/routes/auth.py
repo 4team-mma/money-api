@@ -214,6 +214,10 @@ async def login(data: MemberLogin,
     if not user:
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
 
+    # 登入邏輯
+    if user.status == "banned":
+        raise HTTPException(status_code=403, detail="您的帳號已被停用，請聯繫管理員。")
+
     # 2. 檢查是否正在鎖定期間
     if user.lockout_until and isinstance(user.lockout_until, datetime):
         if user.lockout_until > datetime.now():
@@ -229,6 +233,9 @@ async def login(data: MemberLogin,
             raise HTTPException(status_code=403, detail="嘗試次數過多，帳號已被暫時鎖定 15 分鐘")
         db.commit()
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    else:
+        # 更新最後登入時間
+        user.last_login = datetime.now()
 
     # 登入成功，重置失敗次數
     user.failed_login_attempts = 0
