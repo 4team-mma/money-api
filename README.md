@@ -51,6 +51,7 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add pandas openpyxl (資料處理/Excel 檔案引擎)
 - uv add reportlab (PDF轉換套件)
 - uv add google-genai (Google 的 AI 套件)
+- uv add user-agents  (「自動辨識裝置」的功能_例如win11)
 
 ## 移除套件:
 - 執行:uv remove google-generativeai

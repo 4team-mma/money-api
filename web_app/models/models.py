@@ -593,3 +593,18 @@ class SavingsGoal(Base):
     # 目標狀態 (例如: active, completed, failed)
     status: Mapped[str] = mapped_column(String(20), default="active")
     account: Mapped[Optional["Account"]] = relationship("Account")
+    
+# 18. 登入紀錄表 (用於顯示最近登入活動)
+class LoginActivity(Base):
+    __tablename__ = "login_activities"
+
+    activity_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
+    ip_address: Mapped[str] = mapped_column(String(45))
+    device_info: Mapped[str] = mapped_column(String(100), server_default="Unknown")
+    browser: Mapped[str] = mapped_column(String(100), server_default="Unknown")
+    location: Mapped[str] = mapped_column(String(100), server_default="Unknown")
+    login_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    is_current: Mapped[bool] = mapped_column(Boolean, server_default="0")
