@@ -17,7 +17,8 @@ from .models import (
     MissCardsLibrary,
     DailyMission,
     AchCard,
-    SavingsGoal
+    SavingsGoal,
+    LoginActivity
     
 )
 

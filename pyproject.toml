@@ -19,6 +19,7 @@ dependencies = [
     "requests>=2.32.5",
     "slowapi>=0.1.9",
     "sqlalchemy>=2.0.45",
+    "user-agents>=2.2.0",
     "xmltodict>=1.0.2",
 ]
 

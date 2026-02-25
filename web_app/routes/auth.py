@@ -1,3 +1,5 @@
+from user_agents import parse # 用於解析裝置資訊
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import desc  # 用於排序找出最後一筆 OTP 紀錄
@@ -26,7 +28,7 @@ from ..utils.email_utils import verify_recaptcha, send_otp_email
 import os
 # ✨ 新增 Model 引入 (用來操作資料庫)
 # 根據你的 models.py 內容，Member 和 Setting 都在這裡
-from ..models.models import Member, Setting
+from ..models.models import Member, Setting,LoginActivity
 
 
 router = APIRouter()
@@ -187,19 +189,20 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
 
     return {"msg": "註冊成功"}
 
-
 @router.post("/auth/login", summary="🔐 會員登入")
-async def login(data: MemberLogin, db: Session = Depends(get_db)):
+async def login(data: MemberLogin, 
+                request: Request,
+                db: Session = Depends(get_db)):
     """
     一般會員登入接口。
 
     - **輸入**: `identifier` 欄位可接受 **Username** 或 **Email**。
     - **回傳**: JWT Access Token 與部分使用者資訊。
     - **錯誤**: 帳號或密碼錯誤統一回傳 401，不透露具體錯誤原因。
-    - **remember_me**: `True`:保持登入狀態 30 天,`False`:1小時
+    - **remember_me**: `True`:保持登入狀態 30 天, `False`:1小時
     """
 
-    #  1. 先從資料庫找人
+    # 1. 先從資料庫找人
     user = (
         db.query(Member)
         .filter(
@@ -208,20 +211,17 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
         .first()
     )
 
-    if not user or not verify_password(data.password, user.password):
-        # 優化：統一報錯訊息，不告知是帳號錯還是密碼錯
+    if not user:
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
 
-    # 1. 檢查是否正在鎖定期間 (加入防錯處理)
+    # 2. 檢查是否正在鎖定期間
     if user.lockout_until and isinstance(user.lockout_until, datetime):
         if user.lockout_until > datetime.now():
             wait_time = int((user.lockout_until - datetime.now()).total_seconds() / 60)
-            # 這裡彈出 403，你的 interceptors.js 會捕捉到並報錯「無權限存取」
             raise HTTPException(status_code=403, detail=f"嘗試次數過多，帳號已被鎖定，請於 {max(1, wait_time)} 分鐘後再試")
 
-    # 2. 驗證密碼
+    # 3. 驗證密碼
     if not verify_password(data.password, user.password):
-        # 密碼錯誤：次數 +1
         user.failed_login_attempts += 1
         if user.failed_login_attempts >= 5:
             user.lockout_until = datetime.now() + timedelta(minutes=15)
@@ -229,26 +229,74 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
             raise HTTPException(status_code=403, detail="嘗試次數過多，帳號已被暫時鎖定 15 分鐘")
         db.commit()
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+
+    # 登入成功，重置失敗次數
+    user.failed_login_attempts = 0
     
-    # --- 💡 處理「記住我」邏輯 ---
-    # 如果勾選記住我，設定長效期 (例如 30 天)；否則使用短效期 (例如 1 小時)
+    # 4. 處理「記住我」邏輯
     if data.remember_me:
         access_token_expires = timedelta(days=30)
     else:
         access_token_expires = timedelta(hours=1)
     
-    # 產生 Token 時傳入 expires_delta
     access_token = create_access_token(
         data={"sub": str(user.user_id)},
-        expires_delta=access_token_expires  # 傳入動態的時間
+        expires_delta=access_token_expires
     )
-    
-    #access_token = create_access_token(data={"sub": str(user.user_id)})
 
-    # 去 Settings 表格找這個人的頭像
-    # 假設 Settings 表格中有一個 user_id 欄位與 Member 關聯
+    # 5. 取得頭像資訊
     user_setting = db.query(Setting).filter(Setting.user_id == user.user_id).first()
 
+    # --- 🌟 核心：精準寫入登入紀錄 ---
+    try:
+        # A. 裝置辨識
+        ua_string = request.headers.get("user-agent", "")
+        user_agent = parse(ua_string)
+        
+        # 針對 Win11 隱私標頭做微調 (若有)
+        os_info = f"{user_agent.os.family} {user_agent.os.version_string}"
+        if "Windows" in os_info and "10" in os_info:
+            os_info = "Windows 11/10" # 標註相容版本
+        
+        device_name = f"{os_info}"
+        if user_agent.is_mobile:
+            device_name = f"{user_agent.device.model} ({user_agent.os.family})"
+        
+        browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
+
+        # B. 精準縣市定位
+        client_host = request.client.host if request.client else "127.0.0.1"
+        location_name = "台灣"
+        
+        # 排除本機 IP，避免呼叫 API 浪費資源
+        if client_host != "127.0.0.1" and client_host != "localhost":
+            try:
+                # 呼叫定位 API (繁體中文版)
+                with httpx.Client() as client:
+                    resp = client.get(f"http://ip-api.com/json/{client_host}?lang=zh-TW", timeout=2.0)
+                    geo_data = resp.json()
+                    if geo_data.get("status") == "success":
+                        location_name = f"{geo_data.get('regionName', '')} {geo_data.get('city', '')}".strip()
+            except Exception:
+                location_name = "台灣 (定位暫不可用)"
+
+        # C. 維護紀錄 (先將此 User 其他紀錄改為 False，再存入最新一筆)
+        db.query(LoginActivity).filter(LoginActivity.user_id == user.user_id).update({"is_current": False})
+        
+        new_login_log = LoginActivity(
+            user_id=user.user_id,
+            ip_address=client_host,
+            device_info=device_name,
+            browser=browser_name,
+            location=location_name,
+            is_current=True
+        )
+        db.add(new_login_log)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"DEBUG: 寫入登入紀錄失敗: {e}")
+        
     return {
         "msg": "登入成功",
         "access_token": access_token,
@@ -259,7 +307,7 @@ async def login(data: MemberLogin, db: Session = Depends(get_db)):
             "email": user.email,
             "role": user.role,
             "name": user.name,
-            "avatar_url": user_setting.avatar_url if user_setting else None, #補上回傳照片
+            "avatar_url": user_setting.avatar_url if user_setting else None,
         },
     }
 
@@ -274,7 +322,9 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 
 @router.post("/auth/google", summary="📍Google 第三方登入/註冊")
-async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
+async def google_auth(data: GoogleAuthRequest,
+                    request: Request,
+                    db: Session = Depends(get_db)):
     """
     接收前端 Google SDK 產生的 `id_token` 進行後端驗證。
 
@@ -293,7 +343,7 @@ async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
         - `400`: Google Token 驗證無效或過期。
     """
 
-    # 1. 驗證 Google Token (保持 ValueError 捕獲，因為這是特定的業務錯誤)
+    # 1. 驗證 Google Token
     try:
         id_info = id_token.verify_oauth2_token(
             data.token, google_requests.Request(), GOOGLE_CLIENT_ID
@@ -308,57 +358,69 @@ async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
     # 3. 檢查使用者是否已存在
     user = db.query(Member).filter(Member.email == email).first()
 
-    # 4. 如果使用者不存在，執行「原子化」註冊流程
+    # 4. 如果使用者不存在，執行註冊流程
     if not user:
-        # 生成不重複的預設帳號
         default_username = f"{email.split('@')[0]}_{datetime.now().strftime('%M%S')}"
-
-        # 建立新會員
         new_user = Member(
             username=default_username,
             name=full_name,
             email=email,
-            password=get_password_hash(str(uuid.uuid4())),  # 隨機密碼
+            password=get_password_hash(str(uuid.uuid4())),
             role="user",
             status="active",
             created_at=datetime.now(),
             job="一般用戶",
         )
         db.add(new_user)
-        db.flush()  # 🌟 先取得 user_id，不提交事務
+        db.flush()
 
-        # 🌟 為新用戶同步建立預設帳戶
         default_accounts = [
             Account(
                 user_id=new_user.user_id,
-                account_type="現金",
-                account_name="我的錢包",
-                currency="NT$",
-                initial_balance=0,
-                current_balance=0,
-                exclude_from_assets=False,
-                account_icon="💰",
+                account_type="現金", account_name="我的錢包", currency="NT$",
+                initial_balance=0, current_balance=0, account_icon="💰"
             ),
             Account(
                 user_id=new_user.user_id,
-                account_type="銀行",
-                account_name="預設銀行",
-                currency="NT$",
-                initial_balance=0,
-                current_balance=0,
-                exclude_from_assets=False,
-                account_icon="🏦",
+                account_type="銀行", account_name="預設銀行", currency="NT$",
+                initial_balance=0, current_balance=0, account_icon="🏦"
             ),
         ]
         db.add_all(default_accounts)
-
-        # 統一提交：確保「會員」與「帳戶」同時建立成功
         db.commit()
         db.refresh(new_user)
         user = new_user
 
     # 5. 簽發 JWT Token
     access_token = create_access_token(data={"sub": str(user.user_id)})
+
+    # --- 🌟 核心：寫入登入紀錄 (放在 return 前面，獨立 try-except) ---
+    try:
+        ua_string = request.headers.get("user-agent", "")
+        user_agent = parse(ua_string)
+        device_name = f"{user_agent.os.family} {user_agent.os.version_string}"
+        browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
+        
+        if user_agent.is_mobile:
+            device_name = f"{user_agent.device.model} ({user_agent.os.family})"
+
+        client_host = request.client.host if request.client else "127.0.0.1"
+
+        db.query(LoginActivity).filter(LoginActivity.user_id == user.user_id).update({"is_current": False})
+        
+        new_login_log = LoginActivity(
+            user_id=user.user_id,
+            ip_address=client_host,
+            device_info=device_name,
+            browser=browser_name,
+            location="台灣",
+            is_current=True
+        )
+        db.add(new_login_log)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Google 登入紀錄失敗: {e}")
 
     return {
         "msg": "Google 登入成功",
