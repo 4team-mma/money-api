@@ -27,7 +27,7 @@ from reportlab.graphics.charts.legends import Legend
 from ...dependencies import get_current_user
 from ...database import get_db
 from ...models import AddRecord, Member
-
+from ...services.game_service import GameService
 router = APIRouter()
 
 # ==========================================
@@ -305,6 +305,22 @@ async def export_report(
 
     base_filename = f"{user_nickname}_{period_text}_{display_title}報表"
     encoded_filename = quote(base_filename)
+
+    # 🌟 插入mission判斷
+    if report_format == "pdf" and (report_type == "yearly" or "year-" in time_range):
+        try:
+            # 呼叫 Service 更新進度
+            GameService.update_mission_progress(
+                db, 
+                user_id=current_user.user_id, 
+                category='宏觀分析', 
+                increment=1
+            )
+            # 這裡必須 commit，因為後續的 StreamingResponse 會結束 request
+            db.commit() 
+        except Exception as e:
+            db.rollback()
+            print(f"宏觀分析任務觸發失敗: {str(e)}")
 
     if report_format == "pdf":
         pdf_content = generate_pdf_response(

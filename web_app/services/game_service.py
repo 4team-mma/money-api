@@ -214,10 +214,29 @@ class GameService:
                         # 判定關鍵字組合：必須有 CPI，且包含「最高」或「指標」
                         if 'CPI' in msg and any(k in msg for k in ['最高', '指標']):
                             dm.current_val = lib.target_val
+                            
+                # 🌟 11. 宏觀分析：年度報表匯出 (NF 任務)
+                elif lib.title == '宏觀分析':
+                    # 只要類別匹配成功（由 API 傳入 '宏觀分析'），就直接加 1
+                    if category == '宏觀分析':
+                        dm.current_val += increment
+                
 
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
-                    dm.current_val += increment
+                    # 🌟 優化：記帳達人或類似任務，通常指「花費紀錄」
+                    if lib.title == '記帳達人':
+                        if add_type is False: # 僅限支出才累加
+                            dm.current_val += increment
+                    
+                    # 🌟 優化：資金調度任務判定
+                    elif lib.title == '資金調度':
+                        if category == '轉帳': # 確保只有從 transfers.py 來的才算
+                            dm.current_val += increment
+                            
+                    else:
+                        # 其他一般任務（如隨手一記）維持現狀
+                        dm.current_val += increment
 
                 # --- C. 數值保護 ---
                 if dm.current_val > lib.target_val:

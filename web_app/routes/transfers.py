@@ -6,6 +6,7 @@ from ..database import get_db
 from ..models import Account, Transaction, Member, Notification
 from web_app.models.models import SavingsGoal
 from ..dependencies import get_current_user
+from ..services.game_service import GameService
 from ..schemas.transfers import (
     TransferCreate,
     TransferResponse,
@@ -13,7 +14,6 @@ from ..schemas.transfers import (
     MonthlyTransferResponse,
 )
 from typing import List
-from decimal import Decimal
 from datetime import date, datetime
 
 router = APIRouter()
@@ -215,6 +215,16 @@ async def create_transfer(
     )
     db.add(new_tx)
     db.commit()
+    
+    
+    # 🌟 新增：觸發轉帳任務進度
+    GameService.update_mission_progress(
+        db, 
+        user_id=current_user.user_id, 
+        category='轉帳', # 確保任務池裡的「資金調度」category 也是「轉帳」
+        increment=1
+    )
+    
     return {"msg": "轉帳成功", "transaction_id": new_tx.transaction_id}
 
 # 4. 修改轉帳紀錄
