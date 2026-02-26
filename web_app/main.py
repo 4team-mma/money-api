@@ -25,9 +25,9 @@ from web_app.routes.stats import router as stats_router
 from web_app.dependencies import admin_required
 from web_app.utils.cpi_crawler import fetch_and_update_cpi
 from web_app.utils.salary_crawler import run_all_salary_tasks
-from fastapi.responses import RedirectResponse, JSONResponse
+from web_app.utils.notification_scheduler import cleanup_old_notifications
+from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 from contextlib import asynccontextmanager
 from sqlalchemy.exc import SQLAlchemyError
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -35,6 +35,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
 from datetime import datetime,timedelta
+from typing import AsyncGenerator
 
 # 圖片加載
 
@@ -78,7 +79,7 @@ logging.basicConfig(
 # 定義生命週期管理器 (Lifespan)
 # 這裡負責在伺服器啟動時開啟排程，關閉時停止排程
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- 啟動時執行 ---
     scheduler = BackgroundScheduler()
 
@@ -115,6 +116,28 @@ async def lifespan(_: FastAPI):
     scheduler.add_job(
         run_all_salary_tasks, "cron", day=20, hour=10, minute=0,
         id="salary_monthly_update", replace_existing=True
+    )
+
+    # ==========================
+    # 任務 3: 通知自動清理 (新增的部分)
+    # ==========================
+    # A. 開機檢查 (30秒後 - 錯開其他爬蟲任務)
+    scheduler.add_job(
+        cleanup_old_notifications,
+        "date",
+        run_date=datetime.now() + timedelta(seconds=30),
+        id="notification_startup_cleanup",
+        replace_existing=True
+    )
+    
+    # B. 定期排程 (每天凌晨 03:00 執行)
+    scheduler.add_job(
+        cleanup_old_notifications, 
+        "cron", 
+        hour=3, 
+        minute=0,
+        id="daily_notification_cleanup", 
+        replace_existing=True
     )
 
     scheduler.start()
