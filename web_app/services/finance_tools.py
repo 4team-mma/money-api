@@ -96,7 +96,7 @@ class FinanceTools:
         # 簡易邏輯：抓上個月的資料來比對
         period_str = f"{today.year}M{str(today.month-1).zfill(2)}" # 例如 2026M01
         if today.month == 1: # 處理跨年
-             period_str = f"{today.year-1}M12"
+            period_str = f"{today.year-1}M12"
 
         # 1. 抓使用者的花費類別
         target_date = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
@@ -134,10 +134,11 @@ class FinanceTools:
         today = date.today()
         end_date = today + timedelta(days=7)
         
+        # 修改 filter 條件，只檢查 reminder_date_start 是否在範圍內
         reminders = db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.reminder_date_start <= end_date,
-            Notification.reminder_date_end >= today
+            Notification.reminder_date_start >= today,  # 改這裡：大於等於今天
+            Notification.reminder_date_start <= end_date # 改這裡：小於等於七天後
         ).order_by(Notification.reminder_date_start.asc()).all()
         
         if not reminders:
@@ -145,6 +146,7 @@ class FinanceTools:
             
         txt = "【未來 7 天提醒事項】\n"
         for r in reminders:
+            # 格式化輸出
             txt += f"- {r.reminder_date_start} [{r.reminder_title}]: {r.description or ''}\n"
         return txt
 
