@@ -226,3 +226,31 @@ def trigger_mission_action(action_code: str, current_user: Member = Depends(get_
             return {"status": "updated", "mission": target_title}
     
     return {"status": "skipped"}
+
+
+@router.post("/{miss_id}/abandon")
+def abandon_mission(miss_id: int, current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 1. 尋找該使用者的這個任務
+    m = db.query(DailyMission).filter(
+        DailyMission.miss_id == miss_id, 
+        DailyMission.user_id == current_user.user_id
+    ).first()
+    
+    if m is None:
+        raise HTTPException(status_code=404, detail="找不到該任務")
+
+    # 2. 只有「修煉中 (status=1)」的任務才可以放棄
+    if m.miss_status != 1:
+        raise HTTPException(status_code=400, detail="只有進行中的任務可以放棄")
+
+    # 3. 執行「放棄」邏輯：
+    # 將狀態改回 0 (未接取)，並將進度歸零
+    m.miss_status = 0
+    m.current_val = 0
+    
+    # 如果你希望放棄後直接換一個新任務（回到池子抽取新的），
+    # 則這裡可以考慮刪除此記錄，下次 get_daily_missions 時會自動補新任務。
+    # 但根據你的敘述「回到原本被抽取的池子」，將 status 改回 0 是最符合你目前架構的做法。
+    
+    db.commit()
+    return {"message": "已放棄任務，修煉進度已重置"}
