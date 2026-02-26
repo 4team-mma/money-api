@@ -214,6 +214,13 @@ class GameService:
                         # 判定關鍵字組合：必須有 CPI，且包含「最高」或「指標」
                         if 'CPI' in msg and any(k in msg for k in ['最高', '指標']):
                             dm.current_val = lib.target_val
+                            
+                # 🌟 11. 宏觀分析：年度報表匯出 (NF 任務)
+                elif lib.title == '宏觀分析':
+                    # 只要類別匹配成功（由 API 傳入 '宏觀分析'），就直接加 1
+                    if category == '宏觀分析':
+                        dm.current_val += increment
+                
 
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
