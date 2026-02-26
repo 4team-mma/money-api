@@ -12,6 +12,14 @@ from ..models import (
     Notification,
     Feedback,
     PasswordReset,
+    DailyMission,
+    AchCard,
+    Checkin,
+    Setting,
+    LoginActivity,
+    SavingsGoal,
+    AIConfig,
+    Budget
 )
 from ..schemas.member import MemberResponse, MemberUpdate, MemberPasswordChange
 from ..dependencies import get_current_user
@@ -113,19 +121,34 @@ async def delete_my_account(
     永久刪除當前登入的帳號及其所有關聯數據。
 
     - **警告**: 此操作**不可逆**！
-    - **關聯刪除**: 系統會同步刪除該用戶的：
-        - 收支紀錄 (AddRecord)
-        - 銀行/現金帳戶 (Account)
-        - 交易明細 (Transaction)
-        - 通知與回饋 (Notification, Feedback)
+    - **關聯刪除**: 系統會同步刪除該用戶的所有足跡，包含：
+        - **基礎帳務**: 收支紀錄 (AddRecord)、預算規劃 (Budget)
+        - **資產管理**: 銀行/現金帳戶 (Account)、轉帳明細 (Transaction)、儲蓄目標 (SavingsGoal)
+        - **遊戲化系統**: 每日打卡 (Checkin)、每日任務 (DailyMission)、成就卡牌 (AchCard)
+        - **系統設定與資安**: 偏好設定 (Setting)、AI配置 (AIConfig)、登入活動紀錄 (LoginActivity)
+        - **互動紀錄**: 系統通知 (Notification)、問題回饋 (Feedback)、密碼重設紀錄 (PasswordReset)
     """
-    db.query(AddRecord).filter(AddRecord.user_id == current_user.user_id).delete()
-    db.query(Account).filter(Account.user_id == current_user.user_id).delete()
-    db.query(Transaction).filter(Transaction.user_id == current_user.user_id).delete()
-    db.query(Notification).filter(Notification.user_id == current_user.user_id).delete()
-    db.query(Feedback).filter(Feedback.user_id == current_user.user_id).delete()
-    db.query(PasswordReset).filter(PasswordReset.user_id == current_user.user_id).delete()
+    uid = current_user.user_id
 
+    # --- 1. 清除新增的遊戲化與系統功能 ---
+    db.query(DailyMission).filter(DailyMission.user_id == uid).delete()
+    db.query(AchCard).filter(AchCard.user_id == uid).delete()
+    db.query(Checkin).filter(Checkin.user_id == uid).delete()
+    db.query(Setting).filter(Setting.user_id == uid).delete()
+    db.query(LoginActivity).filter(LoginActivity.user_id == uid).delete()
+    db.query(SavingsGoal).filter(SavingsGoal.user_id == uid).delete()
+    db.query(AIConfig).filter(AIConfig.user_id == uid).delete()
+    db.query(Budget).filter(Budget.user_id == uid).delete()
+
+    # --- 2. 清除原本舊有的基礎功能 ---
+    db.query(AddRecord).filter(AddRecord.user_id == uid).delete()
+    db.query(Account).filter(Account.user_id == uid).delete()
+    db.query(Transaction).filter(Transaction.user_id == uid).delete()
+    db.query(Notification).filter(Notification.user_id == uid).delete()
+    db.query(Feedback).filter(Feedback.user_id == uid).delete()
+    db.query(PasswordReset).filter(PasswordReset.user_id == uid).delete()
+
+    # --- 3. 最後刪除使用者本身 ---
     db.delete(current_user)
     db.commit()
 

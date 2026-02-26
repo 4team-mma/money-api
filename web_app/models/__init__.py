@@ -18,7 +18,8 @@ from .models import (
     DailyMission,
     AchCard,
     SavingsGoal,
-    LoginActivity
+    LoginActivity,
+    Budget
     
 )
 
