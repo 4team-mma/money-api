@@ -282,9 +282,9 @@ def admin_delete_user(
     db.query(Budget).filter(Budget.user_id == user_id).delete()
 
     # 原本舊有的基礎功能
+    db.query(Transaction).filter(Transaction.user_id == user_id).delete()
     db.query(AddRecord).filter(AddRecord.user_id == user_id).delete()
     db.query(Account).filter(Account.user_id == user_id).delete()
-    db.query(Transaction).filter(Transaction.user_id == user_id).delete()
     db.query(Notification).filter(Notification.user_id == user_id).delete()
     db.query(Feedback).filter(Feedback.user_id == user_id).delete()
     db.query(PasswordReset).filter(PasswordReset.user_id == user_id).delete()
