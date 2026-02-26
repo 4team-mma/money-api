@@ -217,7 +217,19 @@ class GameService:
 
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
-                    dm.current_val += increment
+                    # 🌟 優化：記帳達人或類似任務，通常指「花費紀錄」
+                    if lib.title == '記帳達人':
+                        if add_type is False: # 僅限支出才累加
+                            dm.current_val += increment
+                    
+                    # 🌟 優化：資金調度任務判定
+                    elif lib.title == '資金調度':
+                        if category == '轉帳': # 確保只有從 transfers.py 來的才算
+                            dm.current_val += increment
+                            
+                    else:
+                        # 其他一般任務（如隨手一記）維持現狀
+                        dm.current_val += increment
 
                 # --- C. 數值保護 ---
                 if dm.current_val > lib.target_val:
