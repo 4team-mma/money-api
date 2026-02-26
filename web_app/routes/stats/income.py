@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from datetime import date
-from web_app.dependencies import get_db, get_current_user
-from web_app.models.models import AddRecord, Account
 from collections import defaultdict
+from datetime import date
 from enum import Enum
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from web_app.dependencies import get_current_user, get_db
+from web_app.models.models import Account, AddRecord, Member
 
 router = APIRouter()
 
@@ -23,7 +25,7 @@ async def get_income_category_stats(
     end_date: date = Query(...),
     group_by_field: GroupField = Query(GroupField.category),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: Member = Depends(get_current_user),
 ):
     # 如果是按標籤分組，我們先查出所有含標籤的紀錄
     if group_by_field == GroupField.tag:
