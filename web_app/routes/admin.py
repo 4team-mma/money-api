@@ -10,6 +10,14 @@ from ..models import (
     Notification,
     Feedback,
     PasswordReset,
+    DailyMission,
+    AchCard,
+    Checkin,
+    Setting,
+    LoginActivity,
+    SavingsGoal,
+    AIConfig,
+    Budget
 )
 from ..dependencies import admin_required, get_current_user
 from web_app.services.game_service import GameService
@@ -111,7 +119,12 @@ async def reset_all_test_users(db: Session = Depends(get_db)):
     if not test_user_ids:
         return {"msg": "目前沒有測試帳號需要重置"}
 
-    # 2. 刪除這些測試員的所有關聯紀錄 (確保資料庫乾淨)
+    # 🌟 2. 刪除這些測試員的所有新舊關聯紀錄
+    db.query(DailyMission).filter(DailyMission.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    db.query(AchCard).filter(AchCard.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    db.query(Checkin).filter(Checkin.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    # （設定、API Config 通常重置時不用刪除，看你的需求。這裡建議保留，或是刪除讓系統重建）
+    
     db.query(AddRecord).filter(AddRecord.user_id.in_(test_user_ids)).delete(synchronize_session=False)
     db.query(Account).filter(Account.user_id.in_(test_user_ids)).delete(synchronize_session=False)
     db.query(Transaction).filter(Transaction.user_id.in_(test_user_ids)).delete(synchronize_session=False)
@@ -252,7 +265,18 @@ def admin_delete_user(
     if current_user.user_id == user_id:
         raise HTTPException(status_code=400, detail="不能在管理後台刪除自己")
 
-    # 務必使用 user_id (目標用戶)，而非 current_user.user_id
+    # 🌟 手動清除所有關聯資料 (包含新舊功能)
+    # 新增的遊戲化與系統功能
+    db.query(DailyMission).filter(DailyMission.user_id == user_id).delete()
+    db.query(AchCard).filter(AchCard.user_id == user_id).delete()
+    db.query(Checkin).filter(Checkin.user_id == user_id).delete()
+    db.query(Setting).filter(Setting.user_id == user_id).delete()
+    db.query(LoginActivity).filter(LoginActivity.user_id == user_id).delete()
+    db.query(SavingsGoal).filter(SavingsGoal.user_id == user_id).delete()
+    db.query(AIConfig).filter(AIConfig.user_id == user_id).delete()
+    db.query(Budget).filter(Budget.user_id == user_id).delete()
+
+    # 原本舊有的基礎功能
     db.query(AddRecord).filter(AddRecord.user_id == user_id).delete()
     db.query(Account).filter(Account.user_id == user_id).delete()
     db.query(Transaction).filter(Transaction.user_id == user_id).delete()
