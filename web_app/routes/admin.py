@@ -119,23 +119,28 @@ async def reset_all_test_users(db: Session = Depends(get_db)):
     if not test_user_ids:
         return {"msg": "目前沒有測試帳號需要重置"}
 
-    # 🌟 2. 刪除這些測試員的所有新舊關聯紀錄
+    # 🌟 關鍵修正：必須先刪除「依賴帳戶 ID」的資料
+    # 1. 先刪除轉帳紀錄（它依賴 account_id）
+    db.query(Transaction).filter(Transaction.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 2. 刪除收支紀錄（它也依賴 account_id）
+    db.query(AddRecord).filter(AddRecord.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 3. 刪除儲蓄目標（這也有外鍵連到 Account）
+    db.query(SavingsGoal).filter(SavingsGoal.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+
+    # 4. 🌟 最後才刪除帳戶本體 (這時已經沒有其他表連著它了，就不會報錯)
+    db.query(Account).filter(Account.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+
+    # 5. 清理遊戲化數據
     db.query(DailyMission).filter(DailyMission.user_id.in_(test_user_ids)).delete(synchronize_session=False)
     db.query(AchCard).filter(AchCard.user_id.in_(test_user_ids)).delete(synchronize_session=False)
     db.query(Checkin).filter(Checkin.user_id.in_(test_user_ids)).delete(synchronize_session=False)
-    # （設定、API Config 通常重置時不用刪除，看你的需求。這裡建議保留，或是刪除讓系統重建）
-    
-    db.query(AddRecord).filter(AddRecord.user_id.in_(test_user_ids)).delete(synchronize_session=False)
-    db.query(Account).filter(Account.user_id.in_(test_user_ids)).delete(synchronize_session=False)
-    db.query(Transaction).filter(Transaction.user_id.in_(test_user_ids)).delete(synchronize_session=False)
     db.query(Notification).filter(Notification.user_id.in_(test_user_ids)).delete(synchronize_session=False)
 
-    # 3. 將測試員的數值歸位
+    # 6. 重置數值
     db.query(Member).filter(Member.user_id.in_(test_user_ids)).update({
-        "xp": 0,
-        "level": 1,
-        "points": 0,
-        "status": "active"
+        "xp": 0, "level": 1, "points": 0, "status": "active"
     }, synchronize_session=False)
 
     db.commit()
@@ -277,9 +282,9 @@ def admin_delete_user(
     db.query(Budget).filter(Budget.user_id == user_id).delete()
 
     # 原本舊有的基礎功能
+    db.query(Transaction).filter(Transaction.user_id == user_id).delete()
     db.query(AddRecord).filter(AddRecord.user_id == user_id).delete()
     db.query(Account).filter(Account.user_id == user_id).delete()
-    db.query(Transaction).filter(Transaction.user_id == user_id).delete()
     db.query(Notification).filter(Notification.user_id == user_id).delete()
     db.query(Feedback).filter(Feedback.user_id == user_id).delete()
     db.query(PasswordReset).filter(PasswordReset.user_id == user_id).delete()
