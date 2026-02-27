@@ -1,12 +1,14 @@
+import calendar  # 🌟 Julia 的需求：計算月份天數用
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import date, timedelta
-import calendar  # 🌟 Julia 的需求：計算月份天數用
+
 from web_app.database import get_db
+from web_app.dependencies import get_current_user
 from web_app.models import Checkin, Member
 from web_app.schemas.gamification import checkin as schemas
-from web_app.dependencies import get_current_user
-from web_app.services.game_service import GameService # 🌟 你的需求：掃描任務進度
+from web_app.services.game_service import GameService  # 🌟 你的需求：掃描任務進度
 
 router = APIRouter()
 
@@ -78,7 +80,6 @@ def perform_checkin(
     # 原本current_user.xp += earned_xp
     # 🌟 修改這裡：不再只是 += earned_xp，而是呼叫自動升級邏輯
     # 假設你把 add_user_xp 放在 GameService 裡面
-    from web_app.services.game_service import GameService 
     # 這裡會自動處理：增加 XP -> 判斷是否超過門檻 -> 提升 Level -> 剩餘 XP 歸扣
     GameService.add_user_xp(db, current_user, earned_xp)
 
