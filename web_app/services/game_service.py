@@ -250,7 +250,27 @@ class GameService:
                     if category == '宏觀分析':
                         dm.current_val += increment
                 
-
+                # 12. 雙向標籤：任務判斷
+                if lib.title == '雙向標籤':
+                    if tag:
+                        # 假設標籤在資料庫中是以逗點分隔儲存，例如 "需要,自訂標籤1"
+                        # 我們先將字串拆解成清單
+                        tag_list = [t.strip() for t in tag.split(',') if t.strip()]
+                        
+                        # 判定條件：
+                        # 1. 標籤總數至少要 2 個
+                        # 2. 且其中至少有一個不屬於預設名單（自訂標籤）
+                        default_tags = ['需要', '想要', '旅遊']
+                        custom_tags = [t for t in tag_list if t not in default_tags]
+                        
+                        # 如果標籤總數 >= 2 且包含自訂標籤
+                        if len(tag_list) >= 2 and len(custom_tags) >= 1:
+                            dm.current_val = lib.target_val # 達成任務
+                    continue # 處理完畢跳過後續邏輯
+                
+                
+                
+                
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
                     # 優化：記帳達人或類似任務，通常指「花費紀錄」
