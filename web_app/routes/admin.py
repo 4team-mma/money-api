@@ -167,18 +167,34 @@ async def generate_test_data(db: Session = Depends(get_db)):
         # 2. 檢查/建立測試帳戶 (符合 Account 模型定義)
         test_account = db.query(Account).filter(Account.user_id == user.user_id).first()
         if not test_account:
+            # 1. 初始資金調高，確保不會輕易變成負數
             test_account = Account(
                 user_id=user.user_id,
-                account_type="現金",
-                account_name="測試模擬錢包",
-                currency="NT$",
-                initial_balance=Decimal("10000.00"),
-                current_balance=Decimal("10000.00"),
-                account_icon="👛",
-                exclude_from_assets=False
+                account_type="bank",
+                account_name="預設銀行",
+                initial_balance=Decimal("50000.00"), # 提高初始金額
+                current_balance=Decimal("50000.00"),
+                exclude_from_assets=False,
+                account_icon="💰"
             )
             db.add(test_account)
-            db.flush() # 取得 account_id 以供後續 AddRecord 使用
+            db.flush()
+
+        # 2. 修正：先注入一筆大額「薪資收入」，確保餘額充足
+        base_income = AddRecord(
+            user_id=user.user_id,
+            add_date=date.today() - timedelta(days=60),
+            add_amount=Decimal("80000.00"),
+            add_type=True, # 收入
+            add_class="薪資",
+            add_class_icon="💰",
+            account_id=test_account.account_id,
+            add_member=user.name[:10],
+            add_note="[系統生成] 初始化測試資金"
+        )
+        db.add(base_income)
+        test_account.current_balance += Decimal("80000.00")
+        db.flush() # 取得 account_id 以供後續 AddRecord 使用
 
         # 3. 注入 20~40 筆隨機收支 (符合 AddRecord 模型定義)
         for _ in range(random.randint(20, 40)):
