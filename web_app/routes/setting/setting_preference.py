@@ -3,27 +3,26 @@ from sqlalchemy.orm import Session
 from ...database import get_db
 from ...models import Setting as SettingModel
 from ...schemas import Setting as schemas
-# 🌟 引入你的守門員
 from ...dependencies import get_current_user 
 from ...models import Member
 
 router = APIRouter()
 
 # 1. 獲取當前使用者的設定
-@router.get("/me", response_model=schemas.SettingRead)
+@router.get(
+    "/me", 
+    response_model=schemas.SettingRead,
+    summary="🔍 獲取個人偏好設定",
+    description="透過 Token 自動識別身份，獲取該使用者的主題顏色、語言等設定。若無設定則自動初始化。"
+)
 def get_user_settings(
     db: Session = Depends(get_db),
-    current_user: Member = Depends(get_current_user) # 🌟 改用守門員取得 user 物件
+    current_user: Member = Depends(get_current_user)
 ):
-    """
-    獲取當前登入使用者的偏好設定，不需要在 URL 帶 ID。
-    """
-    user_id = current_user.user_id # 從 Token 解析出來的物件中拿 ID
-    
+    user_id = current_user.user_id
     settings = db.query(SettingModel).filter(SettingModel.user_id == user_id).first()
     
     if not settings:
-        # 如果使用者還沒設定過，自動初始化一筆預設資料
         new_settings = SettingModel(user_id=user_id)
         db.add(new_settings)
         db.commit()
@@ -34,15 +33,17 @@ def get_user_settings(
 
 
 # 2. 專門更新主題顏色
-@router.patch("/update-theme", response_model=schemas.SettingRead)
+@router.patch(
+    "/update-theme", 
+    response_model=schemas.SettingRead,
+    summary="🌈 快速更新主題顏色",
+    description="僅針對 App 的主題色彩進行局部更新（Patch）。"
+)
 def update_app_theme(
     theme_data: schemas.ThemeUpdate, 
     db: Session = Depends(get_db),
-    current_user: Member = Depends(get_current_user) # 🌟 守門員
+    current_user: Member = Depends(get_current_user)
 ):
-    """
-    更新主題，自動識別是誰發出的請求
-    """
     settings = db.query(SettingModel).filter(SettingModel.user_id == current_user.user_id).first()
     
     if not settings:
@@ -55,21 +56,22 @@ def update_app_theme(
 
 
 # 3. 更新所有偏好設定
-@router.put("/update-all", response_model=schemas.SettingRead)
+@router.put(
+    "/update-all", 
+    response_model=schemas.SettingRead,
+    summary="⚙️ 全面更新設定項目",
+    description="完整覆蓋使用者的所有偏好設定項目（如語言、通知開關、字體大小等）。"
+)
 def update_all_settings(
     settings_data: schemas.SettingBase, 
     db: Session = Depends(get_db),
-    current_user: Member = Depends(get_current_user) # 🌟 守門員
+    current_user: Member = Depends(get_current_user)
 ):
-    """
-    全面更新設定，由 Token 決定對象
-    """
     settings = db.query(SettingModel).filter(SettingModel.user_id == current_user.user_id).first()
     
     if not settings:
         raise HTTPException(status_code=404, detail="找不到設定檔")
 
-    # 將 Schema 元素轉換為字典 (排除未設定的欄位)
     update_data = settings_data.model_dump(exclude_unset=True)
 
     for key, value in update_data.items():
