@@ -1,9 +1,9 @@
 # web_app/services/game_service.py
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import date,datetime
+from datetime import date
 from typing import Optional
-from web_app.models import DailyMission, MissCardsLibrary, AddRecord
+from web_app.models import DailyMission, MissCardsLibrary, AddRecord,Account
 from web_app.models import Member
 
 class GameService:
@@ -51,7 +51,7 @@ class GameService:
         結算判定：檢查所有需要到晚上或結算時點才能判定的任務
         如：預算控制、節能減碳 (交通支出)
         """
-        now = datetime.now()
+        #now = datetime.now()
         # 只要超過 23:00 或是手動觸發結算邏輯
         # 這裡我們設定只要調用就檢查，但你也可以加 if now.hour >= 23:
         
@@ -107,6 +107,35 @@ class GameService:
                 dm.current_val = lib.target_val 
             else:
                 dm.current_val = 0 # 超過就失敗
+            
+            # 🌟 新增 4. 無現金支付判定
+            if lib.title == '無現金支付':
+            # 找出今天該使用者的所有支出紀錄 (add_type=False)
+                records = db.query(AddRecord).filter(
+                    AddRecord.user_id == user_id,
+                    AddRecord.add_date == today,
+                    AddRecord.add_type == False
+            ).all()
+
+            if not records:
+                # 如果今天完全沒消費，依據你的設計決定是否算達成。通常建議沒消費也算守住紀錄。
+                dm.current_val = 0 
+                continue
+
+            # 檢查這些紀錄所屬的帳戶類型
+            all_credit = True
+            for r in records:
+                acc = db.query(Account).filter(Account.account_id == r.account_id).first()
+                if not acc or acc.account_type != 'credit': # 只要有一筆不是 credit
+                    all_credit = False
+                    break
+            
+            if all_credit:
+                dm.current_val = lib.target_val # 達成 1/1
+            else:
+                dm.current_val = 0 # 只要有一筆非信用卡消費，進度歸零
+            
+            
 
         db.commit()
     
@@ -207,7 +236,7 @@ class GameService:
                 elif lib.title == '人際開銷' and record_class == '社交':
                     dm.current_val += increment
                     
-                # 🌟 10. 智慧的洞察：AI 聊天觸發 (NT 稀有任務)
+                # 10. 智慧的洞察：AI 聊天觸發 (NT 稀有任務)
                 elif lib.title == '智慧的洞察':
                     if category == 'AI_聊天' and note:
                         msg = note.upper()
@@ -215,7 +244,7 @@ class GameService:
                         if 'CPI' in msg and any(k in msg for k in ['最高', '指標']):
                             dm.current_val = lib.target_val
                             
-                # 🌟 11. 宏觀分析：年度報表匯出 (NF 任務)
+                # 11. 宏觀分析：年度報表匯出 (NF 任務)
                 elif lib.title == '宏觀分析':
                     # 只要類別匹配成功（由 API 傳入 '宏觀分析'），就直接加 1
                     if category == '宏觀分析':
@@ -224,19 +253,22 @@ class GameService:
 
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
-                    # 🌟 優化：記帳達人或類似任務，通常指「花費紀錄」
+                    # 優化：記帳達人或類似任務，通常指「花費紀錄」
                     if lib.title == '記帳達人':
                         if add_type is False: # 僅限支出才累加
                             dm.current_val += increment
                     
-                    # 🌟 優化：資金調度任務判定
+                    # 優化：資金調度任務判定
                     elif lib.title == '資金調度':
                         if category == '轉帳': # 確保只有從 transfers.py 來的才算
                             dm.current_val += increment
                             
                     else:
                         # 其他一般任務（如隨手一記）維持現狀
-                        dm.current_val += increment
+                        # 排除需要晚間結算的任務標題
+                        nightly_tasks = ['預算控制', '減少外食', '節能減碳', '無現金支付']
+                        if lib.title not in nightly_tasks:
+                            dm.current_val += increment
 
                 # --- C. 數值保護 ---
                 if dm.current_val > lib.target_val:
