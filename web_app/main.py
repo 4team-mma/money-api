@@ -26,6 +26,7 @@ from web_app.dependencies import admin_required
 from web_app.utils.cpi_crawler import fetch_and_update_cpi
 from web_app.utils.salary_crawler import run_all_salary_tasks
 from web_app.utils.notification_scheduler import cleanup_old_notifications
+from web_app.utils.login_cleanup import cleanup_old_login_activities
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
@@ -139,9 +140,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="daily_notification_cleanup", 
         replace_existing=True
     )
+    # ==========================
+    # 任務 4: 登入紀錄自動清理 (解決關機沒執行的問題)
+    # ==========================
+    # A. 開機檢查 (伺服器一啟動，40秒後立即執行一次)
+    # 這樣就算凌晨 03:30 沒開機，你下次打開程式時它還是會幫你清。
+    scheduler.add_job(
+        cleanup_old_login_activities,
+        "date",
+        run_date=datetime.now() + timedelta(seconds=40),
+        id="login_activity_startup_cleanup",
+        replace_existing=True
+    )
+    
+    # B. 定期排程 (每天凌晨 03:30 執行)
+    # 這是給伺服器 24 小時運作時使用的正常維護邏輯。
+    scheduler.add_job(
+        cleanup_old_login_activities, 
+        "cron", 
+        hour=3, 
+        minute=30,
+        id="daily_login_activity_cleanup", 
+        replace_existing=True
+    )
+    
 
     scheduler.start()
-    logging.info("🚀 APScheduler 已啟動 - CPI(6號) & 薪資(20號) 自動更新中")
+    logging.info("🚀 APScheduler 已啟動 - CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄")
 
     yield  # 伺服器運作中...
 
@@ -169,7 +194,7 @@ cat_logo = r"""
    )         (    1
   (           )  號
  ( (  )   (  ) )
-(__(__)___(__)__)
+(__(__)___(__)__).   
                                 Welcome to MoneyMMA API!
                                             Meow~ 
     
