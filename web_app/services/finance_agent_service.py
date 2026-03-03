@@ -56,6 +56,13 @@ class FinanceAgentService:
             context_parts.append(FinanceTools.get_account_summary(db, user_id))
             context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
 
+        # 🚀 新增：動態指令判斷邏輯 (完全取代前端的 smartInstruction)
+        instruction_rule = ""
+        if "分析" in msg:
+            instruction_rule = "請進行詳細財務分析，可使用數據說明。"
+        else:
+            instruction_rule = "嚴禁廢話與表格，限制在 2-20 中文字內。若問吃什麼，請優先從飲食類別的 add_note 找具體食物(如：包子、拉麵)，直接回答如：小主人，你吃了包子喵！"
+        
         # 3. 組合 Prompt
         full_context = "\n\n".join(context_parts)
         
@@ -66,4 +73,6 @@ class FinanceAgentService:
 [回答規範]
 1. 嚴禁編造數據，若資料不在清單上，請直說「喵喵找不到這筆資料」。
 2. 保持「理財助手喵喵」的人設，說話可愛，結尾帶「喵~」。
+3. {instruction_rule}
+4. ⚠️ 系統目前只提供「最近 30 天」與「當月」的資料。若小主人詢問「上個月」、「1月」或更早以前的明確月份，請絕對不要瞎掰數字，直接回答：「喵喵手邊目前只有最近一個月的帳本，其他月份要麻煩小主人看行事曆喵～」
 """

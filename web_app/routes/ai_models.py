@@ -10,7 +10,6 @@ from ..utils.ai_security import decrypt_api_key, encrypt_api_key
 # 引入服務層 (Services)
 from ..services.gemini_service import GeminiService 
 from ..services.ollama_service import OllamaService     # 本地模型
-from ..services.anything_service import AnythingService # 保留原本的 Anything 服務
 from ..services.finance_agent_service import FinanceAgentService # 🆕 引入新大腦
 
 from typing import Optional
@@ -158,6 +157,7 @@ async def chat_with_meow(
     # 4. 根據 Provider 分流呼叫
     try:
         reply = "喵喵不知道該說什麼..."
+        actual_model_used = config.model_version  # 先給一個預設值
         
         if config.provider == "gemini":
             # 處理 Key 解密
@@ -171,12 +171,16 @@ async def chat_with_meow(
             final_key = db_key if (db_key and len(db_key) > 10) else env_key
             if not final_key: raise Exception("找不到有效 API Key 喵！")
 
-            reply = await GeminiService.chat_async(
+            # 🚀 接收字典格式的回傳值
+            result = await GeminiService.chat_async(
                 api_key=final_key,
                 model_id=config.model_version,
                 prompt=req.message,
                 system_instruction=final_system_prompt
             )
+            # 把文字跟真實模型拆解出來
+            reply = result["text"]
+            actual_model_used = result["actual_model"]
 
         elif config.provider == "ollama":
             # 呼叫我們整理好的 OllamaService
@@ -224,12 +228,13 @@ async def chat_with_meow(
         except Exception as game_err:
             print(f"⚠️ 任務進度更新失敗: {game_err}")
         
-        
+        # 🚀 根據真實連線的模型名稱，組成前端要顯示的標籤
+        provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" else f"{config.provider} ({config.model_version})"
         
         return {
             "reply": reply, 
             "duration": duration, 
-            "provider": f"{config.provider} ({config.model_version})"  #  這樣前端會顯示 "gemini (gemini-1.5-flash)"
+            "provider": provider_display
         }
 
     except Exception as e:
