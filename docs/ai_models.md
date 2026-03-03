@@ -21,22 +21,22 @@
 - **舊款規格**：MacBook Pro(macOS 13.6.3) /13-inch, 2017, 記憶體 8 GB 2133MHz LPDDR3
 - **連線方式**：透過本地 API Server (`http://localhost:3001`) 整合。
 - **安全驗證**：請求 Header 需注入 `Authorization: Bearer {API_KEY}`。
-
+該模型本身就是一套已經寫好 RAG（檢索增強生成）機制的完整系統，所以你的 Router 只需要用 httpx 把問題 POST 給它的 Workspace 就好，所以不需要像Gemini跟Ollima需要另寫一個Service.py
 ---
 
 ## ☁️ 雲端 API 設置: Google Gemini
 
 ### 1. 模型版本策略
 系統目前整合了 Google 最新的模型矩陣，並針對不同用途進行了分流：
-
+目前可用:
 | 模型名稱 | 代號 (`model_version`) | 特性與用途 | 每日配額 (RPD) |
 | :--- | :--- | :--- | :--- |
-| **Gemini 1.5 Flash** | `gemini-1.5-flash` | **(預設)** 速度快、額度高，適合開發測試與日常閒聊。 | ~1,500 次 |
-| **Gemini 1.5 Pro** | `gemini-1.5-pro` | 邏輯最強，適合處理複雜的財務分析報告。 | ~50 次 |
-| **Gemini 2.0 Flash** | `gemini-2.0-flash` | 最新一代模型，反應速度與準確度更佳 (實驗性)。 | 依官方浮動 |
-| **Gemini 2.0 Flash Lite** | `gemini-2.0-flash-lite` | 極速版，適合即時性要求高的查詢。 | 較高 |
+| **Gemini 2.5 Flash** | `gemini-2.5-flash` | **(預設)** 速度快、額度高，適合開發測試與日常閒聊。 | 每分請求5RPM/每日請求20RPD |
 
-> **Gemini官方模型:**：Gemini 2.5 Flash
+| **Gemini 2.0 Flash** | `gemini-3 flash` | 最新一代模型，反應速度與準確度更佳 (實驗性)。 | 每分請求5RPM/每日請求20RPD |
+
+> **Gemini官方模型:**：
+Gemini 2.5 Flash
 Gemini 3 Flash/
 Gemini 2.5 Flash Lite/
 Gemini 2.5 Flash TTS/
@@ -109,7 +109,7 @@ Gemini 2.5 Flash Native Audio Dialog/
 | :--- | :--- | :--- |
 | **401 Unauthorized** | 身分驗證失效 | 通常發生在後端重啟後。請**登出系統**並清除瀏覽器快取，重新登入即可取得新 Token。 |
 | **404 Not Found** | 模型版本錯誤 | 前往「模型管理」頁面，重新選擇模型並點擊「儲存變更」，讓資料庫同步最新設定。 |
-| **429 Resource Exhausted** | API 配額用完 | 您觸發了 Google 免費版的速率限制。請休息 60 秒後再試，或切換至 `Gemini 1.5 Flash` (高額度版)。 |
+| **429 Resource Exhausted** | API 配額用完 | 您觸發了 Google 免費版的速率限制。請休息 60 秒後再試 |
 | **下拉選單空白** | 資料庫與前端不一致 | 系統已實作自動修復邏輯，只要重新整理網頁或重新儲存一次設定即可恢復。 |
 
 ---
