@@ -1,32 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import func, case, text
-from ..database import get_db
-from ..models import (
-    Member,
-    AddRecord,
-    Account,
-    Transaction,
-    Notification,
-    Feedback,
-    PasswordReset,
-    DailyMission,
-    AchCard,
-    Checkin,
-    Setting,
-    LoginActivity,
-    SavingsGoal,
-    AIConfig,
-    Budget
-)
-from ..dependencies import admin_required, get_current_user
-from web_app.services.game_service import GameService
-from datetime import date, timedelta, datetime
-from ..utils.password import get_password_hash
 import random
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import case, func, text
+from sqlalchemy.orm import Session
 
+from web_app.services.game_service import GameService
+
+from ..database import get_db
+from ..dependencies import admin_required, get_current_user
+from ..models import (Account, AchCard, AddRecord, AIConfig, Budget, Checkin,
+                      DailyMission, Feedback, LoginActivity, Member,
+                      Notification, PasswordReset, SavingsGoal, Setting,
+                      Transaction)
+from ..utils.password import get_password_hash
 
 router = APIRouter(dependencies=[Depends(admin_required)])
 
@@ -328,301 +316,281 @@ async def toggle_user_status(user_id: int, db: Session = Depends(get_db)):
 # 用戶價值分析表格數據
 @router.get("/stats/rankings")
 async def get_combined_admin_stats(db: Session = Depends(get_db)):
-    try:
-        now = datetime.now()
+    now = datetime.now()
 
-        # 1. 基礎排行榜 (維持原樣)
-        category_ranks = db.query(AddRecord.add_class, func.sum(AddRecord.add_amount)).filter(AddRecord.add_type == False).group_by(AddRecord.add_class).order_by(func.sum(AddRecord.add_amount).desc()).limit(10).all()
-        frequency_ranks = db.query(Member.username, Member.name, func.count(AddRecord.add_id)).join(AddRecord, Member.user_id == AddRecord.user_id).filter(Member.role == "user").group_by(Member.user_id).order_by(func.count(AddRecord.add_id).desc()).limit(5).all()
-        savings_ranks = db.query(Member.username, Member.name, func.sum(Account.current_balance)).join(Account, Member.user_id == Account.user_id).filter(Member.role == "user").group_by(Member.user_id).order_by(func.sum(Account.current_balance).desc()).limit(5).all()
-        xp_ranks = db.query(Member.username, Member.name, Member.xp, Member.level).filter(Member.role == "user").order_by(Member.xp.desc()).limit(5).all()
+    # 1. 基礎排行榜 (維持原樣)
+    category_ranks = db.query(AddRecord.add_class, func.sum(AddRecord.add_amount)).filter(AddRecord.add_type == False).group_by(AddRecord.add_class).order_by(func.sum(AddRecord.add_amount).desc()).limit(10).all()
+    frequency_ranks = db.query(Member.username, Member.name, func.count(AddRecord.add_id)).join(AddRecord, Member.user_id == AddRecord.user_id).filter(Member.role == "user").group_by(Member.user_id).order_by(func.count(AddRecord.add_id).desc()).limit(5).all()
+    savings_ranks = db.query(Member.username, Member.name, func.sum(Account.current_balance)).join(Account, Member.user_id == Account.user_id).filter(Member.role == "user").group_by(Member.user_id).order_by(func.sum(Account.current_balance).desc()).limit(5).all()
+    xp_ranks = db.query(Member.username, Member.name, Member.xp, Member.level).filter(Member.role == "user").order_by(Member.xp.desc()).limit(5).all()
 
-        # 2. 子查詢 (金額與月份)
-        net_worth_sub = db.query(
-            Account.user_id,
-            func.sum(case((Account.exclude_from_assets == False, Account.current_balance), else_=0)).label("sum_net_worth")
-        ).group_by(Account.user_id).subquery()
+    # 2. 子查詢 (金額與月份)
+    net_worth_sub = db.query(
+        Account.user_id,
+        func.sum(case((Account.exclude_from_assets == False, Account.current_balance), else_=0)).label("sum_net_worth")
+    ).group_by(Account.user_id).subquery()
 
-        finance_sub = db.query(
-            AddRecord.user_id,
-            func.sum(case((AddRecord.add_type == True, AddRecord.add_amount), else_=0)).label("sum_income"),
-            func.sum(case((AddRecord.add_type == False, AddRecord.add_amount), else_=0)).label("sum_spent"),
-            func.count(func.distinct(func.date_format(func.coalesce(AddRecord.add_date, func.current_date()), '%Y-%m'))).label("active_months_count"),
-            func.count(func.distinct(AddRecord.add_date)).label("accounting_days")
-        ).group_by(AddRecord.user_id).subquery()
+    finance_sub = db.query(
+        AddRecord.user_id,
+        func.sum(case((AddRecord.add_type == True, AddRecord.add_amount), else_=0)).label("sum_income"),
+        func.sum(case((AddRecord.add_type == False, AddRecord.add_amount), else_=0)).label("sum_spent"),
+        func.count(func.distinct(func.date_format(func.coalesce(AddRecord.add_date, func.current_date()), '%Y-%m'))).label("active_months_count"),
+        func.count(func.distinct(AddRecord.add_date)).label("accounting_days")
+    ).group_by(AddRecord.user_id).subquery()
 
-        # 3. 操作活躍度天數 (UNION 查詢)
-        op_days_sql = """
-            SELECT user_id, DATE(created_at) as op_date FROM adds UNION
-            SELECT user_id, DATE(updated_at) as op_date FROM adds UNION
-            SELECT user_id, DATE(created_at) as op_date FROM accounts UNION
-            SELECT user_id, DATE(updated_at) as op_date FROM accounts UNION
-            SELECT user_id, DATE(created_at) as op_date FROM transactions UNION
-            SELECT user_id, DATE(updated_at) as op_date FROM transactions
-        """
-        op_counts = db.execute(text(f"SELECT user_id, COUNT(DISTINCT op_date) as actual_op_days FROM ({op_days_sql}) as combined_ops GROUP BY user_id")).all()
-        op_map = {row[0]: row[1] for row in op_counts}
+    # 3. 操作活躍度天數 (UNION 查詢)
+    op_days_sql = """
+        SELECT user_id, DATE(created_at) as op_date FROM adds UNION
+        SELECT user_id, DATE(updated_at) as op_date FROM adds UNION
+        SELECT user_id, DATE(created_at) as op_date FROM accounts UNION
+        SELECT user_id, DATE(updated_at) as op_date FROM accounts UNION
+        SELECT user_id, DATE(created_at) as op_date FROM transactions UNION
+        SELECT user_id, DATE(updated_at) as op_date FROM transactions
+    """
+    op_counts = db.execute(text(f"SELECT user_id, COUNT(DISTINCT op_date) as actual_op_days FROM ({op_days_sql}) as combined_ops GROUP BY user_id")).all()
+    op_map = {row[0]: row[1] for row in op_counts}
 
-        # 4. 主查詢 (✨ 加入 Member.updated_at)
-        results = db.query(
-            Member.user_id,
-            Member.username,
-            Member.name,
-            Member.created_at.label("reg_date"),
-            Member.updated_at.label("last_active"),  # ✨ 加入這行
-            func.coalesce(net_worth_sub.c.sum_net_worth, 0).label("net_worth"),
-            func.coalesce(finance_sub.c.sum_income, 0).label("income"),
-            func.coalesce(finance_sub.c.sum_spent, 0).label("spent"),
-            func.coalesce(finance_sub.c.active_months_count, 1).label("m_count"),
-            func.coalesce(finance_sub.c.accounting_days, 0).label("a_days")
-        ).outerjoin(net_worth_sub, Member.user_id == net_worth_sub.c.user_id)\
-         .outerjoin(finance_sub, Member.user_id == finance_sub.c.user_id)\
-         .filter(Member.role == "user").all()
+    # 4. 主查詢 (✨ 加入 Member.updated_at)
+    results = db.query(
+        Member.user_id,
+        Member.username,
+        Member.name,
+        Member.created_at.label("reg_date"),
+        Member.updated_at.label("last_active"),  # ✨ 加入這行
+        func.coalesce(net_worth_sub.c.sum_net_worth, 0).label("net_worth"),
+        func.coalesce(finance_sub.c.sum_income, 0).label("income"),
+        func.coalesce(finance_sub.c.sum_spent, 0).label("spent"),
+        func.coalesce(finance_sub.c.active_months_count, 1).label("m_count"),
+        func.coalesce(finance_sub.c.accounting_days, 0).label("a_days")
+    ).outerjoin(net_worth_sub, Member.user_id == net_worth_sub.c.user_id)\
+     .outerjoin(finance_sub, Member.user_id == finance_sub.c.user_id)\
+     .filter(Member.role == "user").all()
 
-        # 5. 合併計算與狀態判斷
-        user_insights = []
-        for r in results:
-            # A. 計算時間
-            reg_days = max((now - r.reg_date).days + 1, 1) # ✨ 分母同步 MySQL (+1)
-            days_since_active = (now.date() - r.last_active.date()).days
+    # 5. 合併計算與狀態判斷
+    user_insights = []
+    for r in results:
+        # A. 計算時間
+        reg_days = max((now - r.reg_date).days + 1, 1) # ✨ 分母同步 MySQL (+1)
+        days_since_active = (now.date() - r.last_active.date()).days
 
-            # B. 判斷燈號狀態
-            if days_since_active <= 3:
-                current_status = "green"
-            elif days_since_active <= 14:
-                current_status = "yellow"
-            else:
-                current_status = "red"
+        # B. 判斷燈號狀態
+        if days_since_active <= 3:
+            current_status = "green"
+        elif days_since_active <= 14:
+            current_status = "yellow"
+        else:
+            current_status = "red"
 
-            # C. 計算金額平均與比率
-            denom_months = float(max(r.m_count, 1))
-            avg_income = float(r.income or 0) / denom_months
-            avg_spent = float(r.spent or 0) / denom_months
+        # C. 計算金額平均與比率
+        denom_months = float(max(r.m_count, 1))
+        avg_income = float(r.income or 0) / denom_months
+        avg_spent = float(r.spent or 0) / denom_months
 
-            coverage_rate = min(round(((r.a_days or 0) / reg_days) * 100, 1), 100.0)
-            actual_op_days = op_map.get(r.user_id, 1)
-            active_rate = min(round((actual_op_days / reg_days) * 100, 1), 100.0)
+        coverage_rate = min(round(((r.a_days or 0) / reg_days) * 100, 1), 100.0)
+        actual_op_days = op_map.get(r.user_id, 1)
+        active_rate = min(round((actual_op_days / reg_days) * 100, 1), 100.0)
 
-            user_insights.append({
-                "username": r.username,
-                "name": r.name,
-                "status": current_status, # ✨ 使用動態判斷的燈號
-                "financials": {
-                    "net_worth": int(r.net_worth or 0),
-                    "monthly_income": int(avg_income),
-                    "monthly_spent": int(avg_spent)
-                },
-                "engagement": {
-                    "active_rate": active_rate,
-                    "coverage_rate": coverage_rate
-                }
-            })
+        user_insights.append({
+            "username": r.username,
+            "name": r.name,
+            "status": current_status, # ✨ 使用動態判斷的燈號
+            "financials": {
+                "net_worth": int(r.net_worth or 0),
+                "monthly_income": int(avg_income),
+                "monthly_spent": int(avg_spent)
+            },
+            "engagement": {
+                "active_rate": active_rate,
+                "coverage_rate": coverage_rate
+            }
+        })
 
-        return {
-            "category_spending": [{"name": r[0], "value": float(r[1])} for r in category_ranks],
-            "active_bees": [{"name": r[1], "value": r[2]} for r in frequency_ranks],
-            "wealth_masters": [{"name": r[1], "value": float(r[2])} for r in savings_ranks],
-            "xp_immortals": [{"name": r[1], "level": r[3], "value": r[2]} for r in xp_ranks],
-            "user_insights": user_insights
-        }
-    except Exception as e:
-        print(f"❌ Error Detail: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "category_spending": [{"name": r[0], "value": float(r[1])} for r in category_ranks],
+        "active_bees": [{"name": r[1], "value": r[2]} for r in frequency_ranks],
+        "wealth_masters": [{"name": r[1], "value": float(r[2])} for r in savings_ranks],
+        "xp_immortals": [{"name": r[1], "level": r[3], "value": r[2]} for r in xp_ranks],
+        "user_insights": user_insights
+    }
 
 # 收/支類別統計
 @router.get("/stats/category-analysis")
 async def get_category_analysis(type: int = 0, db: Session = Depends(get_db)):
     # type=0 是支出 (預設), type=1 是收入
-    try:
-        # 1. 取得全局分母 (根據 type 切換)
-        total_amount = db.query(func.sum(AddRecord.add_amount)).filter(AddRecord.add_type == type, AddRecord.add_amount != None).scalar() or 1
-        total_count = db.query(func.count(AddRecord.add_id)).filter(AddRecord.add_type == type, AddRecord.add_amount != None).scalar() or 1
-        total_users_count = db.query(func.count(Member.user_id)).filter(Member.role == "user").scalar() or 1
 
-        # 2. 中位數計算 (SQL 也要帶入參數)
-        median_subquery = text("""
-            SELECT add_class, AVG(add_amount) as median_val
-            FROM (
-                SELECT add_class, add_amount,
-                       ROW_NUMBER() OVER (PARTITION BY add_class ORDER BY add_amount) as row_num,
-                       COUNT(*) OVER (PARTITION BY add_class) as total_rows
-                FROM adds
-                WHERE add_type = :type AND add_amount IS NOT NULL
+    # 1. 取得全局分母 (根據 type 切換)
+    total_amount = db.query(func.sum(AddRecord.add_amount)).filter(AddRecord.add_type == type, AddRecord.add_amount != None).scalar() or 1
+    total_count = db.query(func.count(AddRecord.add_id)).filter(AddRecord.add_type == type, AddRecord.add_amount != None).scalar() or 1
+    total_users_count = db.query(func.count(Member.user_id)).filter(Member.role == "user").scalar() or 1
+
+    # 2. 中位數計算 (SQL 也要帶入參數)
+    median_subquery = text("""
+        SELECT add_class, AVG(add_amount) as median_val
+        FROM (
+            SELECT add_class, add_amount,
+                   ROW_NUMBER() OVER (PARTITION BY add_class ORDER BY add_amount) as row_num,
+                   COUNT(*) OVER (PARTITION BY add_class) as total_rows
+            FROM adds
+            WHERE add_type = :type AND add_amount IS NOT NULL
             ) as ranked_data
-            WHERE row_num IN (FLOOR((total_rows+1)/2), CEIL((total_rows+1)/2))
-            GROUP BY add_class
-        """).bindparams(type=type) # ✨ 這裡傳入參數
-        
-        median_results = db.execute(median_subquery).all()
-        median_map = {row[0]: float(row[1]) for row in median_results}
+        WHERE row_num IN (FLOOR((total_rows+1)/2), CEIL((total_rows+1)/2))
+        GROUP BY add_class
+    """).bindparams(type=type) # ✨ 這裡傳入參數
+    
+    median_results = db.execute(median_subquery).all()
+    median_map = {row[0]: float(row[1]) for row in median_results}
 
-        # 3. 主查詢 (同樣帶入 type)
-        category_stats = db.query(
-            AddRecord.add_class,
-            func.avg(AddRecord.add_amount).label("avg_amount"),
-            func.sum(AddRecord.add_amount).label("sum_amount"),
-            func.count(AddRecord.add_id).label("freq_count"),
-            func.count(func.distinct(AddRecord.user_id)).label("user_reach")
-        ).filter(
-            AddRecord.add_type == type, 
-            AddRecord.add_amount != None
-        ).group_by(
-            AddRecord.add_class
-        ).all()
+    # 3. 主查詢 (同樣帶入 type)
+    category_stats = db.query(
+        AddRecord.add_class,
+        func.avg(AddRecord.add_amount).label("avg_amount"),
+        func.sum(AddRecord.add_amount).label("sum_amount"),
+        func.count(AddRecord.add_id).label("freq_count"),
+        func.count(func.distinct(AddRecord.user_id)).label("user_reach")
+    ).filter(
+        AddRecord.add_type == type, 
+        AddRecord.add_amount != None
+    ).group_by(
+        AddRecord.add_class
+    ).all()
 
-        # 4. 格式化回傳 (邏輯不變)
-        formatted_results = []
-        for i, r in enumerate(category_stats, 1):
-            formatted_results.append({
-                "id": i,
-                "category": r.add_class,
-                "avg_value": round(float(r.avg_amount or 0), 0),
-                "median_value": round(float(median_map.get(r.add_class, 0)), 0),
-                "amount_ratio": round((float(r.sum_amount or 0) / float(total_amount)) * 100, 1) if total_amount > 0 else 0,
-                "user_coverage": round((float(r.user_reach) / float(total_users_count)) * 100, 1) if total_users_count > 0 else 0,
-                "freq_ratio": round((float(r.freq_count) / float(total_count)) * 100, 1) if total_count > 0 else 0
-            })
+    # 4. 格式化回傳 (邏輯不變)
+    formatted_results = []
+    for i, r in enumerate(category_stats, 1):
+        formatted_results.append({
+            "id": i,
+            "category": r.add_class,
+            "avg_value": round(float(r.avg_amount or 0), 0),
+            "median_value": round(float(median_map.get(r.add_class, 0)), 0),
+            "amount_ratio": round((float(r.sum_amount or 0) / float(total_amount)) * 100, 1) if total_amount > 0 else 0,
+            "user_coverage": round((float(r.user_reach) / float(total_users_count)) * 100, 1) if total_users_count > 0 else 0,
+            "freq_ratio": round((float(r.freq_count) / float(total_count)) * 100, 1) if total_count > 0 else 0
+        })
 
-        return formatted_results
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    return formatted_results
 
 # 帳戶資產/負債分佈分析
 @router.get("/stats/account-analysis")
 async def get_account_analysis(db: Session = Depends(get_db)):
-    try:
-        # 1. 取得全局分母
-        # 總用戶數 (分母：計算滲透率)
-        total_users_count = db.query(func.count(Member.user_id)).filter(Member.role == "user").scalar() or 1
+    # 1. 取得全局分母
+    # 總用戶數 (分母：計算滲透率)
+    total_users_count = db.query(func.count(Member.user_id)).filter(Member.role == "user").scalar() or 1
+    
+    # 所有帳戶的絕對值總額 (分母：計算配置比例，使用絕對值避免資產負債抵銷導致比例異常)
+    all_accounts_sum = db.query(func.sum(func.abs(Account.current_balance))).scalar() or 1
+
+    # 2. 中位數計算 (針對 account_type 分組)
+    # 邏輯：先幫每個類型的金額排序編號，再抓取中間那幾筆取平均
+    median_sql = text("""
+        SELECT account_type, AVG(current_balance) as median_val
+        FROM (
+            SELECT account_type, current_balance,
+                   ROW_NUMBER() OVER (PARTITION BY account_type ORDER BY current_balance) as row_num,
+                   COUNT(*) OVER (PARTITION BY account_type) as total_rows
+            FROM accounts
+        ) as ranked_data
+        WHERE row_num IN (FLOOR((total_rows+1)/2), CEIL((total_rows+1)/2))
+        GROUP BY account_type
+    """)
+    median_results = db.execute(median_sql).all()
+    median_map = {row[0]: float(row[1]) for row in median_results}
+
+    # 3. 主查詢：聚合計算
+    # 統計各類型的：總額、帳戶筆數、不重複使用者數
+    account_stats = db.query(
+        Account.account_type,
+        func.sum(Account.current_balance).label("sum_amount"),
+        func.count(Account.account_id).label("acc_count"),
+        func.count(func.distinct(Account.user_id)).label("user_reach")
+    ).group_by(Account.account_type).all()
+
+    # 4. 格式化回傳
+    # 這裡對應妳前端要求的欄位
+    analysis_results = []
+    for i, r in enumerate(account_stats, 1):
+        owner_count = float(r.user_reach or 0)
         
-        # 所有帳戶的絕對值總額 (分母：計算配置比例，使用絕對值避免資產負債抵銷導致比例異常)
-        all_accounts_sum = db.query(func.sum(func.abs(Account.current_balance))).scalar() or 1
+        analysis_results.append({
+            "id": i,
+            "account_type": r.account_type,
+            "total_amount": float(r.sum_amount or 0),
+            # 配置比例 (該類別絕對值 / 全域絕對值總額)
+            "allocation_ratio": round((abs(float(r.sum_amount or 0)) / float(all_accounts_sum)) * 100, 1),
+            # 滲透率 (有多少比例的用戶開立此帳戶)
+            "penetration_rate": round((owner_count / float(total_users_count)) * 100, 1),
+            # 平均帳戶數 (有開的人平均開幾個)
+            "avg_count_per_user": round(float(r.acc_count) / owner_count, 1) if owner_count > 0 else 0,
+            # 帳戶平均總額 (該類別總額 / 擁有者人數)
+            "avg_amount_per_user": round(float(r.sum_amount or 0) / owner_count, 0) if owner_count > 0 else 0,
+            # 中位數
+            "median_amount": round(median_map.get(r.account_type, 0), 0)
+        })
 
-        # 2. 中位數計算 (針對 account_type 分組)
-        # 邏輯：先幫每個類型的金額排序編號，再抓取中間那幾筆取平均
-        median_sql = text("""
-            SELECT account_type, AVG(current_balance) as median_val
-            FROM (
-                SELECT account_type, current_balance,
-                       ROW_NUMBER() OVER (PARTITION BY account_type ORDER BY current_balance) as row_num,
-                       COUNT(*) OVER (PARTITION BY account_type) as total_rows
-                FROM accounts
-            ) as ranked_data
-            WHERE row_num IN (FLOOR((total_rows+1)/2), CEIL((total_rows+1)/2))
-            GROUP BY account_type
-        """)
-        median_results = db.execute(median_sql).all()
-        median_map = {row[0]: float(row[1]) for row in median_results}
+    # 按照總額大小排序回傳
+    return sorted(analysis_results, key=lambda x: abs(x['total_amount']), reverse=True)
 
-        # 3. 主查詢：聚合計算
-        # 統計各類型的：總額、帳戶筆數、不重複使用者數
-        account_stats = db.query(
-            Account.account_type,
-            func.sum(Account.current_balance).label("sum_amount"),
-            func.count(Account.account_id).label("acc_count"),
-            func.count(func.distinct(Account.user_id)).label("user_reach")
-        ).group_by(Account.account_type).all()
 
-        # 4. 格式化回傳
-        # 這裡對應妳前端要求的欄位
-        analysis_results = []
-        for i, r in enumerate(account_stats, 1):
-            owner_count = float(r.user_reach or 0)
-            
-            analysis_results.append({
-                "id": i,
-                "account_type": r.account_type,
-                "total_amount": float(r.sum_amount or 0),
-                # 配置比例 (該類別絕對值 / 全域絕對值總額)
-                "allocation_ratio": round((abs(float(r.sum_amount or 0)) / float(all_accounts_sum)) * 100, 1),
-                # 滲透率 (有多少比例的用戶開立此帳戶)
-                "penetration_rate": round((owner_count / float(total_users_count)) * 100, 1),
-                # 平均帳戶數 (有開的人平均開幾個)
-                "avg_count_per_user": round(float(r.acc_count) / owner_count, 1) if owner_count > 0 else 0,
-                # 帳戶平均總額 (該類別總額 / 擁有者人數)
-                "avg_amount_per_user": round(float(r.sum_amount or 0) / owner_count, 0) if owner_count > 0 else 0,
-                # 中位數
-                "median_amount": round(median_map.get(r.account_type, 0), 0)
-            })
-
-        # 按照總額大小排序回傳
-        return sorted(analysis_results, key=lambda x: abs(x['total_amount']), reverse=True)
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-from datetime import datetime, timedelta
 
 # 最上面小卡
 
 @router.get("/stats/dashboard-summary")
 async def get_dashboard_summary(db: Session = Depends(get_db)):
-    try:
-        from datetime import datetime, timedelta
-        now = datetime.now()
+    now = datetime.now()
 
-        # 1. 總註冊用戶數 (排除管理員)
-        total_users_query = db.query(Member).filter(Member.role == "user").all()
-        total_users_count = len(total_users_query)
-        
-        # 2. 活躍用戶數 (最近 7 天內有更新紀錄)
-        seven_days_ago = now - timedelta(days=7)
-        active_users_count = db.query(func.count(Member.user_id)).filter(
-            Member.role == "user",
-            Member.updated_at >= seven_days_ago
-        ).scalar() or 0
+    # 1. 總註冊用戶數 (排除管理員)
+    total_users_query = db.query(Member).filter(Member.role == "user").all()
+    total_users_count = len(total_users_query)
+    
+    # 2. 活躍用戶數 (最近 7 天內有更新紀錄)
+    seven_days_ago = now - timedelta(days=7)
+    active_users_count = db.query(func.count(Member.user_id)).filter(
+        Member.role == "user",
+        Member.updated_at >= seven_days_ago
+    ).scalar() or 0
 
-        # 3. 收/支總筆數
-        total_transactions = db.query(func.count(AddRecord.add_id)).filter(
-            AddRecord.add_amount != None
-        ).scalar() or 0
+    # 3. 收/支總筆數
+    total_transactions = db.query(func.count(AddRecord.add_id)).filter(
+        AddRecord.add_amount != None
+    ).scalar() or 0
 
-        # 4. 準備計算平均活躍度 (需要 UNION 查詢)
-        op_days_sql = """
-            SELECT user_id, DATE(created_at) as op_date FROM adds UNION
-            SELECT user_id, DATE(updated_at) as op_date FROM adds UNION
-            SELECT user_id, DATE(created_at) as op_date FROM accounts UNION
-            SELECT user_id, DATE(updated_at) as op_date FROM accounts UNION
-            SELECT user_id, DATE(created_at) as op_date FROM transactions UNION
-            SELECT user_id, DATE(updated_at) as op_date FROM transactions
-        """
-        op_counts = db.execute(text(f"SELECT user_id, COUNT(DISTINCT op_date) as actual_op_days FROM ({op_days_sql}) as combined_ops GROUP BY user_id")).all()
-        op_map = {row[0]: row[1] for row in op_counts}
+    # 4. 準備計算平均活躍度 (需要 UNION 查詢)
+    op_days_sql = """
+        SELECT user_id, DATE(created_at) as op_date FROM adds UNION
+        SELECT user_id, DATE(updated_at) as op_date FROM adds UNION
+        SELECT user_id, DATE(created_at) as op_date FROM accounts UNION
+        SELECT user_id, DATE(updated_at) as op_date FROM accounts UNION
+        SELECT user_id, DATE(created_at) as op_date FROM transactions UNION
+        SELECT user_id, DATE(updated_at) as op_date FROM transactions
+    """
+    op_counts = db.execute(text(f"SELECT user_id, COUNT(DISTINCT op_date) as actual_op_days FROM ({op_days_sql}) as combined_ops GROUP BY user_id")).all()
+    op_map = {row[0]: row[1] for row in op_counts}
 
-        # 5. 計算平均值
-        total_active_rate = 0
-        total_coverage_rate = 0
+    # 5. 計算平均值
+    total_active_rate = 0
+    total_coverage_rate = 0
 
-        if total_users_count > 0:
-            for u in total_users_query:
-                # 這裡要抓該用戶的記帳天數
-                a_days = db.query(func.count(func.distinct(AddRecord.add_date))).filter(AddRecord.user_id == u.user_id).scalar() or 0
-                reg_days = max((now - u.created_at).days + 1, 1)
-                
-                # 覆蓋率
-                total_coverage_rate += min(((a_days / reg_days) * 100), 100.0)
-                # 活躍度
-                actual_op_days = op_map.get(u.user_id, 0)
-                total_active_rate += min(((actual_op_days / reg_days) * 100), 100.0)
+    if total_users_count > 0:
+        for u in total_users_query:
+            # 這裡要抓該用戶的記帳天數
+            a_days = db.query(func.count(func.distinct(AddRecord.add_date))).filter(AddRecord.user_id == u.user_id).scalar() or 0
+            reg_days = max((now - u.created_at).days + 1, 1)
+            
+            # 覆蓋率
+            total_coverage_rate += min(((a_days / reg_days) * 100), 100.0)
+            # 活躍度
+            actual_op_days = op_map.get(u.user_id, 0)
+            total_active_rate += min(((actual_op_days / reg_days) * 100), 100.0)
 
-            avg_coverage = total_coverage_rate / total_users_count
-            avg_activity = total_active_rate / total_users_count
-        else:
-            avg_coverage = 0
-            avg_activity = 0
+        avg_coverage = total_coverage_rate / total_users_count
+        avg_activity = total_active_rate / total_users_count
+    else:
+        avg_coverage = 0
+        avg_activity = 0
 
-        return {
-            "total_users": total_users_count,
-            "active_users": active_users_count,
-            "total_transactions": f"{total_transactions:,}",
-            "avg_activity": f"{avg_activity:.1f}%",
-            "avg_coverage": f"{avg_coverage:.1f}%"
-        }
-    except Exception as e:
-        # 這裡打印錯誤到後端終端機，方便妳除錯
-        print(f"❌ Dashboard API Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "total_users": total_users_count,
+        "active_users": active_users_count,
+        "total_transactions": f"{total_transactions:,}",
+        "avg_activity": f"{avg_activity:.1f}%",
+        "avg_coverage": f"{avg_coverage:.1f}%"
+    }
