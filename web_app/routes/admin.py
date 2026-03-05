@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import case, func, text
+from sqlalchemy import case, extract, func, text
 from sqlalchemy.orm import Session
 
 from web_app.services.game_service import GameService
@@ -25,11 +25,29 @@ async def get_all_users(skip: int = 0, limit: int = 20, db: Session = Depends(ge
 
 @router.get("/users/{user_id}", summary="🔍 取得用戶完整詳情")
 async def get_admin_user_detail(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(Member).filter(Member.user_id == user_id).first()
-    if not user:
+    now = datetime.now()
+    
+    # 建立子查詢：計算該用戶的本月筆數
+    monthly_count_sub = db.query(func.count(AddRecord.add_id)) \
+        .filter(AddRecord.user_id == user_id) \
+        .filter(extract('month', AddRecord.add_date) == now.month) \
+        .filter(extract('year', AddRecord.add_date) == now.year) \
+        .scalar_subquery()
+
+    # 主查詢
+    result = db.query(
+        Member, 
+        func.count(AddRecord.add_id).label("total_records"),
+        monthly_count_sub.label("monthly_records")
+    ).outerjoin(AddRecord, Member.user_id == AddRecord.user_id) \
+     .filter(Member.user_id == user_id) \
+     .group_by(Member.user_id).first()
+
+    if not result:
         raise HTTPException(status_code=404, detail="找不到該會員")
     
-    # 回傳資料表定義的所有欄位
+    user, total_count, monthly_count = result
+    
     return {
         "uid": user.user_id,
         "username": user.username,
@@ -41,6 +59,8 @@ async def get_admin_user_detail(user_id: int, db: Session = Depends(get_db)):
         "xp": user.xp,
         "level": user.level,
         "points": user.points,
+        "total_records": total_count or 0,      # 總計
+        "monthly_records": monthly_count or 0, # 本月 (若無紀錄則顯示 0)
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "last_login": user.last_login.isoformat() if user.last_login else "從未登入"
     }
