@@ -568,8 +568,11 @@ async def get_dashboard_summary(db: Session = Depends(get_db)):
         Member.updated_at >= seven_days_ago
     ).scalar() or 0
 
-    # 3. 收/支總筆數
-    total_transactions = db.query(func.count(AddRecord.add_id)).filter(
+    # 3. 收/支總筆數 (限定一般用戶)
+    total_transactions = db.query(func.count(AddRecord.add_id))\
+        .join(Member, AddRecord.user_id == Member.user_id)\
+        .filter(
+        Member.role == "user",    # 限定角色為 user
         AddRecord.add_amount != None
     ).scalar() or 0
 
