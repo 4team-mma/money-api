@@ -12,22 +12,29 @@ class FinanceAgentService:
     def analyze_intent(message: str) -> str:
         msg = message.lower()
         
-        # 1. RECORD (記帳意圖)：有消費動詞，且「包含數字」
-        record_keywords = ["花", "買", "記帳", "支出", "消費", "吃了", "花了"]
+        # 🚨 第一道防線：防幻覺！看到疑問詞，強制進入查詢模式
+        strict_query = ["多少", "總共", "統計", "分析", "餘額", "明細", "?", "？"]
+        if any(q in msg for q in strict_query):
+            return "QUERY"
+        
+        # 🚨 第二道防線：記帳與轉帳意圖 (加入收入與轉帳口語)
+        record_keywords = [
+            "花", "買", "記帳", "支出", "消費", "吃了", "花了", 
+            "中獎", "收入", "賺", "薪水", 
+            "匯", "轉帳", "轉給", "轉到", "轉出", "轉入", "存", "領"
+        ]
         has_number = bool(re.search(r'\d+', msg)) 
         if any(k in msg for k in record_keywords) and has_number:
             return "RECORD"
             
-        # 2. QUERY (查詢意圖)：詢問財務狀況 (包含你原本設定的所有關鍵字)
-        query_keywords = ["錢", "資產", "餘額", "銀行", "存款", "台新", "錢包", "多少", 
-                          "統計", "分析", "占比", "吃飯", "交通", "買了", 
-                          "工資", "薪水", "薪資", "賺", "領錢", "獎金", "股息", "利息",
-                          "物價", "漲價", "通膨", "cpi", "貴", "嚴重", "指標",
-                          "提醒", "繳費", "行事曆", "忘記"]
+        # 🚨 第三道防線：原本的查詢意圖
+        query_keywords = ["錢", "資產", "銀行", "存款", "台新", "錢包", 
+                        "占比", "吃飯", "交通", "工資", "股息", "利息",
+                        "物價", "漲價", "通膨", "cpi", "貴", "嚴重", "指標",
+                        "提醒", "繳費", "行事曆", "忘記"]
         if any(k in msg for k in query_keywords):
             return "QUERY"
             
-        # 3. CHAT (閒聊意圖)：其他通通歸類為閒聊
         return "CHAT"
 
     @staticmethod
@@ -40,7 +47,7 @@ class FinanceAgentService:
         # ==========================================
         if intent == "CHAT":
             prompt = f"""
-[系統時間]: {today}
+[系統時間]: {today}(現在真的是這個時間，不准亂掰！)
 [任務說明]
 小主人現在只是在跟你聊天。你不需要去查帳本資料！
 請扮演貼心、幽默的「理財小助手喵喵」，發揮你的個性跟小主人互動。
@@ -56,27 +63,49 @@ class FinanceAgentService:
         # ==========================================
         elif intent == "RECORD":
             prompt = f"""
-[系統時間]: {today}
+[系統時間]: {today}(現在真的是這個時間，不准亂掰！)
 [任務說明]
-小主人剛輸入了一筆消費，請擔任專業的財務資料解析員，將文字轉化為結構化的記帳資料。
+小主人輸入了財務紀錄。判斷是「支出」、「收入」或「轉帳」，並轉為 JSON。
+【極度重要】：只能輸出純 JSON，不可包含 ```json 標籤或任何廢話！
 
 [分類與提取規則]
-1. add_amount (金額): 提取文字中的消費數字。
-2. add_class (主類別): 判斷消費所屬的四大預設類別：「飲食」(吃喝相關)、「交通」(加油/搭車)、「居家」(家具/日用品)、「娛樂」(玩樂)。若都不屬於，請根據常理自定義一個大項目名稱(例如: 看病請寫「醫療」)。
-3. add_note (備註): 寫入實際消費的具體物品名稱(如: 拉麵、衛生紙)。
-4. account_name (扣款帳戶): 預設為「台新銀行」。除非小主人明確提到其他銀行或支付方式(如: 國泰、現金)，才做更改。
-5. add_member (成員): 預設為「自己」。除非小主人提到幫別人出錢。
-6. add_tag (標籤): 預設為「需要」。若小主人語氣帶有「想要」、「旅遊」，或是提到特定的品牌/地點(如: 麥當勞)，請將這些詞彙用逗號分隔加入(如: "需要,麥當勞")。
+1. record_type: 花錢填 "expense"；中獎/發薪填 "income"；自己帳戶間資金移動填 "transfer"。
+2. add_amount: 提取純數字金額。
+3. add_note: 
+    - 支出/收入：提取具體項目名稱(如: 拉麵)。
+    - 轉帳：除非小主人有明確說理由，否則「add_note」必須固定填寫「一般轉帳」。
 
-[JSON 輸出格式範例] (嚴格遵守，不要回覆其他純文字與Markdown標籤)
+【若為 expense 或 income】
+- add_class: 支出填「飲食/交通/居家/娛樂」；收入填「薪資/投資/其他收入」。
+- account_name: 預設「台新銀行」。
+- add_member: 預設「自己」。
+- add_tag: 預設「需要」(支出) 或 「意外之財」(收入)。
+
+【若為 transfer】
+- from_account: 從哪裡轉出(預設: 台新銀行)。
+- to_account: 轉到哪裡去(預設: 一般錢包)。
+- add_note: 固定預設為「一般轉帳」(除非小主人有特別提到理由)。
+
+[JSON 輸出範例 - 支出/收入]
 {{
     "action": "confirm_record",
-    "add_amount": 250,
-    "add_class": "飲食",
-    "add_note": "拉麵",
+    "record_type": "income",
+    "add_amount": 400,
+    "add_class": "其他收入",
+    "add_note": "發票中獎",
     "account_name": "台新銀行",
     "add_member": "自己",
-    "add_tag": "需要"
+    "add_tag": "意外之財"
+}}
+
+[JSON 輸出範例 - 轉帳]
+{{
+    "action": "confirm_record",
+    "record_type": "transfer",
+    "add_amount": 1000,
+    "add_note": "領生活費",
+    "from_account": "台新銀行",
+    "to_account": "一般錢包"
 }}
 """
             return {"intent": "RECORD", "system_prompt": prompt}
