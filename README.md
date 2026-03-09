@@ -52,6 +52,7 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add reportlab (PDF轉換套件)
 - uv add google-genai (Google 的 AI 套件)
 - uv add user-agents  (「自動辨識裝置」的功能_例如win11)
+- uv add pytz (是一個專門處理全球時區的資料庫，它能確保不論妳的伺服器是在 Google 雲端（通常在美國或日本）還是在地端，都能準確轉換成 台北時間 (Asia/Taipei)。)
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
