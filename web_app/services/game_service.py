@@ -185,27 +185,32 @@ class GameService:
                 if lib.title == '深度思考':
                     if note is not None and len(note) > 100:
                         dm.current_val = lib.target_val
+                    continue
 
                 # 2. 意外之財：非固定薪資收入 (非 工資, 獎金, 投資) 且 add_type=True
                 elif lib.title == '意外之財':
                     default_income = ['工資', '薪資', '獎金', '投資']
                     if add_type is True and record_class is not None and record_class not in default_income:
                         dm.current_val += increment
+                    continue
 
                 # 3. 自我投資：學習類別支出 (add_type=False)
                 elif lib.title == '自我投資':
                     if add_type is False and record_class == '學習':
                         dm.current_val += increment
+                    continue
 
                 # 4. 大膽消費：單筆支出超過 $2000
                 elif lib.title == '大膽消費':
                     if add_type is False and amount > 2000:
                         dm.current_val = lib.target_val
+                    continue
 
                 # 5. 享受當下：記錄一筆娛樂支出
                 elif lib.title == '享受當下':
                     if add_type is False and record_class == '娛樂':
                         dm.current_val += increment
+                    continue
 
                 # 6. 極限的挑戰：單日總消費加總 <= 100
                 elif lib.title == '極限的挑戰':
@@ -218,23 +223,29 @@ class GameService:
                         dm.current_val = 1
                     else:
                         dm.current_val = 0
+                    continue
+                    
 
                 # 7. 客製分類：檢查標籤不在預設名單
                 elif lib.title == '客製分類':
                     default_tags = ['需要', '想要', '旅遊']
                     if tag is not None and tag not in default_tags:
                         dm.current_val += increment
+                    continue
 
                 # 8. 大額支出判定 (>= 1000)
                 elif lib.title == '大額支出':
                     if amount >= 1000:
                         dm.current_val = lib.target_val 
+                    continue
 
                 # 9. 工作紀錄與人際開銷 (SJ 任務)
                 elif lib.title == '工作紀錄' and record_class == '工作':
                     dm.current_val += increment
+                    continue
                 elif lib.title == '人際開銷' and record_class == '社交':
                     dm.current_val += increment
+                    continue
                     
                 # 10. 智慧的洞察：AI 聊天觸發 (NT 稀有任務)
                 elif lib.title == '智慧的洞察':
@@ -243,12 +254,14 @@ class GameService:
                         # 判定關鍵字組合：必須有 CPI，且包含「最高」或「指標」
                         if 'CPI' in msg and any(k in msg for k in ['最高', '指標']):
                             dm.current_val = lib.target_val
+                    continue
                             
                 # 11. 宏觀分析：年度報表匯出 (NF 任務)
                 elif lib.title == '宏觀分析':
                     # 只要類別匹配成功（由 API 傳入 '宏觀分析'），就直接加 1
                     if category == '宏觀分析':
                         dm.current_val += increment
+                    continue
                 
                 # 12. 雙向標籤：任務判斷
                 if lib.title == '雙向標籤':
@@ -284,9 +297,9 @@ class GameService:
                             dm.current_val += increment
                             
                     else:
-                        # 其他一般任務（如隨手一記）維持現狀
-                        # 排除需要晚間結算的任務標題
-                        nightly_tasks = ['預算控制', '減少外食', '節能減碳', '無現金支付']
+                        # 這邊是要填寫特殊要求的，只要符合**「只要有記帳，不管記什麼都給分」**的任務，都不用填進來，例如:
+                        # 隨手一記：目標 1/1，記一筆就達成。
+                        nightly_tasks = ['預算控制', '減少外食', '節能減碳', '無現金支付','深度思考', '極限的挑戰', '智慧的洞察', '大膽消費']
                         if lib.title not in nightly_tasks:
                             dm.current_val += increment
 
