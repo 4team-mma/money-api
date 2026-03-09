@@ -18,6 +18,7 @@ import time
 import traceback
 import httpx
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 router = APIRouter()
@@ -120,7 +121,7 @@ def save_ai_config(
 @router.post(
     "/chat",
     summary="與 AI 喵喵對話",
-    description="接收使用者訊息，透過智能篩選器 (FinanceAgent) 抓取財務數據，並轉發給指定的 AI 模型 (Gemini/Ollama)。"
+    description="接收使用者訊息，透過智能篩選器判斷意圖，若為記帳則回傳 JSON 指令。"
 )
 async def chat_with_meow(
     req: ChatRequest, 
@@ -142,13 +143,16 @@ async def chat_with_meow(
 
     print(f"🔥 [AI DEBUG] 呼叫模型: {config.model_version} | 使用者: {current_user.name}")
 
-    # 2. 🧠 呼叫大腦：獲取智能篩選後的財務上下文
-    # 這是原本只有 AnythingService 的地方，現在升級成 FinanceAgentService
+    # 2. 🧠 呼叫大腦：獲取智能篩選後的財務上下文與意圖
     try:
-        # 這裡會根據使用者問 "餘額" 還是 "支出" 自動決定抓什麼資料
-        financial_context_instruction = FinanceAgentService.get_context(db, current_user.user_id, req.message)
+        # 接收 dict 格式
+        agent_response = FinanceAgentService.get_context(db, current_user.user_id, req.message)
+        current_intent = agent_response["intent"]
+        financial_context_instruction = agent_response["system_prompt"]
+        print(f"🎯 [意圖偵測]: {current_intent}")
     except Exception as e:
         print(f"❌ 數據讀取失敗: {e}")
+        current_intent = "CHAT"
         financial_context_instruction = "【系統訊息】暫時無法讀取財務資料，請依一般常識回答。"
 
     # 3. 組合最終指令 (使用者自訂 Prompt + 財務數據)
@@ -178,12 +182,10 @@ async def chat_with_meow(
                 prompt=req.message,
                 system_instruction=final_system_prompt
             )
-            # 把文字跟真實模型拆解出來
             reply = result["text"]
             actual_model_used = result["actual_model"]
 
         elif config.provider == "ollama":
-            # 呼叫我們整理好的 OllamaService
             reply = await OllamaService.chat_async(
                 base_url=config.base_url,
                 model_id=config.model_version,
@@ -192,8 +194,6 @@ async def chat_with_meow(
             )
 
         elif config.provider == "anythingllm":
-            # 保留你原本的 AnythingLLM 邏輯
-            # (雖然 AnythingLLM 有自己的 RAG，但我們這裡還是可以用簡單的方式串接)
             any_key = decrypt_api_key(config.api_key) if (config.api_key and config.api_key != "none") else os.getenv("ANYTHINGLLM_KEY")
             any_ws = os.getenv("ANYTHINGLLM_WORKSPACE", "finance-al-agent")
             api_url = f"{config.base_url.rstrip('/')}/api/v1/workspace/{any_ws}/chat"
@@ -212,31 +212,59 @@ async def chat_with_meow(
         else:
             reply = "喵喵目前不知道該用哪個大腦。"
 
+        # ==========================================
+        # 🌟 核心新增：JSON 指令解析防呆機制
+        # ==========================================
+        is_json_command = False
+        parsed_action = None
+        
+        if current_intent == "RECORD":
+            try:
+                # 脫殼處理：移除可能夾帶的 Markdown 標籤
+                clean_json_str = reply.strip().replace("```json", "").replace("```", "").strip()
+                parsed_data = json.loads(clean_json_str)
+                
+                if parsed_data.get("action") == "confirm_record":
+                    is_json_command = True
+                    parsed_action = parsed_data
+                    # 置換給前端顯示的文字
+                    reply = f"收到喵！小主人剛才說要記錄：{parsed_data.get('add_note', '未知')} {parsed_data.get('add_amount', 0)} 元，請確認卡片喵！"
+            except json.JSONDecodeError:
+                print("⚠️ LLM 回傳的不是合法 JSON，降級為一般文字顯示。")
+                is_json_command = False
+
         duration = round(time.time() - start_time, 2)
         print(f"✨ [AI DEBUG] 回應成功！耗時: {duration}s")
         
-        # 🌟 核心：在回傳前觸發任務進度掃描
+        # 🌟 核心保留：任務進度掃描
         from web_app.services.game_service import GameService
         try:
             GameService.update_mission_progress(
                 db=db,
                 user_id=current_user.user_id,
-                category='AI_聊天', # 對應上面的邏輯
-                note=req.message,   # 傳入使用者的問題
+                category='AI_聊天',
+                note=req.message,
                 increment=1
             )
         except Exception as game_err:
             print(f"⚠️ 任務進度更新失敗: {game_err}")
         
-        # 🚀 根據真實連線的模型名稱，組成前端要顯示的標籤
         provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" else f"{config.provider} ({config.model_version})"
         
+        # 回傳給前端
         return {
             "reply": reply, 
             "duration": duration, 
-            "provider": provider_display
+            "provider": provider_display,
+            "is_command": is_json_command,    # 告訴前端是否要彈出卡片
+            "action_data": parsed_action      # 前端卡片需要的變數
         }
 
     except Exception as e:
         traceback.print_exc()
-        return {"reply": f"喵... 系統連線失敗: {str(e)[:50]}", "duration": 0, "provider": config.provider}
+        return {
+            "reply": f"喵... 系統連線失敗: {str(e)[:50]}", 
+            "duration": 0, 
+            "provider": config.provider,
+            "is_command": False
+        }
