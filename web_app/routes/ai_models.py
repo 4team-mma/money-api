@@ -19,6 +19,7 @@ import traceback
 import httpx
 from dotenv import load_dotenv
 import json
+import re
 
 load_dotenv()
 router = APIRouter()
@@ -131,17 +132,22 @@ async def chat_with_meow(
     start_time = time.time()
     db.expire_all() 
 
-    # 1. 取得目前生效配置
+    # 1. 取得目前生效配置 (先看使用者自己有沒有特別設定)
     config = db.query(AIConfig).filter(
         AIConfig.user_id == current_user.user_id, 
         AIConfig.is_active == True
     ).first()
 
-    # 防呆預設
+    # 🌟 核心新增：如果使用者沒設定，強制套用「管理員 (user_id=1)」的設定！
+    if not config:
+        config = db.query(AIConfig).filter(
+            AIConfig.user_id == 1, 
+            AIConfig.is_active == True
+        ).first()
+
+    # 防呆預設 (如果連管理員都沒設定)
     if not config:
         config = AIConfig(provider="gemini", model_version="gemini-1.5-flash", system_prompt="你是理財小助手喵喵喵")
-
-    print(f"🔥 [AI DEBUG] 呼叫模型: {config.model_version} | 使用者: {current_user.name}")
 
     # 2. 🧠 呼叫大腦：獲取智能篩選後的財務上下文與意圖
     try:
@@ -220,17 +226,28 @@ async def chat_with_meow(
         
         if current_intent == "RECORD":
             try:
-                # 脫殼處理：移除可能夾帶的 Markdown 標籤
-                clean_json_str = reply.strip().replace("```json", "").replace("```", "").strip()
-                parsed_data = json.loads(clean_json_str)
-                
-                if parsed_data.get("action") == "confirm_record":
-                    is_json_command = True
-                    parsed_action = parsed_data
-                    # 置換給前端顯示的文字
-                    reply = f"收到喵！小主人剛才說要記錄：{parsed_data.get('add_note', '未知')} {parsed_data.get('add_amount', 0)} 元，請確認卡片喵！"
-            except json.JSONDecodeError:
-                print("⚠️ LLM 回傳的不是合法 JSON，降級為一般文字顯示。")
+                # 1. 先用 Regex 強制抓取 { } 之間的內容 (無視 AI 講的廢話)
+                match = re.search(r'\{.*\}', reply.strip(), re.DOTALL)
+                if match:
+                    clean_json_str = match.group(0)
+                    parsed_data = json.loads(clean_json_str)
+                    
+                    if parsed_data.get("action") == "confirm_record":
+                        is_json_command = True
+                        parsed_action = parsed_data
+                        
+                        # 2. 判斷文字顯示
+                        r_type = parsed_data.get('record_type', 'expense')
+                        action_word = "轉帳" if r_type == 'transfer' else "記錄"
+                        item_word = parsed_data.get('note', '未知項目')
+                        amt_word = parsed_data.get('amount', 0)
+                        
+                        reply = f"收到喵！小主人剛才說要{action_word}：{item_word} {amt_word} 元，請確認卡片喵！"
+                else:
+                    raise ValueError("找不到 JSON 格式的資料")
+
+            except Exception as parse_err:
+                print(f"⚠️ 解析 JSON 失敗，降級為一般文字顯示。錯誤: {parse_err}")
                 is_json_command = False
 
         duration = round(time.time() - start_time, 2)
