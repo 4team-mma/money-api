@@ -219,14 +219,14 @@ async def chat_with_meow(
             reply = "喵喵目前不知道該用哪個大腦。"
 
         # ==========================================
-        # 🌟 核心新增：JSON 指令解析防呆機制
+        # 🌟 核心新增：JSON 指令解析防呆機制 (防彈增強版)
         # ==========================================
         is_json_command = False
         parsed_action = None
         
         if current_intent == "RECORD":
             try:
-                # 1. 先用 Regex 強制抓取 { } 之間的內容 (無視 AI 講的廢話)
+                # 1. 強制抓取 { } 之間的內容
                 match = re.search(r'\{.*\}', reply.strip(), re.DOTALL)
                 if match:
                     clean_json_str = match.group(0)
@@ -236,18 +236,20 @@ async def chat_with_meow(
                         is_json_command = True
                         parsed_action = parsed_data
                         
-                        # 2. 判斷文字顯示
                         r_type = parsed_data.get('record_type', 'expense')
-                        action_word = "轉帳" if r_type == 'transfer' else "記錄"
-                        item_word = parsed_data.get('note', '未知項目')
-                        amt_word = parsed_data.get('amount', 0)
+                        amt_word = parsed_data.get('add_amount', 0)
                         
-                        reply = f"收到喵！小主人剛才說要{action_word}：{item_word} {amt_word} 元，請確認卡片喵！"
+                        if r_type == 'transfer':
+                            reply = f"收到喵！小主人要將 {amt_word} 元從「{parsed_data.get('from_account', '未知')}」轉到「{parsed_data.get('to_account', '未知')}」，請確認卡片喵！"
+                        else:
+                            action_word = "收入" if r_type == 'income' else "花費"
+                            item_word = parsed_data.get('add_note', '未知項目')
+                            reply = f"收到喵！小主人剛才{action_word}了：{item_word} {amt_word} 元，請確認卡片喵！"
                 else:
-                    raise ValueError("找不到 JSON 格式的資料")
+                    raise ValueError("找不到 JSON")
 
             except Exception as parse_err:
-                print(f"⚠️ 解析 JSON 失敗，降級為一般文字顯示。錯誤: {parse_err}")
+                print(f"⚠️ 解析 JSON 失敗，降級一般文字。錯誤: {parse_err}")
                 is_json_command = False
 
         duration = round(time.time() - start_time, 2)
