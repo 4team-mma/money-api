@@ -17,11 +17,13 @@ from web_app.routes import (
     analysis,
     reminders,
     ai_models,
-    gamification
+    gamification,
+    ai
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
 from web_app.routes.stats import router as stats_router
+
 from web_app.dependencies import admin_required
 from web_app.utils.cpi_crawler import fetch_and_update_cpi
 from web_app.utils.salary_crawler import run_all_salary_tasks
@@ -307,7 +309,10 @@ app.include_router(
 app.include_router(analysis.router, prefix="/api/analysis", tags=["消費趨勢分析"])
 app.include_router(stats_router, prefix="/api/stats", tags=["圖表分析"])
 app.include_router(planning_router, prefix="/api/planning", tags=["理財規劃"])
-
+app.include_router(ai.router, 
+    prefix="/api/v1/ai", 
+    tags=["AI 擴充功能"]
+)
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():

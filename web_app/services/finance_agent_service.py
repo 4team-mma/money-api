@@ -5,7 +5,8 @@ from .finance_tools import FinanceTools
 from datetime import date
 from ..models import CpiData
 import re
-
+from datetime import datetime
+import pytz
 class FinanceAgentService:
     
     @staticmethod
@@ -40,7 +41,10 @@ class FinanceAgentService:
     @staticmethod
     def get_context(db: Session, user_id: int, message: str) -> dict:
         intent = FinanceAgentService.analyze_intent(message)
-        today = date.today().strftime('%Y-%m-%d')
+        #today = date.today().strftime('%Y-%m-%d')
+        tw_tz = pytz.timezone('Asia/Taipei')
+        now = datetime.now(tw_tz)
+        today = now.strftime('%Y-%m-%d %H:%M:%S')
         
         # ==========================================
         # 💡 意圖 A：純閒聊 / 情緒安撫 (CHAT)
@@ -62,11 +66,21 @@ class FinanceAgentService:
         # 💡 意圖 B：記帳並要求回傳 JSON (RECORD)
         # ==========================================
         elif intent == "RECORD":
+            # 🌟 新增：先抓取該使用者的第一個帳戶名稱
+            from ..models import Account
+            first_acc = db.query(Account).filter(Account.user_id == user_id).first()
+            default_acc_name = first_acc.account_name if first_acc else "我的錢包"
+
             prompt = f"""
 [系統時間]: {today}(現在真的是這個時間，不准亂掰！)
 [任務說明]
 小主人輸入了財務紀錄。判斷是「支出」、「收入」或「轉帳」，並轉為 JSON。
 【極度重要】：只能輸出純 JSON，不可包含 ```json 標籤或任何廢話！
+
+【語音容錯規則】：
+1. 語音辨識可能出現錯誤，如「一零$1」應理解為「101元」。
+2. 若聽起來像金額但帶有奇怪符號（如 $、#、?），請自動過濾並提取純數字。
+3. 若數字後方帶有單位字眼（如: 塊、大洋、個），請統一轉為數字。
 
 [分類與提取規則]
 1. record_type: 花錢填 "expense"；中獎/發薪填 "income"；自己帳戶間資金移動填 "transfer"。
@@ -77,13 +91,13 @@ class FinanceAgentService:
 
 【若為 expense 或 income】
 - add_class: 支出填「飲食/交通/居家/娛樂」；收入填「薪資/投資/其他收入」。
-- account_name: 預設「台新銀行」。
+- account_name: 預設填入「{default_acc_name}」。
 - add_member: 預設「自己」。
 - add_tag: 預設「需要」(支出) 或 「意外之財」(收入)。
 
 【若為 transfer】
-- from_account: 從哪裡轉出(預設: 台新銀行)。
-- to_account: 轉到哪裡去(預設: 一般錢包)。
+- from_account: 從哪裡轉出(預設: {default_acc_name})。
+- to_account: 轉到哪裡去(預設: 照小主人說轉到哪個{default_acc_name})。
 - add_note: 固定預設為「一般轉帳」(除非小主人有特別提到理由)。
 
 [JSON 輸出範例 - 支出/收入]
