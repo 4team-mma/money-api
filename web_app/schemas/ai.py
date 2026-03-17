@@ -41,3 +41,10 @@ class ChatRequest(BaseModel):
 class ChatMessage(BaseModel):
     role: str = Field(..., description="角色: user, assistant, system")
     content: str = Field(..., description="對話內容")
+    
+
+# line測試用
+# Swagger 手動按 Execute，你沒有（也沒辦法手動生出）LINE 伺服器專屬的加密簽章。會有Invalid signature很正常。
+class LineWebhookPayload(BaseModel):
+    destination: str
+    events: list
