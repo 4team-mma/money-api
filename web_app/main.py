@@ -18,8 +18,7 @@ from web_app.routes import (
     reminders,
     ai_models,
     gamification,
-    ai,
-    ai_analysis
+    ai
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -299,7 +298,6 @@ app.include_router(feedback.router, prefix="/api/feedback", tags=["問題回饋"
 app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事項"])
 app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
 app.include_router(ai_models.router, prefix="/api/ai_models", tags=["AI模型設定"])
-app.include_router(ai_analysis.router, prefix="/api/ai_analysis", tags=["AI自動化財報分析"])
 app.include_router(gamification.router, prefix="/api/game", 
     tags=["成就系統:每日簽到(checkin)每日任務(missions)成就卡牌(cards)Header摘要(summary)"])
 app.include_router(
