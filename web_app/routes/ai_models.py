@@ -148,6 +148,19 @@ async def chat_with_meow(
     # 防呆預設 (如果連管理員都沒設定)
     if not config:
         config = AIConfig(provider="gemini", model_version="gemini-1.5-flash", system_prompt="你是理財小助手喵喵喵")
+        
+# ==========================================
+    # 🌟 雲端安全網 (Render Safety Net)
+    # ==========================================
+    # 自動偵測是否在 Render 雲端環境運行
+    is_on_render = os.getenv("RENDER") == "true"
+    
+    # 如果資料庫(前端)設定為 ollama，但目前跑在雲端，就強制切換回 Gemini 防止崩潰
+    if config.provider == "ollama" and is_on_render:
+        print("⚠️ [安全網攔截] 雲端環境無法連線小主人的本地 Ollama，自動降級為 Gemini 喵！")
+        config.provider = "gemini"
+        config.model_version = "gemini-1.5-flash" # 給一個穩定的預設值
+    # ==========================================
 
     # 2. 🧠 呼叫大腦：獲取智能篩選後的財務上下文與意圖
     try:
