@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from .siri_voice import router as voice_router
-from web_app.routes.ai.ai_analysis import router as ai_analysis_router
+from .ai_analysis import router as ai_analysis_router
 
 router = APIRouter()
 
