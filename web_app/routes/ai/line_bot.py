@@ -27,8 +27,6 @@ async def line_webhook(payload: LineWebhookPayload, request: Request):
     except InvalidSignatureError:
         print("⚠️ 簽章驗證失敗！請檢查 LINE_CHANNEL_SECRET 是否正確。")
         raise HTTPException(status_code=400, detail="Invalid signature")
-    except Exception as e:
-        print(f"⚠️ Webhook 發生錯誤: {e}")
 
     return "OK"
 
