@@ -21,7 +21,9 @@ dependencies = [
     "reportlab>=4.4.9",
     "requests>=2.32.5",
     "slowapi>=0.1.9",
+    "soundfile>=0.13.1",
     "sqlalchemy>=2.0.45",
+    "transformers>=5.3.0",
     "user-agents>=2.2.0",
     "xmltodict>=1.0.2",
 ]
