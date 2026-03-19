@@ -38,7 +38,22 @@ def create_account(
 ):
     account_data = account_in.model_dump()
     account_data["user_id"] = current_user.user_id
-    account_data["current_balance"] = account_in.initial_balance
+
+    # --- 新增這段邏輯來修正負債 Bug ---
+    # 定義哪些 value 屬於負債類別
+    liability_types = ['credit', 'loan', 'installment', 'debt_other']
+
+    # 取得初始金額（確保是正數 abs，避免使用者重複輸入負號造成變正值）
+    initial_val = abs(account_in.initial_balance)
+
+    if account_in.account_type in liability_types:
+        # 如果是負債，存進去必須是負值
+        account_data["current_balance"] = -initial_val
+        account_data["initial_balance"] = -initial_val # 初始金額也建議同步為負，方便後續計算
+    else:
+        account_data["current_balance"] = initial_val
+
+
 
     new_account = Account(**account_data)
 
