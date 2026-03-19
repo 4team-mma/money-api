@@ -17,6 +17,6 @@ async def websocket_chat_endpoint(
     try:
         while True:
             # 這裡只是為了保持連線，收到什麼都不用特別處理
-            data = await websocket.receive_text()
+            _ = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)

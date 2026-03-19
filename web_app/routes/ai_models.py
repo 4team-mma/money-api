@@ -20,9 +20,24 @@ import httpx
 from dotenv import load_dotenv
 import json
 import re
+import logging
 
 load_dotenv()
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# ==========================================
+# 讀取 .env 作為系統全局預設值 (System Defaults)
+# ==========================================
+SYS_DEFAULT_PROVIDER = os.getenv("CURRENT_AI_MODEL", "gemini") 
+SYS_OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma3:1b")
+SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-1.5-flash")
+
+def get_sys_default_model(provider: str) -> str:
+    """根據 Provider 決定預設模型名稱"""
+    return SYS_OLLAMA_MODEL if provider == "ollama" else SYS_GEMINI_MODEL
+
 
 # --- 1. 獲取配置 (保留完整的 API 文件說明) ---
 @router.get(
@@ -64,9 +79,9 @@ def get_ai_robot_config(
     
     # 若資料庫完全無資料，回傳預設結構
     return AIConfigResponse(
-        provider="gemini",
-        base_url="",
-        model_version="gemini-1.5-flash",
+        provider=SYS_DEFAULT_PROVIDER,
+        base_url=SYS_OLLAMA_URL if SYS_DEFAULT_PROVIDER == "ollama" else "",
+        model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER),
         system_prompt="你是理財小助手喵喵...",
         is_active=False,
         has_key=False
@@ -147,7 +162,12 @@ async def chat_with_meow(
 
     # 防呆預設 (如果連管理員都沒設定)
     if not config:
-        config = AIConfig(provider="gemini", model_version="gemini-1.5-flash", system_prompt="你是理財小助手喵喵喵")
+        config = AIConfig(
+            provider=SYS_DEFAULT_PROVIDER, 
+            base_url=SYS_OLLAMA_URL,
+            model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER), 
+            system_prompt="你是理財小助手喵喵喵"
+        )
         
 # ==========================================
     # 🌟 雲端安全網 (Render Safety Net)
@@ -170,7 +190,9 @@ async def chat_with_meow(
         financial_context_instruction = agent_response["system_prompt"]
         print(f"🎯 [意圖偵測]: {current_intent}")
     except Exception as e:
-        print(f"❌ 數據讀取失敗: {e}")
+        # 🛡️ 內部詳細記錄錯誤 (隊友最愛)
+        logger.error(f"FinanceAgent 讀取失敗 (User ID: {current_user.user_id}): {str(e)}", exc_info=True)
+        # 🛡️ 外部優雅降級，不讓系統崩潰
         current_intent = "CHAT"
         financial_context_instruction = "【系統訊息】暫時無法讀取財務資料，請依一般常識回答。"
 
@@ -262,7 +284,8 @@ async def chat_with_meow(
                     raise ValueError("找不到 JSON")
 
             except Exception as parse_err:
-                print(f"⚠️ 解析 JSON 失敗，降級一般文字。錯誤: {parse_err}")
+                # 🛡️ 內部紀錄解析失敗原因
+                logger.warning(f"AI 回應 JSON 解析失敗: {str(parse_err)}", exc_info=True)
                 is_json_command = False
 
         duration = round(time.time() - start_time, 2)
@@ -279,7 +302,8 @@ async def chat_with_meow(
                 increment=1
             )
         except Exception as game_err:
-            print(f"⚠️ 任務進度更新失敗: {game_err}")
+            # 🛡️ 內部紀錄任務更新失敗原因
+            logger.error(f"遊戲任務進度更新失敗: {str(game_err)}", exc_info=True)
         
         provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" else f"{config.provider} ({config.model_version})"
         
@@ -293,10 +317,13 @@ async def chat_with_meow(
         }
 
     except Exception as e:
-        traceback.print_exc()
+        # 🛡️ 內部紀錄最詳細的崩潰軌跡
+        logger.error("AI 模組發生未預期崩潰", exc_info=True)
+        
+        # 🛡️ 外部只回傳安全的罐頭訊息，絕不洩漏 str(e)
         return {
-            "reply": f"喵... 系統連線失敗: {str(e)[:50]}", 
+            "reply": "喵... 系統大腦暫時有點打結，請稍後再試喵！", 
             "duration": 0, 
-            "provider": config.provider,
+            "provider": config.provider if config else "unknown",
             "is_command": False
         }
