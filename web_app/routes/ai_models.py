@@ -26,6 +26,19 @@ load_dotenv()
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# ==========================================
+# 讀取 .env 作為系統全局預設值 (System Defaults)
+# ==========================================
+SYS_DEFAULT_PROVIDER = os.getenv("CURRENT_AI_MODEL", "gemini") 
+SYS_OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma3:1b")
+SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-1.5-flash")
+
+def get_sys_default_model(provider: str) -> str:
+    """根據 Provider 決定預設模型名稱"""
+    return SYS_OLLAMA_MODEL if provider == "ollama" else SYS_GEMINI_MODEL
+
+
 # --- 1. 獲取配置 (保留完整的 API 文件說明) ---
 @router.get(
     "/config", 
@@ -66,9 +79,9 @@ def get_ai_robot_config(
     
     # 若資料庫完全無資料，回傳預設結構
     return AIConfigResponse(
-        provider="gemini",
-        base_url="",
-        model_version="gemini-1.5-flash",
+        provider=SYS_DEFAULT_PROVIDER,
+        base_url=SYS_OLLAMA_URL if SYS_DEFAULT_PROVIDER == "ollama" else "",
+        model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER),
         system_prompt="你是理財小助手喵喵...",
         is_active=False,
         has_key=False
@@ -149,7 +162,12 @@ async def chat_with_meow(
 
     # 防呆預設 (如果連管理員都沒設定)
     if not config:
-        config = AIConfig(provider="gemini", model_version="gemini-1.5-flash", system_prompt="你是理財小助手喵喵喵")
+        config = AIConfig(
+            provider=SYS_DEFAULT_PROVIDER, 
+            base_url=SYS_OLLAMA_URL,
+            model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER), 
+            system_prompt="你是理財小助手喵喵喵"
+        )
         
 # ==========================================
     # 🌟 雲端安全網 (Render Safety Net)

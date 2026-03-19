@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from jose import jwt # 確保妳有安裝 python-jose
-
+# python gen_siri_token.py
 # 1. 載入 .env 變數
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-keep-it-secret")
