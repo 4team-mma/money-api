@@ -46,7 +46,7 @@ engine = create_engine(
     max_overflow=6,  # 超過 pool_size 時最多再建立幾個連線
     pool_pre_ping=True,  # 每次使用前檢查連線是否有效
     pool_recycle=3600,  # 連線超過 1 小時自動回收
-    echo=DEBUG  # 💡 根據環境自動決定是否印出 SQL 指令！
+    echo= False # 💡 根據環境自動決定是否印出 SQL 指令！
 )
 
 # 建立 Session
