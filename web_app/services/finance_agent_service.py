@@ -2,24 +2,45 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from .finance_tools import FinanceTools
-from datetime import date
-# 🌟 引入所有需要的模板
-from ..prompts.system_prompts import PERSONAS, BASE_RULES, CHAT_TEMPLATE, ADVISOR_TEMPLATE, RECORD_TEMPLATE, QUERY_TEMPLATE
-from ..models import CpiData
+#from datetime import date
 import re
 from datetime import datetime
 import pytz
+import os
+
+# 🌟 引入所有需要的模板 (包含新增的 KNOWLEDGE_TEMPLATE)
+from ..prompts.system_prompts import (
+    PERSONAS, BASE_RULES, CHAT_TEMPLATE, 
+    ADVISOR_TEMPLATE, RECORD_TEMPLATE, 
+    QUERY_TEMPLATE, KNOWLEDGE_TEMPLATE
+)
+from ..models import CpiData
+
+# 🌟 引入 LangChain 與 Groq 需要的套件
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_groq import ChatGroq
+from ..schemas.bot_schema import RecordResponseSchema
+
 
 class FinanceAgentService:
     
     @staticmethod
     def analyze_intent(message: str) -> str:
-        msg = message.lower()
+        # 🛡️ 絕對防禦：先把前端偷偷塞進來的 [系統指令...] 砍掉，才不會干擾判斷！
+        clean_msg = re.sub(r'\[系統指令.*?\]', '', message)
+        msg = clean_msg.lower()
         
         # 🚨 第零道防線：理財顧問分析
         advisor_keywords = ["健檢", "建議", "理財顧問", "檢視", "診斷", "投資建議", "消費基準"]
         if any(k in msg for k in advisor_keywords):
             return "ADVISOR"
+            
+        # 🌟 🚨 優先防線：系統知識與手冊 
+        # (⚠️ 已經拿掉危險的 "系統" 關鍵字，避免被前端指令誤導)
+        knowledge_keywords = ["怎麼用", "設定", "成就", "解鎖", "規則", "什麼是", "卡牌", "等級", "怎麼", "如何", "手冊"]
+        if any(k in msg for k in knowledge_keywords):
+            return "KNOWLEDGE"
         
         # 🚨 第一道防線：防幻覺！看到疑問詞，強制進入查詢模式
         strict_query = ["多少", "總共", "統計", "分析", "餘額", "明細", "?", "？"]
@@ -89,14 +110,32 @@ class FinanceAgentService:
             first_acc = db.query(Account).filter(Account.user_id == user_id).first()
             default_acc_name = first_acc.account_name if first_acc else "我的錢包"
 
+            # 🌟 動態注入防呆字串
+            parser = PydanticOutputParser(pydantic_object=RecordResponseSchema)
             prompt = RECORD_TEMPLATE.format(
                 today=today,
-                default_acc_name=default_acc_name
+                persona=current_persona,
+                default_acc_name=default_acc_name,
+                format_instructions=parser.get_format_instructions() 
             )
             return {"intent": "RECORD", "system_prompt": prompt}
 
         # ==========================================
-        # 💡 意圖 D：查帳與數據查詢 (QUERY)
+        # 💡 意圖 D：系統手冊 (KNOWLEDGE) 🌟 新增
+        # ==========================================
+        elif intent == "KNOWLEDGE":
+            from .vector_db_tools import VectorDBTools
+            retrieved_docs = VectorDBTools.search_manual(message)
+            prompt = KNOWLEDGE_TEMPLATE.format(
+                today=today, 
+                persona=current_persona, 
+                rules=BASE_RULES, 
+                retrieved_docs=retrieved_docs
+            )
+            return {"intent": "KNOWLEDGE", "system_prompt": prompt}
+
+        # ==========================================
+        # 💡 意圖 E：查帳與數據查詢 (QUERY)
         # ==========================================
         else:
             context_parts = [f"[系統時間]: {today}"]
@@ -126,3 +165,33 @@ class FinanceAgentService:
                 instruction_rule=instruction_rule
             )
             return {"intent": "QUERY", "system_prompt": prompt}
+
+    # =========================================================
+    # 🚀 這是新增的！讓 API Router 呼叫的「強制輸出 JSON」執行器
+    # =========================================================
+    @staticmethod
+    def execute_record_chain(system_prompt: str, user_message: str) -> dict:
+        from pydantic import SecretStr
+        from langchain_core.output_parsers import PydanticOutputParser
+        from ..schemas.bot_schema import RecordResponseSchema
+        
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            raise ValueError("找不到 GROQ_API_KEY，請確認 .env 檔案設定喵！")
+            
+        secure_api_key = SecretStr(groq_api_key)
+        
+        # 🌟 這裡！把模型換成更聰明的 llama3-70b-8192
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_api_key)
+        
+        parser = PydanticOutputParser(pydantic_object=RecordResponseSchema)
+        
+        final_prompt = PromptTemplate(
+            template="{system_prompt}\n\n[小主人的話]：{user_message}",
+            input_variables=["system_prompt", "user_message"]
+        )
+        
+        chain = final_prompt | llm | parser
+        result = chain.invoke({"system_prompt": system_prompt, "user_message": user_message})
+        
+        return result.model_dump()

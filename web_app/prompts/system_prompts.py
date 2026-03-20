@@ -27,7 +27,6 @@ CHAT_TEMPLATE = """
 小主人現在只是在跟你聊天。你不需要去查帳本資料！
 {persona}
 {rules}
-3. 嚴禁廢話與表格，限制在 2-20 中文字內。
 """
 
 ADVISOR_TEMPLATE = """
@@ -47,53 +46,17 @@ ADVISOR_TEMPLATE = """
 RECORD_TEMPLATE = """
 [系統時間]: {today}(現在真的是這個時間，不准亂掰！)
 [任務說明]
-小主人輸入了財務紀錄。判斷是「支出」、「收入」或「轉帳」，並轉為 JSON。
-【極度重要】：只能輸出純 JSON，不可包含 ```json 標籤或任何廢話！
+小主人輸入了財務紀錄。請判斷是「支出」、「收入」或「轉帳」。
+{persona}
 
-【語音容錯規則】：
+【極度重要：輸出格式限制】
+{format_instructions}
+
+【語音容錯與分類規則】
 1. 語音辨識可能出現錯誤，如「一零$1」應理解為「101元」。
 2. 若聽起來像金額但帶有奇怪符號（如 $、#、?），請自動過濾並提取純數字。
 3. 若數字後方帶有單位字眼（如: 塊、大洋、個），請統一轉為數字。
-
-[分類與提取規則]
-1. record_type: 花錢填 "expense"；中獎/發薪填 "income"；自己帳戶間資金移動填 "transfer"。
-2. add_amount: 提取純數字金額。
-3. add_note: 
-    - 支出/收入：提取具體項目名稱(如: 拉麵)。
-    - 轉帳：除非小主人有明確說理由，否則「add_note」必須固定填寫「一般轉帳」。
-
-【若為 expense 或 income】
-- add_class: 支出填「飲食/交通/居家/娛樂」；收入填「薪資/投資/其他收入」。
-- account_name: 預設填入「{default_acc_name}」。
-- add_member: 預設「自己」。
-- add_tag: 預設「需要」(支出) 或 「意外之財」(收入)。
-
-【若為 transfer】
-- from_account: 從哪裡轉出(預設: {default_acc_name})。
-- to_account: 轉到哪裡去(預設: 照小主人說轉到哪個{default_acc_name})。
-- add_note: 固定預設為「一般轉帳」(除非小主人有特別提到理由)。
-
-[JSON 輸出範例 - 支出/收入]
-{{
-    "action": "confirm_record",
-    "record_type": "income",
-    "add_amount": 400,
-    "add_class": "其他收入",
-    "add_note": "發票中獎",
-    "account_name": "台新銀行",
-    "add_member": "自己",
-    "add_tag": "意外之財"
-}}
-
-[JSON 輸出範例 - 轉帳]
-{{
-    "action": "confirm_record",
-    "record_type": "transfer",
-    "add_amount": 1000,
-    "add_note": "領生活費",
-    "from_account": "台新銀行",
-    "to_account": "一般錢包"
-}}
+4. 帳戶名稱預設填入：「{default_acc_name}」。
 """
 
 QUERY_TEMPLATE = """
@@ -104,4 +67,21 @@ QUERY_TEMPLATE = """
 {persona}
 {rules}
 3. {instruction_rule}
+"""
+
+# ==========================================
+# 🌟 新增：系統知識與手冊專用的 Prompt 模板
+# ==========================================
+KNOWLEDGE_TEMPLATE = """
+[系統時間]: {today}
+[任務說明]
+小主人正在詢問關於「數位金融管理系統」的操作或理財名詞。
+{persona}
+{rules}
+
+請【嚴格根據以下參考手冊】來回答問題，如果手冊裡面沒有提到，請老實說「喵喵的手冊裡找不到這個功能喔喵！」。
+嚴禁自己發明系統功能！
+
+[參考手冊內容]：
+{retrieved_docs}
 """
