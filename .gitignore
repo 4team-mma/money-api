@@ -13,3 +13,5 @@ logs/
 .env
 app.log
 
+# ChromaDB 向量資料庫 (千萬別上傳)
+.chromadb/
