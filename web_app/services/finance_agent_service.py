@@ -27,8 +27,16 @@ class FinanceAgentService:
     
     @staticmethod
     def analyze_intent(message: str) -> str:
-        # 🛡️ 絕對防禦：先把前端偷偷塞進來的 [系統指令...] 砍掉，才不會干擾判斷！
-        clean_msg = re.sub(r'\[系統指令.*?\]', '', message)
+        
+        # 🛡️ 1. 擷取真正的「最新發言」，把歷史記憶切掉，避免關鍵字誤判！
+        latest_msg = message
+        if "【現在】" in message and "小主人說：" in message:
+            latest_msg = message.split("小主人說：")[-1]
+        elif "]" in message:
+            latest_msg = message.split("]")[-1]
+            
+        # 🛡️ 2. 清理系統指令 (🚨 這裡的 message 要換成 latest_msg ！)
+        clean_msg = re.sub(r'\[系統指令.*?\]', '', latest_msg)
         msg = clean_msg.lower()
         
         # 🚨 第零道防線：理財顧問分析
@@ -43,7 +51,7 @@ class FinanceAgentService:
             return "KNOWLEDGE"
         
         # 🚨 第一道防線：防幻覺！看到疑問詞，強制進入查詢模式
-        strict_query = ["多少", "總共", "統計", "分析", "餘額", "明細"]
+        strict_query = ["多少", "剩下多少","總共", "統計", "分析", "餘額", "明細"]
         if any(q in msg for q in strict_query):
             return "QUERY"
         
@@ -163,7 +171,7 @@ class FinanceAgentService:
             
             full_context = "\n\n".join(context_parts)
             
-            instruction_rule = "請進行詳細財務分析，可使用數據說明。" if "分析" in msg else "嚴禁廢話與表格，限制在 2-20 中文字內。若問吃什麼，請優先從飲食類別的 add_note 找具體食物，直接回答如：小主人，你吃了包子喵！"
+            instruction_rule = "請進行詳細財務分析，可使用數據說明。" if "分析" in msg else "嚴禁廢話與表格，限制在 2-20 中文字內。若問吃什麼，請優先從飲食類別的 add_note 找具體食物，直接回答如：小主人，你吃了包子喵！不准廢話，直接回答重點！嚴禁使用泰文或其他外國語言。"
             
             prompt = QUERY_TEMPLATE.format(
                 full_context=full_context,
