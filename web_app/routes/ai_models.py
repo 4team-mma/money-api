@@ -149,7 +149,7 @@ async def chat_with_meow(
 
     # 2. 判斷意圖與獲取財務上下文
     try:
-        agent_response = FinanceAgentService.get_context(db, current_user.user_id, req.message)
+        agent_response = await FinanceAgentService.get_context(db, current_user, req.message, req.persona)
         current_intent = agent_response["intent"]
         financial_context_instruction = agent_response["system_prompt"]
         print(f"🎯 [意圖偵測]: {current_intent}")

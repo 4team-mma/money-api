@@ -36,6 +36,7 @@ class AIConfigResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="使用者輸入的訊息")
+    persona: str = Field(default="cute", description="喵喵的人格設定")
 
 # 若未來要支援連續對話 (Context)，這會派上用場
 class ChatMessage(BaseModel):

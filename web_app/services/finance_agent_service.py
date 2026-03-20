@@ -2,7 +2,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from .finance_tools import FinanceTools
-#from datetime import date
+from ..models import CpiData, Member
 import re
 from datetime import datetime
 import pytz
@@ -43,7 +43,7 @@ class FinanceAgentService:
             return "KNOWLEDGE"
         
         # 🚨 第一道防線：防幻覺！看到疑問詞，強制進入查詢模式
-        strict_query = ["多少", "總共", "統計", "分析", "餘額", "明細", "?", "？"]
+        strict_query = ["多少", "總共", "統計", "分析", "餘額", "明細"]
         if any(q in msg for q in strict_query):
             return "QUERY"
         
@@ -68,14 +68,19 @@ class FinanceAgentService:
         return "CHAT"
 
     @staticmethod
-    def get_context(db: Session, user_id: int, message: str) -> dict:
+    #  1. 加上 async，並把 user_id: int 改成 user: Member
+    async def get_context(db: Session, user: Member, message: str, persona_key: str | None = "cute") -> dict:
+        
+        user_id = user.user_id # 2.把 user_id 抽出來，讓下面原本的程式碼不會壞掉
+        
         intent = FinanceAgentService.analyze_intent(message)
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         today = now.strftime('%Y-%m-%d %H:%M:%S')
         
-        # 預設使用可愛喵喵
-        current_persona = PERSONAS["cute"]
+        # 3. 解決型別報錯：如果前端沒傳 (None)，就預設給 cute
+        safe_persona_key = persona_key if persona_key else "cute"
+        current_persona = PERSONAS.get(safe_persona_key, PERSONAS["cute"])
         
         # ==========================================
         # 💡 意圖 A：純閒聊 / 情緒安撫 (CHAT)
@@ -92,8 +97,10 @@ class FinanceAgentService:
         # 💡 意圖 B：理財顧問與基準線分析 (ADVISOR)
         # ==========================================
         elif intent == "ADVISOR":
-            from .advisor_tools import AdvisorTools
-            abnormal_report = AdvisorTools.calculate_baseline_and_anomalies(db, user_id)
+            # 🌟 名字要對齊你的檔案！
+            from .advisor_tools import FinancialAdvisorService
+            
+            abnormal_report = await FinancialAdvisorService.get_ai_context(db, user) 
             
             prompt = ADVISOR_TEMPLATE.format(
                 today=today,
