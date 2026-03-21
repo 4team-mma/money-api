@@ -20,7 +20,7 @@ class VectorDBTools:
             
         # 🌟 使用新版寫法
         embeddings = HuggingFaceEndpointEmbeddings(
-            model="sentence-transformers/all-MiniLM-L6-v2",
+            model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             huggingfacehub_api_token=hf_token
         )
         
@@ -31,7 +31,7 @@ class VectorDBTools:
         )
 
     @staticmethod
-    def search_manual(query: str, k: int = 2) -> str:
+    def search_manual(query: str, k: int = 5) -> str:
         try:
             vectorstore = VectorDBTools.get_vectorstore()
             docs = vectorstore.similarity_search(query, k=k)

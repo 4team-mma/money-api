@@ -56,11 +56,14 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add line-bot-sdk python-dotenv #負責 LINE Bot 官方 API 串接，以及讀取 .env 檔案中的機密環境變數（金鑰）。
 2026.03.20更新：
 - uv add transformers soundfile # 處理音訊檔案或語音辨識,transformers 是處理機器學習模型的基礎套件。
+- uv add torch torchaudio # 運算矩陣提取音訊特徵
 - uv add pydantic langchain-core # AI系統的核心。pydantic 負責嚴格檢驗資料格式
 - uv add langchain-community tiktoken # 社群擴充工具箱。我們用它來讀取 Markdown 格式的系統手冊 (TextLoader)。
 - uv add langchain-chroma chromadb # 負責當「系統手冊的圖書館管理員」。chromadb 是存放向量數字的資料庫本體，langchain-chroma 是讓 AI 能去圖書館借書的溝通套件。
 - uv add langchain-huggingface # 連接 Hugging Face 雲端算力。負責將我們寫的人類手冊文字，轉換成電腦看得懂的「向量數字 (Embedding)」，是 RAG (檢索增強生成) 的關鍵引擎。
 - uv add langchain-groq #負責極速且精準的記帳 JSON 轉換
+- uv add langchain-chroma langchain-community langchain-text-splitters
+
 
 ## 移除套件:
 - 執行:uv remove google-generativeai

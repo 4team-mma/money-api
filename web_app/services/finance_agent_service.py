@@ -2,7 +2,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from .finance_tools import FinanceTools
-#from datetime import date
+from ..models import CpiData, Member
 import re
 from datetime import datetime
 import pytz
@@ -27,8 +27,16 @@ class FinanceAgentService:
     
     @staticmethod
     def analyze_intent(message: str) -> str:
-        # 🛡️ 絕對防禦：先把前端偷偷塞進來的 [系統指令...] 砍掉，才不會干擾判斷！
-        clean_msg = re.sub(r'\[系統指令.*?\]', '', message)
+        
+        # 🛡️ 1. 擷取真正的「最新發言」，把歷史記憶切掉，避免關鍵字誤判！
+        latest_msg = message
+        if "【現在】" in message and "小主人說：" in message:
+            latest_msg = message.split("小主人說：")[-1]
+        elif "]" in message:
+            latest_msg = message.split("]")[-1]
+            
+        # 🛡️ 2. 清理系統指令 (🚨 這裡的 message 要換成 latest_msg ！)
+        clean_msg = re.sub(r'\[系統指令.*?\]', '', latest_msg)
         msg = clean_msg.lower()
         
         # 🚨 第零道防線：理財顧問分析
@@ -43,8 +51,16 @@ class FinanceAgentService:
             return "KNOWLEDGE"
         
         # 🚨 第一道防線：防幻覺！看到疑問詞，強制進入查詢模式
-        strict_query = ["多少", "總共", "統計", "分析", "餘額", "明細", "?", "？"]
+        strict_query = ["多少", "剩下多少","總共", "統計", "分析", "餘額", "明細"]
         if any(q in msg for q in strict_query):
+            return "QUERY"
+
+        # ==========================================
+        # 🌟 新增：第一點五道防線 (假設性與評估攔截)
+        # 只要有這些字，就算有數字跟「買」，也絕對是查詢！
+        # ==========================================
+        hypothetical_keywords = ["可以", "夠嗎", "夠不夠", "評估", "能不能", "預算查詢"]
+        if any(k in msg for k in hypothetical_keywords):
             return "QUERY"
         
         # 🚨 第二道防線：記帳與轉帳意圖
@@ -61,21 +77,26 @@ class FinanceAgentService:
         query_keywords = ["錢", "資產", "銀行", "存款", "台新", "錢包", 
                         "占比", "吃飯", "交通", "工資", "股息", "利息",
                         "物價", "漲價", "通膨", "cpi", "貴", "嚴重", "指標",
-                        "提醒", "繳費", "行事曆", "忘記"]
+                        "提醒", "繳費", "行事曆", "忘記", "預算"]
         if any(k in msg for k in query_keywords):
             return "QUERY"
             
         return "CHAT"
 
     @staticmethod
-    def get_context(db: Session, user_id: int, message: str) -> dict:
+    #  1. 加上 async，並把 user_id: int 改成 user: Member
+    async def get_context(db: Session, user: Member, message: str, persona_key: str | None = "cute") -> dict:
+        
+        user_id = user.user_id # 2.把 user_id 抽出來，讓下面原本的程式碼不會壞掉
+        
         intent = FinanceAgentService.analyze_intent(message)
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         today = now.strftime('%Y-%m-%d %H:%M:%S')
         
-        # 預設使用可愛喵喵
-        current_persona = PERSONAS["cute"]
+        # 3. 解決型別報錯：如果前端沒傳 (None)，就預設給 cute
+        safe_persona_key = persona_key if persona_key else "cute"
+        current_persona = PERSONAS.get(safe_persona_key, PERSONAS["cute"])
         
         # ==========================================
         # 💡 意圖 A：純閒聊 / 情緒安撫 (CHAT)
@@ -92,8 +113,10 @@ class FinanceAgentService:
         # 💡 意圖 B：理財顧問與基準線分析 (ADVISOR)
         # ==========================================
         elif intent == "ADVISOR":
-            from .advisor_tools import AdvisorTools
-            abnormal_report = AdvisorTools.calculate_baseline_and_anomalies(db, user_id)
+            # 🌟 名字要對齊你的檔案！
+            from .advisor_tools import FinancialAdvisorService
+            
+            abnormal_report = await FinancialAdvisorService.get_ai_context(db, user) 
             
             prompt = ADVISOR_TEMPLATE.format(
                 today=today,
@@ -140,23 +163,43 @@ class FinanceAgentService:
         else:
             context_parts = [f"[系統時間]: {today}"]
             msg = message.lower()
+            hypothetical_keywords = ["可以", "夠嗎", "夠不夠", "評估", "能不能"]
             
-            context_parts.append(FinanceTools.get_account_summary(db, user_id))
-            context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
-            context_parts.append(FinanceTools.get_expense_analysis(db, user_id, days=30))
-            context_parts.append(FinanceTools.get_recent_transactions(db, user_id, limit=8))
-            
-            cpi_raw_data = FinanceTools.get_cpi_insight(db, user_id)
-            context_parts.append(cpi_raw_data)
-            latest_cpi = db.query(CpiData).order_by(desc(CpiData.period), desc(CpiData.val)).first()
-            if latest_cpi:
-                context_parts.append(f"[關鍵洞察]: 目前 CPI 漲幅最高的是「{latest_cpi.category}」，漲幅達 {latest_cpi.val}%。")
-            
-            context_parts.append(FinanceTools.get_upcoming_reminders(db, user_id))
-            
+            # 🌟 終極殺招：動態上下文修剪 (Context Pruning)
+            # 如果小主人問預算，就「只」給預算情報，把帳戶餘額藏起來防干擾！
+            # 🌟 只要問預算，或是假設性問題，都只給預算情報
+            if "預算" in msg or any(k in msg for k in hypothetical_keywords):
+                budget_info = FinanceTools.get_budget_status(db, user_id)
+                print(f"👉 [DEBUG] 傳給 AI 的真實預算情報:\n{budget_info}")
+                context_parts.append(budget_info)
+            else:
+                context_parts.append(FinanceTools.get_account_summary(db, user_id))
+                context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
+                context_parts.append(FinanceTools.get_expense_analysis(db, user_id, days=30))
+                context_parts.append(FinanceTools.get_recent_transactions(db, user_id, limit=8))
+                
+                cpi_raw_data = FinanceTools.get_cpi_insight(db, user_id)
+                context_parts.append(cpi_raw_data)
+                latest_cpi = db.query(CpiData).order_by(desc(CpiData.period), desc(CpiData.val)).first()
+                if latest_cpi:
+                    context_parts.append(f"[關鍵洞察]: 目前 CPI 漲幅最高的是「{latest_cpi.category}」，漲幅達 {latest_cpi.val}%。")
+                
+                context_parts.append(FinanceTools.get_upcoming_reminders(db, user_id))
+
+            # 將篩選過濾後的情報組裝起來
             full_context = "\n\n".join(context_parts)
             
-            instruction_rule = "請進行詳細財務分析，可使用數據說明。" if "分析" in msg else "嚴禁廢話與表格，限制在 2-20 中文字內。若問吃什麼，請優先從飲食類別的 add_note 找具體食物，直接回答如：小主人，你吃了包子喵！"
+            # 🌟 重新設計指令：解開「不准算數學」的封印，讓它幫忙評估！
+            if any(k in msg for k in hypothetical_keywords):
+                instruction_rule = "⚠️【最高任務】：請根據上方 [預算情報] 評估小主人的購買計畫。請明確回答「可以買」或「不建議」，並簡單說明買了之後預算會剩多少。嚴禁提及帳戶總餘額。"
+            elif "預算" in msg:
+                instruction_rule = "⚠️【最高任務】：請直接告訴小主人上方的 [預算情報] 內容。嚴禁提及帳戶總餘額。"
+            elif "分析" in msg:
+                instruction_rule = "請進行詳細的財務分析，可使用數據說明。"
+            elif "吃" in msg or "喝" in msg:
+                instruction_rule = "請從上方數據的 add_note 找具體食物，直接回答如：小主人你吃了包子喵！限制 20 字內。"
+            else:
+                instruction_rule = "請從上方數據尋找答案並簡短回答。嚴禁廢話與表格，限制在 30 個中文字內，嚴禁使用外國語言。"
             
             prompt = QUERY_TEMPLATE.format(
                 full_context=full_context,

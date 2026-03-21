@@ -149,7 +149,7 @@ async def chat_with_meow(
 
     # 2. 判斷意圖與獲取財務上下文
     try:
-        agent_response = FinanceAgentService.get_context(db, current_user.user_id, req.message)
+        agent_response = await FinanceAgentService.get_context(db, current_user, req.message, req.persona)
         current_intent = agent_response["intent"]
         financial_context_instruction = agent_response["system_prompt"]
         print(f"🎯 [意圖偵測]: {current_intent}")
@@ -204,11 +204,20 @@ async def chat_with_meow(
                 final_key = db_key if (db_key and len(db_key) > 10) else env_key
                 if not final_key: raise Exception("找不到有效 API Key 喵！")
 
+                # 🌟 1. 引入你的工具 (假設你有這些工具，沒有的話這兩行先註解掉)
+                from ..services.finance_tools import get_budget_tool, search_manual_tool
+                my_tools = [get_budget_tool, search_manual_tool]
+
+                # 🌟 2. 幫 prompt 加料，偷偷把 user_id 塞進去讓工具知道要查誰
+                enhanced_prompt = f"【系統機密：當前使用者的 user_id 為 {current_user.user_id}】\n問題：{req.message}"
+
+                # 🌟 3. 呼叫 Service，多傳遞一個 tools 參數
                 result = await GeminiService.chat_async(
                     api_key=final_key,
                     model_id=config.model_version,
-                    prompt=req.message,
-                    system_instruction=final_system_prompt
+                    prompt=enhanced_prompt,
+                    system_instruction=final_system_prompt,
+                    tools=my_tools  # 傳入工具名單
                 )
                 reply = result["text"]
                 actual_model_used = result["actual_model"]
