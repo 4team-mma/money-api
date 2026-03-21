@@ -69,7 +69,7 @@ class FinanceAgentService:
         query_keywords = ["錢", "資產", "銀行", "存款", "台新", "錢包", 
                         "占比", "吃飯", "交通", "工資", "股息", "利息",
                         "物價", "漲價", "通膨", "cpi", "貴", "嚴重", "指標",
-                        "提醒", "繳費", "行事曆", "忘記"]
+                        "提醒", "繳費", "行事曆", "忘記", "預算"]
         if any(k in msg for k in query_keywords):
             return "QUERY"
             
@@ -156,22 +156,49 @@ class FinanceAgentService:
             context_parts = [f"[系統時間]: {today}"]
             msg = message.lower()
             
-            context_parts.append(FinanceTools.get_account_summary(db, user_id))
-            context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
-            context_parts.append(FinanceTools.get_expense_analysis(db, user_id, days=30))
-            context_parts.append(FinanceTools.get_recent_transactions(db, user_id, limit=8))
+            # 🌟 終極殺招：動態上下文修剪 (Context Pruning)
+            # 如果小主人問預算，就「只」給預算情報，把帳戶餘額藏起來防干擾！
+            if "預算" in msg:
+                budget_info = FinanceTools.get_budget_status(db, user_id)
+                print(f"👉 [DEBUG] 傳給 AI 的真實預算情報:\n{budget_info}")
+                context_parts.append(budget_info)
+                instruction_rule = "請「直接整理並覆述」上方的 [預算情報] 內容來回答小主人。絕對不要自己算數學，不要瞎掰帳本沒紀錄。"
+                
             
-            cpi_raw_data = FinanceTools.get_cpi_insight(db, user_id)
-            context_parts.append(cpi_raw_data)
-            latest_cpi = db.query(CpiData).order_by(desc(CpiData.period), desc(CpiData.val)).first()
-            if latest_cpi:
-                context_parts.append(f"[關鍵洞察]: 目前 CPI 漲幅最高的是「{latest_cpi.category}」，漲幅達 {latest_cpi.val}%。")
+            # 其他一般查詢，才給出完整的財務報表
+            else:
+                context_parts.append(FinanceTools.get_account_summary(db, user_id))
+                context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
+                context_parts.append(FinanceTools.get_expense_analysis(db, user_id, days=30))
+                context_parts.append(FinanceTools.get_recent_transactions(db, user_id, limit=8))
+                
+                cpi_raw_data = FinanceTools.get_cpi_insight(db, user_id)
+                context_parts.append(cpi_raw_data)
+                latest_cpi = db.query(CpiData).order_by(desc(CpiData.period), desc(CpiData.val)).first()
+                if latest_cpi:
+                    context_parts.append(f"[關鍵洞察]: 目前 CPI 漲幅最高的是「{latest_cpi.category}」，漲幅達 {latest_cpi.val}%。")
+                
+                context_parts.append(FinanceTools.get_upcoming_reminders(db, user_id))
+
+                if "分析" in msg:
+                    instruction_rule = "請進行詳細的財務分析，可使用數據說明。"
+                elif "吃" in msg or "喝" in msg:
+                    instruction_rule = "請從上方數據的 add_note 找具體食物，直接回答如：小主人你吃了包子喵！限制 20 字內。"
+                else:
+                    instruction_rule = "請從上方數據尋找答案並簡短回答。嚴禁廢話與表格，限制在 30 個中文字內，嚴禁使用外國語言。"
             
-            context_parts.append(FinanceTools.get_upcoming_reminders(db, user_id))
-            
+            # 將篩選過濾後的情報組裝起來
             full_context = "\n\n".join(context_parts)
             
-            instruction_rule = "請進行詳細財務分析，可使用數據說明。" if "分析" in msg else "嚴禁廢話與表格，限制在 2-20 中文字內。若問吃什麼，請優先從飲食類別的 add_note 找具體食物，直接回答如：小主人，你吃了包子喵！不准廢話，直接回答重點！嚴禁使用泰文或其他外國語言。"
+            # 🌟 重新設計：在 Python 端就決定好「唯一的指令」，不要讓小模型自己做閱讀測驗！
+            if "預算" in msg:
+                instruction_rule = "⚠️【最高任務】：請你『直接照唸』上方 [預算情報] 的內容。嚴禁提及帳戶餘額，絕對不准做加減乘除運算！"
+            elif "分析" in msg:
+                instruction_rule = "請進行詳細的財務分析，可使用數據說明。"
+            elif "吃" in msg or "喝" in msg:
+                instruction_rule = "請從上方數據的 add_note 找具體食物，直接回答如：小主人你吃了包子喵！限制 20 字內。"
+            else:
+                instruction_rule = "請從上方數據尋找答案並簡短回答。嚴禁廢話與表格，限制在 30 個中文字內，嚴禁使用外國語言。"
             
             prompt = QUERY_TEMPLATE.format(
                 full_context=full_context,

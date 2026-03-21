@@ -2,7 +2,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from datetime import date, timedelta
-from ..models import Account, AddRecord, Notification, CpiData
+from ..models import Account, AddRecord, Notification, CpiData,Budget
 
 # 這裡放入你 analysis.py 裡面的常數，讓工具箱能讀懂類別
 GOV_NAME_BRIDGE = {
@@ -166,3 +166,55 @@ class FinanceTools:
             note = r.add_note if r.add_note else r.add_class
             txt += f"- {r.add_date} | {r_type} | {note} : {float(r.add_amount):,} 元\n"
         return txt
+
+    @staticmethod
+    def get_budget_status(db: Session, user_id: int) -> str:
+        from ..models import Budget, AddRecord
+        from sqlalchemy import func
+        from datetime import date
+        
+        # 1. 抓出這個小主人「所有」的預算設定 (避開 SQL NULL 判斷問題)
+        all_budgets = db.query(Budget).filter(Budget.user_id == user_id).all()
+
+        if not all_budgets:
+            return "[預算情報]：小主人尚未設定任何預算，請到「理財規劃方案」設定喵！"
+
+        # 2. 用 Python 判斷找出「月總預算」(category 和 tag 都是空的)
+        monthly_budget = next((b for b in all_budgets if not b.category and not b.tag), None)
+        
+        today = date.today()
+        this_month_first = today.replace(day=1)
+        
+        info_lines = []
+        
+        # 3. 計算總支出與總預算
+        total_spent = db.query(func.sum(AddRecord.add_amount)).filter(
+            AddRecord.user_id == user_id,
+            AddRecord.add_type == False,
+            AddRecord.add_date >= this_month_first
+        ).scalar() or 0
+        total_spent = float(total_spent)
+
+        if monthly_budget:
+            total_limit = float(monthly_budget.amount)
+            remaining = total_limit - total_spent
+            status = "危險！" if total_spent >= total_limit * 0.8 else "安全"
+            info_lines.append(f"▶ 本月總預算: {total_limit:,.0f} 元 | 已花費: {total_spent:,.0f} 元 | 剩餘: {remaining:,.0f} 元 ({status})")
+        else:
+            info_lines.append(f"▶ 本月尚未設定總預算 | 目前已花費: {total_spent:,.0f} 元")
+
+        # 4. 抓出有設定「類別」的預算 (你截圖裡的飲食、交通、居家)
+        cat_budgets = [b for b in all_budgets if b.category]
+        if cat_budgets:
+            info_lines.append("\n【各類別預算狀況】")
+            for b in cat_budgets:
+                cat_spent = db.query(func.sum(AddRecord.add_amount)).filter(
+                    AddRecord.user_id == user_id,
+                    AddRecord.add_type == False,
+                    AddRecord.add_class == b.category,
+                    AddRecord.add_date >= this_month_first
+                ).scalar() or 0
+                cat_remain = float(b.amount) - float(cat_spent)
+                info_lines.append(f"- {b.category}: 預算 {float(b.amount):.0f} 元，剩餘 {cat_remain:.0f} 元")
+
+        return "[預算情報]：\n" + "\n".join(info_lines)
