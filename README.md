@@ -64,6 +64,7 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add langchain-groq #負責極速且精準的記帳 JSON 轉換
 - uv add langchain-chroma langchain-community langchain-text-splitters
 
+
 ## 移除套件:
 - 執行:uv remove google-generativeai
 

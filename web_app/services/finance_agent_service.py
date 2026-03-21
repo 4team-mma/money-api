@@ -54,6 +54,14 @@ class FinanceAgentService:
         strict_query = ["多少", "剩下多少","總共", "統計", "分析", "餘額", "明細"]
         if any(q in msg for q in strict_query):
             return "QUERY"
+
+        # ==========================================
+        # 🌟 新增：第一點五道防線 (假設性與評估攔截)
+        # 只要有這些字，就算有數字跟「買」，也絕對是查詢！
+        # ==========================================
+        hypothetical_keywords = ["可以", "夠嗎", "夠不夠", "評估", "能不能", "預算查詢"]
+        if any(k in msg for k in hypothetical_keywords):
+            return "QUERY"
         
         # 🚨 第二道防線：記帳與轉帳意圖
         record_keywords = [
@@ -155,17 +163,15 @@ class FinanceAgentService:
         else:
             context_parts = [f"[系統時間]: {today}"]
             msg = message.lower()
+            hypothetical_keywords = ["可以", "夠嗎", "夠不夠", "評估", "能不能"]
             
             # 🌟 終極殺招：動態上下文修剪 (Context Pruning)
             # 如果小主人問預算，就「只」給預算情報，把帳戶餘額藏起來防干擾！
-            if "預算" in msg:
+            # 🌟 只要問預算，或是假設性問題，都只給預算情報
+            if "預算" in msg or any(k in msg for k in hypothetical_keywords):
                 budget_info = FinanceTools.get_budget_status(db, user_id)
                 print(f"👉 [DEBUG] 傳給 AI 的真實預算情報:\n{budget_info}")
                 context_parts.append(budget_info)
-                instruction_rule = "請「直接整理並覆述」上方的 [預算情報] 內容來回答小主人。絕對不要自己算數學，不要瞎掰帳本沒紀錄。"
-                
-            
-            # 其他一般查詢，才給出完整的財務報表
             else:
                 context_parts.append(FinanceTools.get_account_summary(db, user_id))
                 context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
@@ -180,19 +186,14 @@ class FinanceAgentService:
                 
                 context_parts.append(FinanceTools.get_upcoming_reminders(db, user_id))
 
-                if "分析" in msg:
-                    instruction_rule = "請進行詳細的財務分析，可使用數據說明。"
-                elif "吃" in msg or "喝" in msg:
-                    instruction_rule = "請從上方數據的 add_note 找具體食物，直接回答如：小主人你吃了包子喵！限制 20 字內。"
-                else:
-                    instruction_rule = "請從上方數據尋找答案並簡短回答。嚴禁廢話與表格，限制在 30 個中文字內，嚴禁使用外國語言。"
-            
             # 將篩選過濾後的情報組裝起來
             full_context = "\n\n".join(context_parts)
             
-            # 🌟 重新設計：在 Python 端就決定好「唯一的指令」，不要讓小模型自己做閱讀測驗！
-            if "預算" in msg:
-                instruction_rule = "⚠️【最高任務】：請你『直接照唸』上方 [預算情報] 的內容。嚴禁提及帳戶餘額，絕對不准做加減乘除運算！"
+            # 🌟 重新設計指令：解開「不准算數學」的封印，讓它幫忙評估！
+            if any(k in msg for k in hypothetical_keywords):
+                instruction_rule = "⚠️【最高任務】：請根據上方 [預算情報] 評估小主人的購買計畫。請明確回答「可以買」或「不建議」，並簡單說明買了之後預算會剩多少。嚴禁提及帳戶總餘額。"
+            elif "預算" in msg:
+                instruction_rule = "⚠️【最高任務】：請直接告訴小主人上方的 [預算情報] 內容。嚴禁提及帳戶總餘額。"
             elif "分析" in msg:
                 instruction_rule = "請進行詳細的財務分析，可使用數據說明。"
             elif "吃" in msg or "喝" in msg:

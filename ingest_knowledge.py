@@ -45,7 +45,7 @@ def ingest_data():
 
     # 🌟 使用 HuggingFace 進行向量化
     embeddings = HuggingFaceEndpointEmbeddings(
-        model="sentence-transformers/all-MiniLM-L6-v2",
+        model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         huggingfacehub_api_token=hf_token
     )
     

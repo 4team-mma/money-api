@@ -4,6 +4,7 @@ from sqlalchemy import func, desc
 from datetime import date, timedelta
 from ..models import Account, AddRecord, Notification, CpiData,Budget
 
+
 # 這裡放入你 analysis.py 裡面的常數，讓工具箱能讀懂類別
 GOV_NAME_BRIDGE = {
     "食物類": "一.食物類(指數基期：民國110年=100)",
@@ -169,8 +170,7 @@ class FinanceTools:
 
     @staticmethod
     def get_budget_status(db: Session, user_id: int) -> str:
-        from ..models import Budget, AddRecord
-        from sqlalchemy import func
+        
         from datetime import date
         
         # 1. 抓出這個小主人「所有」的預算設定 (避開 SQL NULL 判斷問題)
@@ -218,3 +218,27 @@ class FinanceTools:
                 info_lines.append(f"- {b.category}: 預算 {float(b.amount):.0f} 元，剩餘 {cat_remain:.0f} 元")
 
         return "[預算情報]：\n" + "\n".join(info_lines)
+    
+# ==========================================
+# 🛠️ 這是給高階模型 Gemini 專用的 原生 Tools
+# ==========================================
+
+# ❌ 已經移除 @tool 跟 import langchain_core
+
+def get_budget_tool(user_id: int) -> str:
+    """當小主人問到「預算、剩多少錢、花費上限」時，必須呼叫此工具。請傳入系統提供的 user_id。"""
+    from ..database import SessionLocal
+    # FinanceTools 就在這個檔案內，直接呼叫即可
+    with SessionLocal() as db:
+        return FinanceTools.get_budget_status(db, user_id)
+
+def search_manual_tool(query: str) -> str:
+    """當小主人問到「系統怎麼用、成就解鎖規則、CPI是什麼」等規則時，呼叫此工具搜尋手冊。"""
+    from .vector_db_tools import VectorDBTools
+    # 把查到的結果印在終端機，讓我們看看資料庫到底吐了什麼給 Gemini
+    print(f"🕵️‍♂️ [Tool 觸發] 正在搜尋：{query}")
+    # 確保變數有被正確宣告與回傳
+    search_result = VectorDBTools.search_manual(query)
+    print(f"📄 [Tool 結果] 找出的內容：\n{search_result}")
+    
+    return search_result
