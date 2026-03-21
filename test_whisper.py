@@ -1,6 +1,12 @@
+# python test_whisper.py
+
 import torch
 from transformers import pipeline
 import os
+import warnings
+
+# 🌟 加上這行，把煩人的舊語法警告全部屏蔽掉！
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # 1. 自動偵測環境 (Windows GPU / Mac CPU 通用)
 device = 0 if torch.cuda.is_available() else -1
@@ -10,7 +16,8 @@ pipe = pipeline(
     "automatic-speech-recognition",
     model="openai/whisper-small",
     device=device,
-    model_kwargs={"torch_dtype": torch.float16 if device == 0 else torch.float32}
+    # 這裡的 torch_dtype 已經被官方棄用，改成 dtype
+    model_kwargs={"dtype": torch.float16 if device == 0 else torch.float32} 
 )
 
 def run_transcription(file_path: str):

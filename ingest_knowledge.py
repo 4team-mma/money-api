@@ -1,4 +1,4 @@
-# ingest_knowledge.py
+# python ingest_knowledge.py
 import os
 import glob
 import shutil
