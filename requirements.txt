@@ -1,31 +1,37 @@
-# --- 基礎網頁與系統 ---
+# --- 基礎網路 & 版本修正 ---
 fastapi>=0.115.0
 uvicorn[standard]
-sqlalchemy>=2.0.0
-pymysql>=1.1.0
-python-dotenv>=1.0.0
-python-jose[cryptography]>=3.3.0
-bcrypt>=4.0.0
-line-bot-sdk>=3.0.0
+sqlalchemy>=2.0.45
+pymysql>=1.1.2
+python-dotenv>=1.2.1
+python-jose[cryptography]>=3.5.0
+bcrypt>=5.0.0
+line-bot-sdk>=3.22.0
+
+# --- 🌟 重要：解決剛才的 ImportError ---
+email-validator>=2.0.0
 
 # --- AI 與資料處理 ---
-google-genai
-langchain-groq
-pandas>=2.0.0
-openpyxl
+google-genai>=1.62.0
+langchain-groq>=1.1.2
+langchain-community>=0.4.1
+pandas>=2.2.0
+openpyxl>=3.1.5
 
-# --- 暫時註解重型套件 (等 Live 之後再慢慢加) ---
+# --- 暫時封印 (這幾位在 Render 免費版會讓啟動變超慢) ---
 # --index-url https://download.pytorch.org/whl/cpu
-# torch
-# torchaudio
-# transformers
-# langchain-huggingface
+# torch>=2.5.1
+# torchaudio>=2.5.1
+# transformers>=4.40.0
+# langchain-huggingface>=1.2.1
+# langchain-chroma>=1.1.0
 
-# --- 其他工具 ---
-apscheduler
-requests
-pytz
-reportlab
-slowapi
-soundfile
-user-agents
+# --- 其他必要套件 ---
+apscheduler>=3.11.2
+requests>=2.32.5
+pytz>=2025.1
+reportlab>=4.4.9
+slowapi>=0.1.9
+soundfile>=0.13.1
+user-agents>=2.2.0
+xmltodict>=1.0.2
