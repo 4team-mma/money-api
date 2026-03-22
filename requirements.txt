@@ -1,32 +1,30 @@
-# --- 基礎網路 & 版本修正 ---
+# --- 基礎網路 & 修正 (這幾行是目前崩潰的主因) ---
 fastapi>=0.115.0
 uvicorn[standard]
+python-multipart>=0.0.7
+email-validator>=2.0.0
+
+# --- 資料庫 & 安全 ---
 sqlalchemy>=2.0.45
 pymysql>=1.1.2
 python-dotenv>=1.2.1
-python-jose[cryptography]>=3.5.0
+python-jose[cryptography]>=3.3.0
 bcrypt>=5.0.0
 line-bot-sdk>=3.22.0
 
-# --- 🌟 重要：解決剛才的 ImportError ---
-email-validator>=2.0.0
-
-# --- AI 與資料處理 ---
+# --- AI 與 資料處理 ---
 google-genai>=1.62.0
 langchain-groq>=1.1.2
 langchain-community>=0.4.1
 pandas>=2.2.0
 openpyxl>=3.1.5
 
-# --- 暫時封印 (這幾位在 Render 免費版會讓啟動變超慢) ---
-# --index-url https://download.pytorch.org/whl/cpu
-# torch>=2.5.1
-# torchaudio>=2.5.1
-# transformers>=4.40.0
-# langchain-huggingface>=1.2.1
-# langchain-chroma>=1.1.0
+# --- 暫時註解重型套件 (確保 Render 512MB 跑得動) ---
+# torch
+# torchaudio
+# transformers
 
-# --- 其他必要套件 ---
+# --- 其他工具 ---
 apscheduler>=3.11.2
 requests>=2.32.5
 pytz>=2025.1
