@@ -1,30 +1,31 @@
-# 基礎網頁與系統
-fastapi[all]>=0.127.0
-sqlalchemy>=2.0.45
-pymysql>=1.1.2
-python-dotenv>=1.2.1
-python-jose[cryptography]>=3.5.0
-bcrypt>=5.0.0
-line-bot-sdk>=3.22.0
+# --- 基礎網頁與系統 ---
+fastapi>=0.115.0
+uvicorn[standard]
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+python-dotenv>=1.0.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+line-bot-sdk>=3.0.0
 
-# AI 與 資料處理 (移除 GPU 相關，改用輕量版)
-google-genai>=1.62.0
-langchain-groq>=1.1.2
-langchain-community>=0.4.1
+# --- AI 與資料處理 ---
+google-genai
+langchain-groq
 pandas>=2.0.0
-openpyxl>=3.1.5
+openpyxl
 
-# 關鍵：強制使用 CPU 版本的 Torch (避免下載幾 GB 的 CUDA)
---index-url https://download.pytorch.org/whl/cpu
-torch>=2.5.1
-torchaudio>=2.5.1
-transformers>=4.30.0
+# --- 暫時註解重型套件 (等 Live 之後再慢慢加) ---
+# --index-url https://download.pytorch.org/whl/cpu
+# torch
+# torchaudio
+# transformers
+# langchain-huggingface
 
-# 其他工具
-apscheduler>=3.11.2
-requests>=2.32.5
-pytz>=2026.1
-reportlab>=4.4.9
-slowapi>=0.1.9
-soundfile>=0.13.1
-user-agents>=2.2.0
+# --- 其他工具 ---
+apscheduler
+requests
+pytz
+reportlab
+slowapi
+soundfile
+user-agents
