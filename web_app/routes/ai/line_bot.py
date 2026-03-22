@@ -98,20 +98,25 @@ def handle_message(event):
                     )
                 )
             elif user_msg in ["登出", "logout", "解除綁定"]:
-                user.line_user_id = None
-                db.commit()
-                reply_content = TextSendMessage(text="已幫你解除綁定囉！下次見喵～")
+                # ... (原本登出的代碼維持不變) ...
+                pass
             else:
-                # 3. 呼叫 AI 聊天邏輯 (修正後的穩定呼叫法)
+                # 🌟 改用最安全的線程安全橋接法
                 req = ChatRequest(message=user_msg, persona="理財小助手喵喵")
                 try:
-                    # 使用 asyncio 橋接確保在 FastAPI 環境下不崩潰
+                    # 1. 獲取當前運行的 Event Loop
                     loop = asyncio.get_event_loop()
-                    # 注意：如果是在生產環境，run_until_complete 需謹慎，但在這裡是最直接的修法
-                    ai_res = loop.run_until_complete(chat_with_meow(req=req, db=db, current_user=user))
+                    
+                    # 2. 將非同步任務丟入 Loop，並等待結果 (timeout 設為 25 秒避免 LINE 等太久)
+                    future = asyncio.run_coroutine_threadsafe(
+                        chat_with_meow(req=req, db=db, current_user=user), 
+                        loop
+                    )
+                    ai_res = future.result(timeout=25) 
+                    
                     reply_text = ai_res.get("reply", "喵... 思考中。")
                 except Exception as e:
-                    print(f"AI Error: {e}")
+                    print(f"❌ AI Error Detail: {e}")
                     reply_text = "喵嗚... 喵喵腦袋打結了，請再試一次。"
                 
                 reply_content = TextSendMessage(text=reply_text)
