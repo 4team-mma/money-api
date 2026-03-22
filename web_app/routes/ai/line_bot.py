@@ -68,14 +68,14 @@ def handle_message(event):
                 else:
                     reply_content = TextSendMessage(text="💡 格式錯誤喔！請點擊下方按鈕參考格式喵。")
             else:
-                # 🌟 未登入專用按鈕
+                # 未登入引導按鈕
                 reply_content = TemplateSendMessage(
                     alt_text='喵？請先登入系統喵！',
                     template=ButtonsTemplate(
                         title='喵喵財務管家 (未連線)',
-                        text='歡迎！請先登入以開啟理財功能。',
+                        text='歡迎！請先登入以開啟理財與對話功能。',
                         actions=[
-                            MessageAction(label='如何登入？', text='登入 帳號 密碼'),
+                            MessageAction(label='我要登入', text='登入 帳號 密碼'),
                             MessageAction(label='忘記密碼', text='請聯繫管理員重設密碼')
                         ]
                     )
@@ -83,7 +83,7 @@ def handle_message(event):
         
         else:
             # --- 【已登入狀態】 ---
-            # 2. 處理特定指令按鈕
+            # 2. 處理特定指令
             if user_msg in ["選單", "menu", "幫助", "喵喵"]:
                 reply_content = TemplateSendMessage(
                     alt_text='喵喵功能選單',
@@ -91,30 +91,31 @@ def handle_message(event):
                         title='喵喵理財主選單',
                         text=f'你好，{user.name}！想做什麼呢喵？',
                         actions=[
-                            MessageAction(label='快速記帳', text='我今天花了100元買午餐'),
+                            MessageAction(label='快速記帳(午餐100元)', text='我今天吃午餐花了100元。'),
                             MessageAction(label='查詢餘額', text='查詢本月支出'),
                             MessageAction(label='解除綁定', text='登出')
                         ]
                     )
                 )
-            elif user_msg in ["登出", "logout", "解除綁定"]:
-                # ... (原本登出的代碼維持不變) ...
-                pass
+            elif user_msg in ["登出", "logout", "解除綁定", "登出"]:
+                user.line_user_id = None
+                db.commit()
+                reply_content = TextSendMessage(text="已幫你解除綁定囉！下次見喵～")
             else:
-                # 🌟 改用最安全的線程安全橋接法
+                # 3. 🌟 橋接 AI 核心邏輯 (最安全的非同步呼叫)
                 req = ChatRequest(message=user_msg, persona="理財小助手喵喵")
                 try:
-                    # 1. 獲取當前運行的 Event Loop
+                    # 使用 get_event_loop 獲取目前 FastAPI 正在運行的 loop
                     loop = asyncio.get_event_loop()
                     
-                    # 2. 將非同步任務丟入 Loop，並等待結果 (timeout 設為 25 秒避免 LINE 等太久)
+                    # 透過 run_coroutine_threadsafe 把 async 任務丟進 loop 執行
                     future = asyncio.run_coroutine_threadsafe(
                         chat_with_meow(req=req, db=db, current_user=user), 
                         loop
                     )
+                    # 等待結果，設定 25 秒超時 (LINE 的 webhook 限制大約在 30 秒內)
                     ai_res = future.result(timeout=25) 
-                    
-                    reply_text = ai_res.get("reply", "喵... 思考中。")
+                    reply_text = ai_res.get("reply", "喵... 我暫時沒想法。")
                 except Exception as e:
                     print(f"❌ AI Error Detail: {e}")
                     reply_text = "喵嗚... 喵喵腦袋打結了，請再試一次。"
