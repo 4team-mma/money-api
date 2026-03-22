@@ -3,7 +3,10 @@ import asyncio
 from fastapi import APIRouter, Request, HTTPException
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage, 
+    TemplateSendMessage, ButtonsTemplate, MessageAction
+)
 
 # 引入你的資料庫與模型
 from web_app.database import SessionLocal
@@ -16,7 +19,7 @@ from web_app.routes.ai_models import chat_with_meow
 
 router = APIRouter()
 
-# 從環境變數讀取 LINE 的兩把鑰匙
+# LINE API 設定
 line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN', ''))
 handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET', ''))
 
@@ -39,64 +42,86 @@ def handle_message(event):
     user_msg = event.message.text.strip()
     
     db = SessionLocal()
-    reply_text = ""
+    reply_content = None 
 
     try:
-        # 1. 檢查這個 LINE ID 是否已經綁定過會員
+        # 1. 檢查綁定狀態
         user = db.query(Member).filter(Member.line_user_id == line_user_id).first()
 
         if not user:
-            # --- 未登入狀態 ---
-            # 支援格式： "登入 帳號 密碼" 或 "login 帳號 密碼"
+            # --- 【未登入狀態】 ---
             if user_msg.lower().startswith(("登入", "login")):
                 parts = user_msg.split()
                 if len(parts) == 3:
                     account, password = parts[1], parts[2]
-                    # 嘗試用 email 或 username 搜尋 (根據你的表設計)
                     target_user = db.query(Member).filter(
                         (Member.email == account) | (Member.username == account)
                     ).first()
 
                     if target_user and verify_password(password, target_user.password):
-                        # 驗證成功，寫入 line_user_id 進行綁定
                         target_user.line_user_id = line_user_id
                         db.commit()
-                        reply_text = f"🎉 綁定成功！喵喵認得你了，{target_user.name} 喵！\n現在你可以直接跟我說話，或是開始記帳囉。"
+                        msg = f"🎉 綁定成功！喵喵認得你了，{target_user.name} 喵！\n現在你可以直接跟我說話，或是開始記帳囉。"
+                        reply_content = TextSendMessage(text=msg)
                     else:
-                        reply_text = "❌ 登入失敗：帳號或密碼錯誤，請再試一次喵！"
+                        reply_content = TextSendMessage(text="❌ 登入失敗：帳號或密碼錯誤喵！")
                 else:
-                    reply_text = "💡 格式錯誤喔！請輸入：\n「登入 你的帳號 你的密碼」"
+                    reply_content = TextSendMessage(text="💡 格式錯誤喔！請點擊下方按鈕參考格式喵。")
             else:
-                reply_text = "喵？我不認識你耶。請先輸入：\n「登入 帳號 密碼」\n來跟你的財務系統連線喵！"
+                # 🌟 未登入專用按鈕
+                reply_content = TemplateSendMessage(
+                    alt_text='喵？請先登入系統喵！',
+                    template=ButtonsTemplate(
+                        title='喵喵財務管家 (未連線)',
+                        text='歡迎！請先登入以開啟理財功能。',
+                        actions=[
+                            MessageAction(label='如何登入？', text='登入 帳號 密碼'),
+                            MessageAction(label='忘記密碼', text='請聯繫管理員重設密碼')
+                        ]
+                    )
+                )
         
         else:
-            # --- 已登入狀態：直接對話 ---
-            # 處理登出指令
-            if user_msg in ["登出", "logout", "解除綁定"]:
+            # --- 【已登入狀態】 ---
+            # 2. 處理特定指令按鈕
+            if user_msg in ["選單", "menu", "幫助", "喵喵"]:
+                reply_content = TemplateSendMessage(
+                    alt_text='喵喵功能選單',
+                    template=ButtonsTemplate(
+                        title='喵喵理財主選單',
+                        text=f'你好，{user.name}！想做什麼呢喵？',
+                        actions=[
+                            MessageAction(label='快速記帳', text='我今天花了100元買午餐'),
+                            MessageAction(label='查詢餘額', text='查詢本月支出'),
+                            MessageAction(label='解除綁定', text='登出')
+                        ]
+                    )
+                )
+            elif user_msg in ["登出", "logout", "解除綁定"]:
                 user.line_user_id = None
                 db.commit()
-                reply_text = "已幫你解除綁定囉！下次見喵～"
+                reply_content = TextSendMessage(text="已幫你解除綁定囉！下次見喵～")
             else:
-                # 封裝成 ChatRequest 丟給你的 ai_models.py
+                # 3. 呼叫 AI 聊天邏輯 (修正後的穩定呼叫法)
                 req = ChatRequest(message=user_msg, persona="理財小助手喵喵")
+                try:
+                    # 使用 asyncio 橋接確保在 FastAPI 環境下不崩潰
+                    loop = asyncio.get_event_loop()
+                    # 注意：如果是在生產環境，run_until_complete 需謹慎，但在這裡是最直接的修法
+                    ai_res = loop.run_until_complete(chat_with_meow(req=req, db=db, current_user=user))
+                    reply_text = ai_res.get("reply", "喵... 思考中。")
+                except Exception as e:
+                    print(f"AI Error: {e}")
+                    reply_text = "喵嗚... 喵喵腦袋打結了，請再試一次。"
                 
-                # 因為 chat_with_meow 是 async，在同步 handler 裡用 asyncio.run
-                # 注意：如果 chat_with_meow 內部有複雜的 Task 可能需要封裝成非同步
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                ai_response = loop.run_until_complete(chat_with_meow(req=req, db=db, current_user=user))
-                loop.close()
-
-                reply_text = ai_response.get("reply", "喵... 我暫時無法回應。")
+                reply_content = TextSendMessage(text=reply_text)
 
     except Exception as e:
         print(f"❌ LineBot Error: {str(e)}")
-        reply_text = "喵嗚... 系統出了一點問題，請稍後再試。"
+        reply_content = TextSendMessage(text="喵嗚... 系統出了一點問題，請稍後再試。")
     finally:
         db.close()
 
-    # 送出回覆
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
+    # 4. 送出最終回覆
+    if reply_content:
+        line_bot_api.reply_message(event.reply_token, reply_content)
