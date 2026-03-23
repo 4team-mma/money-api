@@ -3,7 +3,8 @@ name = "money-api"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+# 1. 加上 <3.13：避免 langchain-chroma 為了支援未來的 Python 而強制升級 numpy 導致衝突
+requires-python = ">=3.12, <3.13"
 dependencies = [
     "apscheduler>=3.11.2",
     "bcrypt>=5.0.0",
@@ -28,9 +29,22 @@ dependencies = [
     "slowapi>=0.1.9",
     "soundfile>=0.13.1",
     "sqlalchemy>=2.0.45",
-    "torch>=2.5.1",
-    "torchaudio>=2.5.1",
-    "transformers>=5.3.0",
+    
+    # 2. 這是唯一需要跨平台分流的地方：
+    # 鎖定 numpy 避免舊版 PyTorch 運算報錯
+    "numpy<2.0.0",
+    # Windows 正常裝 2.5.1；Intel Mac 退回 2.2.2 
+    "torch>=2.5.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
+    "torch==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.5.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
+    "torchaudio==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # 稍微放寬 transformers 版本，讓 langchain 自己去抓不會衝突的最新版
+    "transformers>=4.39.0", 
+
+    # 🌟 新增：解決 ChromaDB 底層依賴的 onnxruntime 也放棄 Intel Mac 的問題
+    "onnxruntime>=1.14.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
+    "onnxruntime<=1.19.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+
     "user-agents>=2.2.0",
     "xmltodict>=1.0.2",
 ]
@@ -51,6 +65,11 @@ name = "pytorch-cu121"
 url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
+# 3. 告訴 uv：在 Mac 上不要去 Windows 的 CUDA 專屬網址找檔案
 [tool.uv.sources]
-torch = { index = "pytorch-cu121" }
-torchaudio = { index = "pytorch-cu121" }
+torch = [
+    { index = "pytorch-cu121", marker = "sys_platform != 'darwin'" }
+]
+torchaudio = [
+    { index = "pytorch-cu121", marker = "sys_platform != 'darwin'" }
+]
