@@ -1,13 +1,14 @@
 import os
 import asyncio
+import json
 from fastapi import APIRouter, Request, HTTPException
-from linebot import LineBotApi
+from linebot import LineBotApi, WebhookParser  
+from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, 
     TemplateSendMessage, ButtonsTemplate, MessageAction
 )
-# 這裡很重要，不要引入 WebhookHandler，我們要自己解析
-from linebot.models import WebhookPayload 
+
 
 # 引入你的資料庫與模型
 from web_app.database import SessionLocal
@@ -20,24 +21,28 @@ from web_app.routes.ai_models import chat_with_meow
 
 router = APIRouter()
 line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN', ''))
+parser = WebhookParser(os.getenv('LINE_CHANNEL_SECRET', '')) # 🌟 初始化 Parser
 
 @router.post("/webhook")
 async def line_webhook(request: Request):
     """
     改用完全非同步的 Webhook 進入點
     """
+    signature = request.headers.get("X-Line-Signature", "")
     body = await request.body()
     body_str = body.decode("utf-8")
     
     # 這裡直接解析 LINE 傳來的 JSON
     try:
-        payload = WebhookPayload.from_json(body_str)
-        for event in payload.events:
+        # 🌟 Parser 會幫我們處理簽章驗證與物件轉換
+        events = parser.parse(body_str, signature)
+        for event in events:
             if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
-                # 🌟 關鍵：直接用 await 呼叫處理函式
                 await handle_async_message(event)
+    except InvalidSignatureError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
     except Exception as e:
-        print(f"❌ Webhook Processing Error: {e}")
+        print(f"❌ Webhook Error: {e}")
     
     return "OK"
 
