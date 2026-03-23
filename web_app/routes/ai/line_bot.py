@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from decimal import Decimal  
+from decimal import Decimal
 from fastapi import APIRouter, Request, HTTPException
 from linebot import LineBotApi, WebhookParser  
 from linebot.exceptions import InvalidSignatureError
@@ -96,7 +96,7 @@ async def handle_async_message(event):
                     template=ButtonsTemplate(
                         title='主選單', text=f'你好 {user.name}，要做什麼喵？',
                         actions=[
-                            MessageAction(label='快速記帳', text='我今天花了100元買午餐'),
+                            MessageAction(label='快速記帳(午餐100元)', text='我今天花了100元買午餐'),
                             MessageAction(label='解除綁定', text='解除綁定')
                         ]
                     )
@@ -109,25 +109,23 @@ async def handle_async_message(event):
                 req = ChatRequest(message=user_msg, persona="理財小助手喵喵")
                 try:
                     ai_res = await chat_with_meow(req=req, db=db, current_user=user)
-                    # 🌟 解決 Pylance 紅線：確保 ai_res 絕對是個字典，不會是 None
                     ai_res = ai_res or {} 
                     
-                    # 攔截 AI 的記帳意圖，製作 Flex Message 確認卡片
                     if ai_res.get("is_command") and ai_res.get("action_data"):
-                        # 🌟 加上 "or {}" 讓 Pylance 知道它絕對是字典，不是 None！
                         action_data = ai_res.get("action_data") or {}
                         
-                        # 🌟 解決 0 元問題：多欄位容錯抓取
-                        amount = action_data.get("amount") or action_data.get("amt") or action_data.get("price") or 0
-                        note = action_data.get("item") or action_data.get("note") or action_data.get("content") or "無備註"
-                        add_class = action_data.get("category") or action_data.get("cls") or "飲食"
+                        # 🌟 破案關鍵：精準抓取 Pydantic 輸出的欄位 (add_amount, add_note, add_class)
+                        amount = action_data.get("add_amount", 0)
+                        note = action_data.get("add_note", "無備註")
+                        add_class = action_data.get("add_class", "飲食")
                         
+                        # 確保金額不會報錯
                         try:
                             amount = int(float(amount))
                         except:
                             amount = 0
                         
-                        # 把要存檔的資料轉成輕量 JSON 塞進按鈕裡
+                        # 將輕量資料寫入按鈕
                         postback_data = json.dumps({
                             "act": "add",
                             "amt": amount,
@@ -200,14 +198,14 @@ async def handle_async_postback(event):
 
         data = json.loads(pb_data_str)
         
-        # 🌟 當按鈕點擊「確認寫入」時
+        # 🌟 確認寫入
         if data.get("act") == "add":
             
-            # 1. 尋找這個使用者的預設錢包
+            # 1. 尋找預設錢包
             default_acc = db.query(Account).filter(Account.user_id == user.user_id).first()
             acc_id = default_acc.account_id if default_acc else 1
 
-            # 2. 建立 AddRecord 實體
+            # 2. 建立紀錄實體
             amt = Decimal(str(data.get("amt", 0)))
             
             new_record = AddRecord(
@@ -219,21 +217,21 @@ async def handle_async_postback(event):
                 add_class_icon="📝",
                 account_id=acc_id,
                 add_member="自己",
-                add_tag="LINE記帳",           # 方便網頁版辨識
+                add_tag="LINE記帳",
                 add_note=data.get("note", "")
             )
             
-            # 3. 寫入收支資料表
+            # 3. 寫入收支表
             db.add(new_record)
 
-            # 🌟 4. 【完美同步】更新 Accounts 的帳戶餘額！
+            # 🌟 4. 同步更新帳戶餘額
             if default_acc:
                 if new_record.add_type == False: 
                     default_acc.current_balance -= amt
                 else:                            
                     default_acc.current_balance += amt
 
-            # 5. 一併提交到資料庫
+            # 5. 提交
             db.commit()
             
             line_bot_api.reply_message(
