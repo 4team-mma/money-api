@@ -65,9 +65,9 @@ class FinanceAgentService:
         
         # 🚨 第二道防線：記帳與轉帳意圖
         record_keywords = [
-            "花", "買", "記帳", "支出", "消費", "吃了", "花了", 
-            "中獎", "收入", "賺", "薪水", 
-            "匯", "轉帳", "轉給", "轉到", "轉出", "轉入", "存", "領"
+            "花", "買", "記帳", "支出", "消費", "吃了", "花了", "付",
+            "中獎", "收入", "賺", "薪水", "收",
+            "匯", "轉帳", "轉給", "轉到", "轉出", "轉入", "存", "領", "轉"
         ]
         has_number = bool(re.search(r'\d+', msg)) 
         if any(k in msg for k in record_keywords) and has_number:
