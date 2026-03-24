@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
 import os
+import requests
+import traceback
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -239,6 +241,20 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 # 建立一個專門給 main 使用的 logger
 logger = logging.getLogger(__name__)
 
+# --- 🚨 新增：Discord 錯誤自動通報小工具 ---
+def send_discord_alert(error_detail: str):
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return # 如果環境變數沒設定，就默默略過
+    
+    payload = {
+        "content": f"🚨 **[Money MMA 後端崩潰警報]** 🚨\n```text\n{error_detail}\n```"
+    }
+    try:
+        requests.post(webhook_url, json=payload, timeout=3)
+    except:
+        pass 
+# ----------------------------------------
 
 # 處理所有未預期的崩潰 (Exception)
 @app.exception_handler(Exception)
@@ -248,6 +264,11 @@ async def universal_exception_handler(request: Request, exc: Exception):
     logger.error(
         f"非預期錯誤 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True
     )
+    
+    # 2. 🚨 觸發 Discord 警報系統
+    error_msg = traceback.format_exc()
+    alert_text = f"❌ 崩潰路徑: {request.method} {request.url.path}\n⚠️ 錯誤內容: {str(exc)}\n\n🔍 追蹤紀錄:\n{error_msg[:1200]}"
+    send_discord_alert(alert_text)
 
     # 回傳給前端安全、格式統一的訊息
     return JSONResponse(
