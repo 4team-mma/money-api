@@ -269,6 +269,11 @@ async def universal_exception_handler(request: Request, exc: Exception):
     error_msg = traceback.format_exc()
     alert_text = f"❌ 崩潰路徑: {request.method} {request.url.path}\n⚠️ 錯誤內容: {str(exc)}\n\n🔍 追蹤紀錄:\n{error_msg[:1200]}"
     send_discord_alert(alert_text)
+    
+    # 修正：如果是 WebSocket 連線崩潰，直接 return，不要回傳 JSONResponse！
+    if request.scope.get("type") == "websocket":
+        logger.warning("WebSocket 連線發生異常，已攔截 JSONResponse 回傳。")
+        return  # 直接 return，讓 WebSocket 自然斷開即可
 
     # 回傳給前端安全、格式統一的訊息
     return JSONResponse(
