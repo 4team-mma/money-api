@@ -11,9 +11,8 @@ from linebot.models import (
     PostbackEvent, FlexSendMessage
 )
 
-# 匯入你的資料庫與模型
 from web_app.database import SessionLocal
-from web_app.models import Member, AddRecord, Account
+from web_app.models import Member, AddRecord, Account, Transaction
 from web_app.utils.password import verify_password
 from web_app.schemas.ai import ChatRequest
 
@@ -32,7 +31,6 @@ async def line_webhook(request: Request):
     
     try:
         parsed_data = parser.parse(body_str, signature)
-        
         events = parsed_data if isinstance(parsed_data, list) else getattr(parsed_data, 'events', [])
         
         for event in events:
@@ -60,6 +58,7 @@ async def handle_async_message(event):
         user = db.query(Member).filter(Member.line_user_id == line_user_id).first()
 
         if not user:
+            # ... (未登入邏輯保持不變) ...
             if user_msg.lower().startswith(("登入", "login")):
                 parts = user_msg.split()
                 if len(parts) == 3:
@@ -85,8 +84,8 @@ async def handle_async_message(event):
                     )
                 )
         else:
-            if user_msg in ["取消記帳"]:
-                reply_content = TextSendMessage(text="好的，這筆帳已經取消囉喵！")
+            if user_msg in ["取消", "取消記帳", "取消轉帳"]:
+                reply_content = TextSendMessage(text="好的，動作已經取消囉喵！")
             elif user_msg in ["選單", "menu", "幫助", "喵喵"]:
                 reply_content = TemplateSendMessage(
                     alt_text='選單',
@@ -113,36 +112,64 @@ async def handle_async_message(event):
                         
                         amount = action_data.get("add_amount", 0)
                         note = action_data.get("add_note", "無備註")
-                        add_class = action_data.get("add_class", "飲食")
+                        add_class = action_data.get("add_class", "其他")
+                        record_type = action_data.get("record_type", "expense") 
                         
                         try:
                             amount = int(float(amount))
                         except:
                             amount = 0
-                        
-                        record_type = action_data.get("record_type", "expense") 
-                        is_income = (record_type == "income")
-                        
-                        postback_data = json.dumps({
-                            "act": "add",
-                            "amt": amount,
-                            "note": note,
-                            "cls": add_class,
-                            "inc": is_income,        
-                            "rec": record_type       
-                        }, ensure_ascii=False)
+                            
+                        # ==========================================
+                        # 🌟 分流：轉帳卡片 vs 收支卡片
+                        # ==========================================
+                        if record_type == "transfer":
+                            from_acc = action_data.get("from_account", "我的錢包")
+                            to_acc = action_data.get("to_account", "我的錢包")
+                            
+                            postback_data = json.dumps({
+                                "act": "transfer",   # 🌟 標記為轉帳
+                                "amt": amount,
+                                "note": note,
+                                "f_acc": from_acc,
+                                "t_acc": to_acc
+                            }, ensure_ascii=False)
+                            
+                            bubble_contents = [
+                                {"type": "text", "text": "🔄 轉帳確認", "weight": "bold", "color": "#0056FF", "size": "xl"},
+                                {"type": "separator", "margin": "md"},
+                                {"type": "text", "text": f"金額：{amount} 元", "margin": "md", "size": "lg", "weight": "bold"},
+                                {"type": "text", "text": f"轉出：{from_acc}", "color": "#666666"},
+                                {"type": "text", "text": f"轉入：{to_acc}", "color": "#666666"},
+                                {"type": "text", "text": f"備註：{note}", "color": "#999999", "size": "sm"}
+                            ]
+                            btn_text = f"確認轉帳：{amount}元"
+                            
+                        else:
+                            is_income = (record_type == "income")
+                            postback_data = json.dumps({
+                                "act": "add",        # 🌟 標記為收支
+                                "amt": amount,
+                                "note": note,
+                                "cls": add_class,
+                                "inc": is_income
+                            }, ensure_ascii=False)
+                            
+                            bubble_contents = [
+                                {"type": "text", "text": "📝 記帳確認", "weight": "bold", "color": "#1DB446", "size": "xl"},
+                                {"type": "separator", "margin": "md"},
+                                {"type": "text", "text": f"金額：{amount} 元", "margin": "md", "size": "lg", "weight": "bold"},
+                                {"type": "text", "text": f"項目：{note}", "color": "#666666"},
+                                {"type": "text", "text": f"類別：{add_class}", "color": "#666666"},
+                            ]
+                            btn_text = f"確認記帳：{note} {amount}元"
 
+                        # 共用 Flex Message 外框
                         bubble = {
                             "type": "bubble",
                             "body": {
                                 "type": "box", "layout": "vertical",
-                                "contents": [
-                                    {"type": "text", "text": "📝 記帳確認", "weight": "bold", "color": "#1DB446", "size": "xl"},
-                                    {"type": "separator", "margin": "md"},
-                                    {"type": "text", "text": f"金額：{amount} 元", "margin": "md", "size": "lg", "weight": "bold"},
-                                    {"type": "text", "text": f"項目：{note}", "color": "#666666"},
-                                    {"type": "text", "text": f"類別：{add_class}", "color": "#666666"},
-                                ]
+                                "contents": bubble_contents
                             },
                             "footer": {
                                 "type": "box", "layout": "horizontal", "spacing": "sm",
@@ -151,19 +178,19 @@ async def handle_async_message(event):
                                         "type": "button", "style": "primary", "color": "#1DB446",
                                         "action": {
                                             "type": "postback",
-                                            "label": "✅ 確認寫入",
+                                            "label": "✅ 確認執行",
                                             "data": postback_data,
-                                            "displayText": f"確認記帳：{note} {amount}元"
+                                            "displayText": btn_text
                                         }
                                     },
                                     {
                                         "type": "button", "style": "secondary",
-                                        "action": {"type": "message", "label": "❌ 取消", "text": "取消記帳"}
+                                        "action": {"type": "message", "label": "❌ 取消", "text": "取消"}
                                     }
                                 ]
                             }
                         }
-                        reply_content = FlexSendMessage(alt_text="記帳確認卡片", contents=bubble)
+                        reply_content = FlexSendMessage(alt_text="請確認您的交易", contents=bubble)
                         
                     else:
                         reply_content = TextSendMessage(text=ai_res.get("reply", "喵... 思考中。"))
@@ -191,68 +218,85 @@ async def handle_async_postback(event):
     db = SessionLocal()
     try:
         user = db.query(Member).filter(Member.line_user_id == line_user_id).first()
-        if not user:
-            return
+        if not user: return
 
         data = json.loads(pb_data_str)
+        act = data.get("act")
+        amt = Decimal(str(data.get("amt", 0)))
+        note = data.get("note", "無備註")
         
-        # 🌟 確認寫入
-        if data.get("act") == "add":
-            
-            # 1. 尋找預設錢包
+        # 🌟 情況 A：處理【收支】
+        if act == "add":
             default_acc = db.query(Account).filter(Account.user_id == user.user_id).first()
             acc_id = default_acc.account_id if default_acc else 1
-
-            # 2. 提取精準變數 (解決 note 找不到的問題)
-            amt = Decimal(str(data.get("amt", 0)))
-            note = data.get("note", "無備註")
             is_income = data.get("inc", False) 
-            record_type = data.get("rec", "expense")
-            
-            # (解決 record_type 未使用的問題，印出供未來 debug 參考)
-            print(f"👉 本次處理紀錄類型: {record_type}, 是否為收入: {is_income}")
-            
-            # 3. 建立紀錄實體
+
             new_record = AddRecord(
                 user_id=user.user_id,
                 add_date=datetime.now().date(),
                 add_amount=amt,
                 add_type=is_income,
-                add_class=data.get("cls", "飲食"),
+                add_class=data.get("cls", "其他"),
                 add_class_icon="📝",
                 account_id=acc_id,
                 add_member="自己",
                 add_tag="LINE記帳",
                 add_note=note
             )
-            
-            # 4. 寫入收支表
             db.add(new_record)
 
-            # 5. 🌟 根據收入與支出，計算餘額並設定正確的回覆訊息
             msg_text = "🎉 紀錄已寫入系統喵！"
             if default_acc:
-                if is_income: # 如果是收入
+                if is_income: 
                     default_acc.current_balance += amt
                     msg_text = f"🎉 恭喜發財！已將【{note} {amt}元】存入，錢包變厚了喵！"
-                else:         # 如果是支出
+                else:         
                     default_acc.current_balance -= amt
                     msg_text = f"💸 紀錄成功！已從餘額扣除【{note} {amt}元】喵！"
 
-            # 6. 提交到資料庫
+            db.commit()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg_text))
+
+        # 🌟 情況 B：處理【轉帳】
+        elif act == "transfer":
+            f_acc_name = data.get("f_acc", "")
+            t_acc_name = data.get("t_acc", "")
+            
+            # 使用 AI 抓取的名稱，去資料庫「模糊搜尋」使用者的帳戶
+            f_acc = db.query(Account).filter(Account.user_id == user.user_id, Account.account_name.like(f"%{f_acc_name}%")).first()
+            t_acc = db.query(Account).filter(Account.user_id == user.user_id, Account.account_name.like(f"%{t_acc_name}%")).first()
+            
+            # 如果找不到，預設用第一個帳戶防呆
+            default_acc = db.query(Account).filter(Account.user_id == user.user_id).first()
+            if not f_acc: f_acc = default_acc
+            if not t_acc: t_acc = default_acc
+            
+            if not f_acc or not t_acc:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 轉帳失敗：找不到您指定的帳戶喵！"))
+                return
+            
+            # 建立轉帳紀錄
+            new_tx = Transaction(
+                user_id=user.user_id,
+                transaction_date=datetime.now().date(),
+                from_account_id=f_acc.account_id,
+                to_account_id=t_acc.account_id,
+                transaction_note=note,
+                amount=amt
+            )
+            db.add(new_tx)
+            
+            # 🌟 轉帳核心：A 扣錢，B 加錢
+            f_acc.current_balance -= amt
+            t_acc.current_balance += amt
+            
             db.commit()
             
-            # 🌟 解決 msg_text 未使用的問題，將動態訊息傳給小主人
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=msg_text)
-            )
-            
+            msg_text = f"🔄 轉帳大成功喵！\n已從【{f_acc.account_name}】轉出 {amt} 元至【{t_acc.account_name}】。"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg_text))
+
     except Exception as e:
         print(f"❌ DB Write Error: {e}")
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="喵嗚... 寫入資料庫失敗了，請檢查欄位格式喵。")
-        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="喵嗚... 寫入資料庫失敗了，請稍後再試。"))
     finally:
         db.close()
