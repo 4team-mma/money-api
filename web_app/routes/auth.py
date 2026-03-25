@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from fastapi.security import OAuth2PasswordRequestForm
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
-
+from typing import Optional
 from ..database import get_db
 from ..models import PasswordReset, Account
 from ..schemas.member import MemberRegister, MemberLogin
@@ -239,6 +239,16 @@ async def login(data: MemberLogin,
 
     # 登入成功，重置失敗次數
     user.failed_login_attempts = 0
+
+    # 登入成功，重置失敗次數
+    user.failed_login_attempts = 0
+    
+    # 🌟 核心：如果有傳入 line_user_id，就寫入資料庫完成綁定
+    if data.line_user_id:
+        user.line_user_id = data.line_user_id
+        
+    # 把重置失敗次數跟 line_user_id 一起 commit 存檔
+    db.commit()
     
     # 4. 處理「記住我」邏輯
     if data.remember_me:
@@ -322,6 +332,7 @@ async def login(data: MemberLogin,
 # --- Google 登入相關 ---
 class GoogleAuthRequest(BaseModel):
     token: str = Field(..., description="Google ID Token", examples=["GOOGLE_ID_TOKEN_EXAMPLE"])
+    line_user_id: Optional[str] = None  # 🌟 讓後端可以接收前端傳來的 LINE ID
 
 
 # key寫在.env
@@ -398,6 +409,11 @@ async def google_auth(data: GoogleAuthRequest,
         db.refresh(new_user)
         user = new_user
 
+    # 🌟 核心：如果有傳入 line_user_id，就寫入資料庫完成綁定
+    if data.line_user_id:
+        user.line_user_id = data.line_user_id
+        db.commit()
+    
     # 5. 簽發 JWT Token
     access_token = create_access_token(data={"sub": str(user.user_id)})
 

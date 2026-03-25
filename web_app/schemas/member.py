@@ -39,6 +39,7 @@ class MemberLogin(BaseModel):
     remember_me: bool = Field(
         default=False, description="保持登入狀態 (True: 30天, False: 1小時)", examples=[True]
     )
+    line_user_id: Optional[str] = None
 
 # --- 修改個人資料規格 ---
 class MemberUpdate(BaseModel):
