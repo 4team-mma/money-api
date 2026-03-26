@@ -41,7 +41,7 @@ git clone https://github.com/4team-mma/money-api.git
 ## 啟動與安裝依賴流程
 - 複製環境變數env.example 改成 .env (並填入自己的資料庫資訊)。(直接貼上你剛複製的.env程式碼)
 
-## 安裝套件:
+## 安裝共用套件:
 - 範例: uv add <package-name>
 - 原本: pip install apscheduler
 - uv add apscheduler  (定時自動執行任務的套件)
@@ -64,6 +64,10 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add langchain-groq #負責極速且精準的記帳 JSON 轉換
 - uv add langchain-chroma langchain-community langchain-text-splitters
 
+
+## 非共用套件:
+- uv pip install customtkinter requests pandas openpyxl
+- uv pip install pyinstaller
 
 ## 移除套件:
 - 執行:uv remove google-generativeai

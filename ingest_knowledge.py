@@ -7,11 +7,13 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
+import chromadb
+from chromadb.config import Settings
 
 load_dotenv()
 
 # 🌟 1. 改成指向「資料夾」而不是單一檔案
-DATA_DIR = "./web_app/data/"
+DATA_DIR = "./web_app/data/manuals/"
 CHROMA_PERSIST_DIR = "./.chromadb"
 
 def ingest_data():
@@ -20,11 +22,20 @@ def ingest_data():
         print("❌ 請先在 .env 檔案中設定 HF_TOKEN")
         return
 
-    # 🧹 2. 清除舊的向量資料庫 (避免重複寫入造成 AI 記憶錯亂與資料庫肥大)
+    # 🧹 2. 溫和地清除舊的「系統手冊」房間，保護「使用者記憶」不被刪除
     if os.path.exists(CHROMA_PERSIST_DIR):
-        print("🧹 清除舊的記憶資料庫...")
-        shutil.rmtree(CHROMA_PERSIST_DIR)
-
+        print("🧹 準備更新知識庫...")
+        # 建立一個直接對話的 Chroma 客戶端
+        client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        try:
+            # 🔪 只把 system_manual 這個房間刪掉！其他房間 (如 user_memories) 完全不受影響
+            client.delete_collection("system_manual")
+            print("✅ 已清空舊的系統手冊！")
+        except ValueError:
+            # 如果房間本來就不存在，會跳 ValueError，我們直接忽略即可
+            pass
+        # shutil.rmtree(CHROMA_PERSIST_DIR)這是暴力清除清除舊的向量資料庫 
+        
     # 📄 3. 自動掃描並讀取資料夾內所有的 .md 檔案
     all_documents = []
     md_files = glob.glob(os.path.join(DATA_DIR, "*.md"))
