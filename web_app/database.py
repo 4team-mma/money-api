@@ -52,7 +52,7 @@ engine = create_engine(
     max_overflow=6,
     pool_pre_ping=True,  
     pool_recycle=300,    # 💡 專業建議：TiDB 建議縮短回收時間 (例如 300s)，避免閒置連線被砍
-    echo=DEBUG 
+    echo=False #DEBUG
 )
 
 # 建立 Session
