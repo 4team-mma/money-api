@@ -44,10 +44,10 @@ class GroqDataGeneratorApp(ctk.CTk):
         ctk.CTkLabel(self.model_frame, text="雲端 Groq 模型:").pack(side="left", padx=10, pady=10)
         # 換成 Groq 支援的神級開源模型
         self.model_combo = ctk.CTkComboBox(self.model_frame, values=[
-            "llama-3.3-70b-versatile", # 預設最強大腦
-            "llama-3.1-8b-instant",    # 速度最快
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it"
+            "llama-3.3-70b-versatile", # 預設最強大腦 (現役主力)
+            "llama-3.1-8b-instant",    # 速度最快 (現役主力)
+            "llama3-70b-8192",         # 經典強大推理 (適合複雜邏輯)
+            "llama3-8b-8192"           # 經典極速生成 (輕量快篩)
         ], width=200)
         self.model_combo.set("llama-3.3-70b-versatile")
         self.model_combo.pack(side="left", padx=10)
