@@ -8,10 +8,15 @@ wheels/
 logs/
 # Virtual environments
 .venv
-
 .vscode
 .env
 app.log
 
 # ChromaDB 向量資料庫 (千萬別上傳)
 .chromadb/
+
+# 打包與虛擬環境暫存檔
+build/
+dist/
+clean_env/
+*.spec
