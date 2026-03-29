@@ -8,7 +8,9 @@ import os
 import glob
 import sys
 import tkinter.filedialog as fd
-import json
+# import json
+import random
+import time
 
 # 🎨 系統外觀設定
 ctk.set_appearance_mode("Dark")  
@@ -56,10 +58,27 @@ class DataGeneratorApp(ctk.CTk):
         self.intent_label = ctk.CTkLabel(self.setting_frame, text="生成類別:")
         self.intent_label.grid(row=0, column=0, padx=10, pady=10)
         
-        self.nlp_options = ["RECORD (記帳)", "QUERY (查詢)", "CHAT (閒聊)", "ADVISOR (顧問)", "KNOWLEDGE (手冊)"]
+        self.nlp_options = ["RECORD (記帳)", "QUERY (查詢)", "CHAT (閒聊)", "ADVISOR (顧問)", "KNOWLEDGE (手冊)", "MULTI-INTENT (混合意圖)"]
+        
         self.mysql_options = ["adds (帳單紀錄)", "budgets (預算設定)", "savings_goals (儲蓄目標)", "accounts (我的帳戶)", "transactions (轉帳紀錄)", "feedbacks (意見回饋)"]
         
-        self.intent_combo = ctk.CTkComboBox(self.setting_frame, values=self.nlp_options, width=180)
+        # 新增一個混合設定區 (預設隱藏)
+        self.mixed_config_frame = ctk.CTkFrame(self.setting_frame, fg_color="transparent")
+        # 注意：這裡先不 pack，等切換到 MULTI-INTENT 才顯示
+        
+        self.mixed_config_frame = ctk.CTkFrame(self.setting_frame, fg_color="transparent")
+        
+        ctk.CTkLabel(self.mixed_config_frame, text="混合比例 (多意圖 %):").pack(side="left", padx=5)
+        self.mixed_ratio_slider = ctk.CTkSlider(self.mixed_config_frame, from_=10, to=100, number_of_steps=9, width=150)
+        self.mixed_ratio_slider.set(30)
+        self.mixed_ratio_slider.pack(side="left", padx=5)
+
+        self.ratio_val_label = ctk.CTkLabel(self.mixed_config_frame, text="30%")
+        self.ratio_val_label.pack(side="left", padx=2)
+        self.mixed_ratio_slider.configure(command=lambda v: self.ratio_val_label.configure(text=f"{int(v)}%"))
+        
+        
+        self.intent_combo = ctk.CTkComboBox(self.setting_frame, values=self.nlp_options, width=220, command=self.check_intent_mode)
         self.intent_combo.grid(row=0, column=1, padx=5, pady=10)
         
         # 🌟 上傳按鈕 (移植雲端版功能)
@@ -90,6 +109,23 @@ class DataGeneratorApp(ctk.CTk):
         
         self.generated_data = []
         self.is_mysql_mode = False
+        
+        # 新增進度條
+        self.progress_bar = ctk.CTkProgressBar(self, width=400)
+        self.progress_bar.pack(pady=5)
+        self.progress_bar.set(0) # 預設值為 0        
+        self.progress_label = ctk.CTkLabel(self, text="進度: 0%", font=("Arial", 12))
+        self.progress_label.pack()
+        
+    # 🌟 新增：檢查是否選到混合意圖，動態顯示 UI
+    def check_intent_mode(self, choice):
+        if choice == "MULTI-INTENT (混合意圖)":
+            # 顯示比例設定，放在 grid 的右側
+            self.mixed_config_frame.grid(row=1, column=2, columnspan=2, padx=10, pady=10)
+            self.log("💡 已開啟混合意圖模式：可調整單句中『混合多個意圖』的出現比例。")
+        else:
+            # 隱藏比例設定
+            self.mixed_config_frame.grid_forget()
 
     def toggle_mode(self):
         self.log_box.delete("1.0", "end") 
@@ -107,6 +143,7 @@ class DataGeneratorApp(ctk.CTk):
             self.reset_btn.configure(state="disabled", fg_color="gray")
             self.custom_schema_content = "" 
             self.log("🔄 已切換為【Keras 意圖訓練模式】！")
+
 
     # 🌟 處理上傳檔案 (地端通用化)
     def upload_schema(self):
@@ -183,99 +220,141 @@ class DataGeneratorApp(ctk.CTk):
         threading.Thread(target=self.generate_data, daemon=True).start()
 
     def generate_data(self):
-        # 🌟 透過字典，把 UI 選的中文，轉換回正確的 Ollama ID
-        display_model_name = self.model_combo.get()
-        model_name = self.model_mapping.get(display_model_name, "llama3.1")
-        
-        count = int(self.count_entry.get())
-        selected_option = self.intent_combo.get().split(" ")[0] 
-        
-        if self.is_mysql_mode:
-            self.log(f"🔥 呼叫 Ollama ({model_name}) 生成 {count} 筆 `{selected_option}` SQL...")
+            # 1. 取得基本 UI 參數
+            start_time = time.time() # ⏳ 開始計時
+            display_model_name = self.model_combo.get()
+            model_name = self.model_mapping.get(display_model_name, "llama3.1")
+            count = int(self.count_entry.get())
+            selected_option = self.intent_combo.get()
             
-            # 🌟 自訂表 Prompt 邏輯 (移植雲端版)
-            if selected_option.startswith("自訂表:"):
-                selected_option = self.custom_table_name 
-                prompt = f"請根據以下的資料表結構，生成 {count} 筆符合格式的 MySQL INSERT 語法。\n純SQL輸出，每行一條，嚴禁 markdown 標籤或解說。\n表結構如下：\n{self.custom_schema_content}"
-            elif selected_option == "adds":
-                prompt = f"生成 {count} 筆 MySQL INSERT 語法新增至 `adds` 表。\n規則: user_id(1), account_id(1), add_date(2025-10-01到2026-03-31), add_type=1(收入,類別:工資/獎金/投資, icon:💰/🏦/🐷), add_type=0(支出,類別:飲食/交通/居家/娛樂, icon:🍔/🚗/🏠/🎮), add_member(自己/父母/孩子), add_tag(需要/想要/旅遊), add_amount(50~5000), add_note(具體項目10字內)。\n純SQL輸出每行一條，嚴禁markdown。"
-            elif selected_option == "accounts":
-                prompt = f"生成 {count} 筆 INSERT 語法至 `accounts` 表。\n欄位: user_id(1), account_type('cash'或'bank'), account_name(如:國泰世華), currency('NT$'), initial_balance(1000~50000), current_balance(同 initial_balance), exclude_from_assets(0或1), account_icon(💳 或 🏦)。\n純SQL輸出每行一條。"
-            elif selected_option == "feedbacks":
-                prompt = f"生成 {count} 筆 INSERT 語法至 `feedbacks` 表。\n欄位: user_id(1), feedback_name(如:王小明), question_type(系統Bug/功能建議), use_page(首頁/記帳頁), content(模擬抱怨或建議20字內)。\n純SQL輸出每行一條。"
-            else: 
-                prompt = f"生成 {count} 筆 INSERT INTO 語法，新增至 `{selected_option}` 表。user_id 皆填 1。純SQL輸出每行一條。"
-        else:
-            intent = selected_option
-            self.log(f"🔥 呼叫 Ollama ({model_name}) 生成 {count} 筆 `{intent}` NLP 訓練句子...")
-            prompt_templates = {
-                "RECORD": f"生成 {count} 句台灣人「記帳」的口語說法。必須包含金額和項目。例如：午餐100元。直接列表輸出，一行一句。",
-                "QUERY": f"生成 {count} 句台灣人「查帳、問預算、問餘額」的口語說法。直接列表輸出，一行一句。",
-                "CHAT": f"生成 {count} 句跟理財助手「閒聊、無意義」的說法。直接列表輸出，一行一句。",
-                "ADVISOR": f"生成 {count} 句向理財顧問「尋求建議、評估消費」的說法。直接列表輸出，一行一句。",
-                "KNOWLEDGE": f"生成 {count} 句詢問「系統操作、成就解鎖規則」的說法。直接列表輸出，一行一句。"
+            # 基礎 NLP 意圖 Prompt 指南
+            intent_prompts = {
+                "RECORD": "台灣人『記帳』口語，包含金額項目，如：午餐100元",
+                "QUERY": "台灣人『查帳、問預算、問餘額』，如：我還剩多少錢",
+                "CHAT": "與理財助手的『生活閒聊』，如：今天天氣不錯",
+                "ADVISOR": "向理財顧問『尋求建議或評估』，如：這筆錢建議花嗎",
+                "KNOWLEDGE": "詢問『系統規則或操作』，如：怎麼解鎖成就"
             }
-            prompt = prompt_templates[intent]
-        
-        # Ollama API 設定
-        url = "http://localhost:11434/api/generate"
-        payload = {
-            "model": model_name, 
-            "prompt": prompt, 
-            "stream": False, # 地端打包不建議用 stream，介面處理較複雜
-            "options": {
-                "temperature": 0.7,
-                "num_predict": 4096 # 限制生成長度，避免無限生成
-            }
-        }
-        
-        try:
-            # 🌟 地端模型算較久，Timeout 放寬到 600 秒
-            response = requests.post(url, json=payload, timeout=600)
-            
-            if response.status_code == 200:
-                result_text = response.json().get("response", "").strip()
-                
-                # 處理 Markdown 清理
-                if "```sql" in result_text: 
-                    result_text = result_text.split("```sql")[1].split("```")[0].strip()
-                elif "```" in result_text: 
-                    result_text = result_text.split("```")[1].strip()
 
-                lines = result_text.split('\n')
-                success_count = 0
-                for line in lines:
-                    clean_line = line.strip("1234567890.、- *\"'")
-                    # 依據模式判斷合理長度，避免存入空行
-                    if len(clean_line) > 10 if self.is_mysql_mode else len(clean_line) > 2:
-                        if self.is_mysql_mode:
-                            # 簡單檢查是否為 INSERT 語法
-                            if "INSERT" in line.upper():
-                                self.generated_data.append(line.strip())
-                                success_count += 1
-                        else:
-                            self.generated_data.append({"text": clean_line, "intent": selected_option})
-                            success_count += 1
-                        
-                        # Log 前 5 筆示意外
-                        if success_count <= 5: self.log(f"✔️ {clean_line[:60]}...")
+            self.success_count = 0
+            self.generated_data = [] # 確保開始前清空舊資料
+            self.progress_bar.set(0) # 重置進度條
+
+            # --- A. MySQL 模式：一次生成整批 (因 Prompt 已寫好生成 count 筆) ---
+            if self.is_mysql_mode:
+                self.log(f"🔥 呼叫 Ollama ({model_name}) 生成 {count} 筆 `{selected_option}` SQL...")
+                # 這裡因為是批量生成，進度條直接跳到 50% 代表處理中
+                self.progress_bar.set(0.5)
+                self.progress_label.configure(text="SQL 生成中...")
                 
-                if success_count > 0:
-                    self.log(f"\n✅ 成功獲取 {success_count} 筆資料！")
-                    self.save_to_file(selected_option)
-                else:
-                    self.log(f"\n⚠️ AI 有回覆，但格式解析失敗。回覆內容摘要：{result_text[:100]}...")
+                # 完全保留你原本的 MySQL Prompt 邏輯
+                if selected_option.startswith("自訂表:"):
+                    current_table_name = self.custom_table_name 
+                    prompt = f"請根據以下的資料表結構，生成 {count} 筆符合格式的 MySQL INSERT 語法。\n純SQL輸出，每行一條，嚴禁 markdown 標籤或解說。\n表結構如下：\n{self.custom_schema_content}"
+                elif selected_option == "adds":
+                    current_table_name = "adds"
+                    prompt = f"生成 {count} 筆 MySQL INSERT 語法新增至 `adds` 表。\n規則: user_id(1), account_id(1), add_date(2025-10-01到2026-03-31), add_type=1(收入,類別:工資/獎金/投資, icon:💰/🏦/🐷), add_type=0(支出,類別:飲食/交通/居家/娛樂, icon:🍔/🚗/🏠/🎮), add_member(自己/父母/孩子), add_tag(需要/想要/旅遊), add_amount(50~5000), add_note(具體項目10字內)。\n純SQL輸出每行一條，嚴禁markdown。"
+                elif selected_option == "accounts":
+                    current_table_name = "accounts"
+                    prompt = f"生成 {count} 筆 INSERT 語法至 `accounts` 表。\n欄位: user_id(1), account_type('cash'或'bank'), account_name(如:國泰世華), currency('NT$'), initial_balance(1000~50000), current_balance(同 initial_balance), exclude_from_assets(0或1), account_icon(💳 或 🏦)。\n純SQL輸出每行一條。"
+                elif selected_option == "feedbacks":
+                    current_table_name = "feedbacks"
+                    prompt = f"生成 {count} 筆 INSERT 語法至 `feedbacks` 表。\n欄位: user_id(1), feedback_name(如:王小明), question_type(系統Bug/功能建議), use_page(首頁/記帳頁), content(模擬抱怨或建議20字內)。\n純SQL輸出每行一條。"
+                else: 
+                    current_table_name = selected_option
+                    prompt = f"生成 {count} 筆 INSERT INTO 語法，新增至 `{selected_option}` 表。user_id 皆填 1。純SQL輸出每行一條。"
+
+                # 執行 API 呼叫 (SQL 模式)
+                try:
+                    url = "http://localhost:11434/api/generate"
+                    payload = {"model": model_name, "prompt": prompt, "stream": False, "options": {"temperature": 0.5}}
+                    response = requests.post(url, json=payload, timeout=90)
+                    if response.status_code == 200:
+                        raw_sql = response.json().get("response", "").strip()
+                        sql_lines = [line.strip() for line in raw_sql.split('\n') if "INSERT" in line.upper()]
+                        self.generated_data = sql_lines
+                        self.success_count = len(sql_lines)
+                        for i, line in enumerate(sql_lines[:3]): self.log(f"✔️ SQL {i+1}: {line[:50]}...")
                     
+                    if self.success_count > 0:
+                        self.log(f"\n✅ 成功獲取 {self.success_count} 筆 SQL 資料！")
+                        self.save_to_file(current_table_name)
+                        self.progress_bar.set(1.0)
+                except Exception as e:
+                    self.log(f"❌ SQL 生成失敗: {str(e)}")
+
+            # --- B. NLP 訓練模式：逐筆生成 (為了處理隨機混合意圖) ---
             else:
-                self.log(f"❌ 錯誤：Ollama 回傳狀態碼 {response.status_code}")
+                self.log(f"🔥 呼叫 Ollama ({model_name}) 生成 {count} 筆訓練資料...")
+                self.log(f"🔥 啟動逐筆生成模式 (共 {count} 筆)...")
+                for i in range(count):
+                    current_labels = []
+                    # 1. 更新進度條 UI
+                    progress_pct = (i + 1) / count
+                    self.progress_bar.set(progress_pct)
+                    self.progress_label.configure(text=f"進度: {int(progress_pct * 100)}% ({i+1}/{count})")
+                    
+                    if selected_option == "MULTI-INTENT (混合意圖)":
+                        ratio = self.mixed_ratio_slider.get() / 100.0
+                        if random.random() < ratio:
+                            # 隨機抽 2~3 個意圖
+                            num_mix = random.choices([2, 3], weights=[0.8, 0.2])[0]
+                            mix_keys = random.sample(list(intent_prompts.keys()), num_mix)
+                            
+                            prompt = f"請將以下 {num_mix} 個意圖組合成一句自然的台灣口語（中間用『，順便』或『，而且』等連接詞）：\n"
+                            for j, k in enumerate(mix_keys):
+                                prompt += f"{j+1}. {intent_prompts[k]}\n"
+                            prompt += "直接輸出句子，嚴禁解釋。"
+                            current_labels = mix_keys
+                        else:
+                            # 單意圖 (隨機抽出一個)
+                            target = random.choice(list(intent_prompts.keys()))
+                            prompt = f"請生成一句{intent_prompts[target]}。直接輸出句子。"
+                            current_labels = [target]
+                    else:
+                        # 原本的單意圖固定模式
+                        intent_key = selected_option.split(" ")[0]
+                        prompt = f"請生成一句{intent_prompts.get(intent_key, '生活對話')}。直接輸出句子。"
+                        current_labels = [intent_key]
+
+                    # 呼叫 API (NLP 模式逐筆呼叫)
+                    try:
+                        url = "http://localhost:11434/api/generate"
+                        payload = {
+                            "model": model_name, 
+                            "prompt": prompt, 
+                            "stream": False,
+                            "options": {"temperature": 0.8, "num_predict": 128}
+                        }
+                        response = requests.post(url, json=payload, timeout=30)
+                        if response.status_code == 200:
+                            res_json = response.json()
+                            clean_line = res_json.get("response", "").strip().strip("1234567890.、- *\"'")
+                            if len(clean_line) > 2:
+                                self.generated_data.append({"text": clean_line, "intent": current_labels})
+                                self.success_count += 1
+                                if self.success_count <= 3: 
+                                    self.log(f"✔️ [{self.success_count}] {clean_line} {current_labels}")
+                    except Exception as e:
+                        continue
                 
-        except requests.exceptions.Timeout:
-            self.log(f"❌ 連線超時！地端模型算太久了。\n建議：減少生成數量，或改用 Llama 3.2 3B 模型。")
-        except requests.exceptions.RequestException as e:
-            self.log(f"❌ 無法連線至 Ollama！請確保 Ollama 已開啟且已下載模型。\n錯誤詳情: {str(e)}")
-            
-        finally:
+                # --- C. 結束處理 ---
+                end_time = time.time()
+                duration = end_time - start_time # 💡 計算總秒數
+                
+                if self.success_count > 0:
+                    self.log(f"\n✅ 成功獲取 {self.success_count} 筆訓練資料！")
+                    # 存檔時取選單第一個單字作為檔名
+                    file_tag = selected_option.split(" ")[0]
+                    self.log(f"\n✨ 生成完畢！耗時: {duration:.2f} 秒 (平均 {duration/self.success_count:.2f}s/筆)")
+                    self.progress_label.configure(text=f"✅ 完成！總耗時: {int(duration)}s")
+                    self.save_to_file(file_tag)
+
+            # 無論哪種模式，最後都恢復按鈕
             self.start_btn.configure(state="normal", text="🚀 地端加速生成")
+
+
+
 
     def save_to_file(self, base_name):
         if not self.generated_data: return
