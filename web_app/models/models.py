@@ -611,3 +611,28 @@ class LoginActivity(Base):
     location: Mapped[str] = mapped_column(String(100), server_default="Unknown")
     login_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    
+    
+    
+# 18. 模型評分資料表 (邱比特大腦評測用)
+class IntentReviewLog(Base):
+    __tablename__ = "intent_review_log"
+
+    review_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
+    
+    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # AI 預測區塊
+    predicted_intent: Mapped[str] = mapped_column(String(20), nullable=False)
+    confidence_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    
+    # 人類審核區塊
+    corrected_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0") # 0: 未審, 1: 已審
+    
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # 關聯設定 (可選)
+    user = relationship("Member")

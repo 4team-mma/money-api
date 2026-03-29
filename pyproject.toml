@@ -29,24 +29,24 @@ dependencies = [
     "slowapi>=0.1.9",
     "soundfile>=0.13.1",
     "sqlalchemy>=2.0.45",
-    
     # 2. 這是唯一需要跨平台分流的地方：
     # 鎖定 numpy 避免舊版 PyTorch 運算報錯
     "numpy<2.0.0",
-    # Windows 正常裝 2.5.1；Intel Mac 退回 2.2.2 
+    # Windows 正常裝 2.5.1；Intel Mac 退回 2.2.2
     "torch>=2.5.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
     "torch==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "torchaudio>=2.5.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
     "torchaudio==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     # 稍微放寬 transformers 版本，讓 langchain 自己去抓不會衝突的最新版
-    "transformers>=4.39.0", 
-
+    "transformers>=4.39.0",
     # 🌟 新增：解決 ChromaDB 底層依賴的 onnxruntime 也放棄 Intel Mac 的問題
     "onnxruntime>=1.14.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
     "onnxruntime<=1.19.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-
     "user-agents>=2.2.0",
     "xmltodict>=1.0.2",
+    "jieba>=0.42.1",
+    "customtkinter>=5.2.2",
+    "pyinstaller>=6.19.0",
 ]
 
 [dependency-groups]

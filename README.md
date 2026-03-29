@@ -63,14 +63,21 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add langchain-huggingface # 連接 Hugging Face 雲端算力。負責將我們寫的人類手冊文字，轉換成電腦看得懂的「向量數字 (Embedding)」，是 RAG (檢索增強生成) 的關鍵引擎。
 - uv add langchain-groq #負責極速且精準的記帳 JSON 轉換
 - uv add langchain-chroma langchain-community langchain-text-splitters
+- uv add jieba # 詞彙級切割
+2026.03.30更新：
+- uv add customtkinter
+- uv add pyinstaller
+
+
 
 
 ## 非共用套件:
 - uv pip install customtkinter requests pandas openpyxl
-- uv pip install pyinstaller
+
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
+
 
 # 安裝依賴:
 - 執行：uv sync 
