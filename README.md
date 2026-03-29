@@ -67,7 +67,6 @@ git clone https://github.com/4team-mma/money-api.git
 2026.03.30更新：
 - uv add customtkinter
 - uv add pyinstaller
-- uv add scikit-learn
 
 
 
@@ -78,6 +77,7 @@ git clone https://github.com/4team-mma/money-api.git
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
+
 
 # 安裝依賴:
 - 執行：uv sync 
