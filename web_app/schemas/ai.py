@@ -49,3 +49,15 @@ class ChatMessage(BaseModel):
 class LineWebhookPayload(BaseModel):
     destination: str
     events: list
+    
+    
+# 測試模型用的
+class AICompareResultDetail(BaseModel):
+    intent: str = Field(..., description="意圖名稱")
+    confidence: float = Field(default=1.0, description="信心分數")
+    raw_ai_guess: Optional[str] = Field(None, description="模型原始直覺")
+
+class AICompareResponse(BaseModel):
+    legacy: AICompareResultDetail = Field(..., description="舊喵喵(關鍵字)結果")
+    mix_ai: AICompareResultDetail = Field(..., description="新喵喵(混合)結果")
+    review_id: int = Field(..., description="生成的 Log ID，供後續修正用")

@@ -64,13 +64,17 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add langchain-groq #負責極速且精準的記帳 JSON 轉換
 - uv add langchain-chroma langchain-community langchain-text-splitters
 - uv add jieba # 詞彙級切割
+2026.03.30更新：
+- uv add customtkinter
+- uv add pyinstaller
+- uv add scikit-learn
 
 
 
 
 ## 非共用套件:
 - uv pip install customtkinter requests pandas openpyxl
-- uv pip install pyinstaller
+
 
 ## 移除套件:
 - 執行:uv remove google-generativeai

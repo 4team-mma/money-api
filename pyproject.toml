@@ -45,6 +45,9 @@ dependencies = [
     "user-agents>=2.2.0",
     "xmltodict>=1.0.2",
     "jieba>=0.42.1",
+    "customtkinter>=5.2.2",
+    "pyinstaller>=6.19.0",
+    "scikit-learn>=1.8.0",
 ]
 
 [dependency-groups]

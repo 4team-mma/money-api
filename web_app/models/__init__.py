@@ -19,7 +19,8 @@ from .models import (
     AchCard,
     SavingsGoal,
     LoginActivity,
-    Budget
+    Budget,
+    IntentReviewLog
     
 )
 
