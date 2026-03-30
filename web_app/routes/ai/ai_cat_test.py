@@ -17,9 +17,9 @@ from ...services.finance_agent_mixai_service import FinanceAgentMixAIService
 router = APIRouter(tags=["AI 喵喵開發者工具"])
 logger = logging.getLogger(__name__)
 
-# --- 設定路徑 ---
+# --- 🎯 設定路徑 (完全依照你的最新設定) ---
 TEMP_DIR = "web_app/temp/excel"
-DEFAULT_TEST_FILE = "web_app/data/golden_test.xlsx"
+DEFAULT_TEST_FILE = "web_app/temp/excel/golden_test.xlsx" 
 CURRENT_BATCH_FILE = os.path.join(TEMP_DIR, "current_test_batch.xlsx")
 
 def ensure_temp_dir():
@@ -36,7 +36,6 @@ async def upload_test_file(
     if current_user.role not in ["ai_test", "admin"]:
         raise HTTPException(status_code=403, detail="權限不足")
     
-    # 🌟 修正點：先檢查 filename 是否存在，再用 lower() 檢查副檔名
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="僅支援 .xlsx 格式喵！")
@@ -51,14 +50,13 @@ async def upload_test_file(
         except Exception as e:
             logger.error(f"清理舊檔失敗: {e}")
 
-    # 儲存新檔案 (固定名稱方便 batch_run 讀取)
     try:
         with open(CURRENT_BATCH_FILE, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     finally:
         file.file.close()
 
-    return {"success": True, "message": f"測試檔 {file.filename} 上傳成功，已就緒喵！"}
+    return {"success": True, "message": f"測試檔 {file.filename} 上傳成功！"}
 
 # 2. 【清理暫存紀錄】
 @router.delete("/clear_test_file", summary="🗑️ 清除暫存的測試檔")
@@ -69,26 +67,26 @@ async def clear_test_file(current_user: Member = Depends(get_current_user)):
     if os.path.exists(CURRENT_BATCH_FILE):
         os.remove(CURRENT_BATCH_FILE)
         return {"success": True, "message": "暫存測試檔已刪除喵！"}
-    return {"success": True, "message": "目前本來就沒有暫存檔喵。"}
+    return {"success": True, "message": "目前沒有暫存檔。"}
 
-# 3. 【執行批次測試】(升級雙兼容版)
+# 3. 【執行批次測試】(補上 V1/V2 對比與 MySQL 寫入)
 @router.post("/batch_run", summary="🏃 執行批次自動化測試")
-async def batch_test_ai(current_user: Member = Depends(get_current_user)):
+async def batch_test_ai(
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
     if current_user.role not in ["ai_test", "admin"]:
         raise HTTPException(status_code=403, detail="權限不足")
 
-    # 優先序：暫存上傳檔 > 預設金牌檔
-    file_path = CURRENT_BATCH_FILE if os.path.exists(CURRENT_BATCH_FILE) else DEFAULT_TEST_FILE
+    # 優先序：暫存上傳檔 > 你指定的 temp/golden_test.xlsx
+    base_dir = os.getcwd()
+    file_path = os.path.join(base_dir, CURRENT_BATCH_FILE) if os.path.exists(CURRENT_BATCH_FILE) else os.path.join(base_dir, DEFAULT_TEST_FILE)
     
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="找不到任何測試集檔案 (請先上傳或檢查 web_app/data/ 喵！)")
+        raise HTTPException(status_code=404, detail=f"找不到測試集！請確認路徑 {DEFAULT_TEST_FILE} 存在喵！")
 
     try:
         df = pd.read_excel(file_path)
-        # 基本欄位檢查
-        if 'text' not in df.columns or 'intent' not in df.columns:
-            raise HTTPException(status_code=400, detail="Excel 必須包含 'text' 與 'intent' 欄位喵！")
-
         results = []
         correct_count = 0
 
@@ -96,35 +94,51 @@ async def batch_test_ai(current_user: Member = Depends(get_current_user)):
             msg = str(row['text'])
             true_intent = str(row['intent'])
             
-            # 跑 Mix AI 推論
+            # 同時跑 V1 與 V2 對比
+            legacy_intent = FinanceAgentService.analyze_intent(msg)
             res = FinanceAgentMixAIService.analyze_intent(msg)
             
             is_correct = (res["final_intent"] == true_intent)
             if is_correct: correct_count += 1
             
+            # 寫入 Review Log 用於未來重新訓練
+            new_log = IntentReviewLog(
+                user_id=current_user.user_id,
+                user_message=msg,
+                predicted_intent=res["final_intent"],
+                confidence_score=res["confidence"],
+                corrected_intent=true_intent if is_correct else None,
+                is_reviewed=1 if is_correct else 0
+            )
+            db.add(new_log)
+            db.flush() 
+
             results.append({
+                "review_id": new_log.review_id,
                 "text": msg,
                 "true": true_intent,
+                "legacy_pred": legacy_intent,
                 "pred": res["final_intent"],
                 "is_correct": is_correct,
-                "conf": res["confidence"]
+                "conf": res["confidence"],
+                "correction": true_intent
             })
 
+        db.commit()
         accuracy = correct_count / len(df) if len(df) > 0 else 0
-        source = "上傳檔案" if file_path == CURRENT_BATCH_FILE else "預設黃金測試集"
         
         return {
             "success": True,
-            "source": source,
+            "source": "自定義" if "current_test_batch" in file_path else "預設黃金集",
             "accuracy": accuracy,
             "total": len(df),
             "details": results
         }
     except Exception as e:
-        logger.error(f"批次測試崩潰: {e}")
-        raise HTTPException(status_code=500, detail=f"讀取 Excel 出錯: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
-# 4. 【單句比對】(維持現狀，兩者兼容)
+# 4. 【單句對比】
 @router.post("/compare", response_model=AICompareResponse, summary="🎙️ 手動單句對比")
 async def compare_ai_intent(
     message: str = Body(..., embed=True),
@@ -137,7 +151,6 @@ async def compare_ai_intent(
     legacy_intent = FinanceAgentService.analyze_intent(message)
     mix_ai_res = FinanceAgentMixAIService.analyze_intent(message)
     
-    # 存入 Review Log (用於後續 Human-in-the-loop)
     new_log = IntentReviewLog(
         user_id=current_user.user_id,
         user_message=message,
@@ -157,3 +170,29 @@ async def compare_ai_intent(
             "confidence": mix_ai_res["confidence"]
         }
     }
+
+# 5. 【更新人工校正結果】
+@router.put("/logs/{review_id}", summary="🛠️ 更新人工校正意圖")
+async def update_intent_review(
+    review_id: int,
+    payload: dict = Body(...), # 接收 {"corrected_intent": "..."}
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    if current_user.role not in ["ai_test", "admin"]:
+        raise HTTPException(status_code=403, detail="權限不足")
+
+    # 找尋該筆紀錄
+    log_entry = db.query(IntentReviewLog).filter(IntentReviewLog.review_id == review_id).first()
+    if not log_entry:
+        raise HTTPException(status_code=404, detail="找不到該筆紀錄喵！")
+
+    # 更新校正內容與審核狀態
+    corrected_intent = payload.get("corrected_intent")
+    if corrected_intent:
+        log_entry.corrected_intent = corrected_intent
+        log_entry.is_reviewed = 1
+        db.commit()
+        return {"success": True, "message": f"序號 {review_id} 已修正為 {corrected_intent} 喵！"}
+    
+    raise HTTPException(status_code=400, detail="請提供正確的意圖名稱")

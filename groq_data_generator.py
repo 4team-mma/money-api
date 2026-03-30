@@ -268,6 +268,7 @@ class GroqDataGeneratorApp(ctk.CTk):
         self.log_box.see("end")
 
     def get_next_filename(self, base_name, extension):
+        # mac 打包路徑
         if getattr(sys, 'frozen', False):
             if sys.platform == 'darwin' and '.app' in sys.executable:
                 base_dir = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '../../..'))
@@ -275,7 +276,7 @@ class GroqDataGeneratorApp(ctk.CTk):
                 base_dir = os.path.dirname(sys.executable)
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-
+        # 絕對路徑，確保資料夾會建立在app旁邊
         save_dir = os.path.join(base_dir, "ai_training", "dataset")
         os.makedirs(save_dir, exist_ok=True)
         
