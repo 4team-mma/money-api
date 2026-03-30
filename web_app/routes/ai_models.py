@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 SYS_DEFAULT_PROVIDER = os.getenv("CURRENT_AI_MODEL", "gemini") 
 SYS_OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma3:1b")
-SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-1.5-flash")
+SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
 
 def get_sys_default_model(provider: str) -> str:
     """根據 Provider 決定預設模型名稱"""
@@ -145,7 +145,7 @@ async def chat_with_meow(
     if config.provider == "ollama" and is_on_render:
         print("⚠️ [安全網攔截] 雲端環境自動降級為 Gemini 喵！")
         config.provider = "gemini"
-        config.model_version = "gemini-1.5-flash" 
+        config.model_version = "gemini-3-flash-preview" 
 
     # 2. 判斷意圖與獲取財務上下文
     try:
@@ -169,7 +169,8 @@ async def chat_with_meow(
     # ==========================================
     # 🌟 攔截點：完美的二選一分流！
     # ==========================================
-    if current_intent == "RECORD":
+    # 🌟 這裡修改：把 MULTI_RECORD 也加進來
+    if current_intent in ["RECORD", "MULTI_RECORD"]:
         # 🚀 通道 A：精準記帳 (強制走 Groq 高階海關)
         try:
             # 取得雙軌輸出的 JSON 字典

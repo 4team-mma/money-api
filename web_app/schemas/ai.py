@@ -17,7 +17,7 @@ class AIConfigSave(BaseModel):
     base_url: Optional[str] = Field(None, description="伺服器位址 (Ollama/Anything 需要)", examples=["http://localhost:11434"])
     
     # 🤖 model_version 建議給一個通用的預設值
-    model_version: str = Field("gemini-1.5-flash", description="模型版本", examples=["gemini-2.0-flash"])
+    model_version: str = Field("gemini-3-flash-preview", description="模型版本", examples=["gemini-2.0-flash"])
     
     system_prompt: Optional[str] = Field(
         "你是一個親切的理財助手喵喵，說話結尾要帶喵~", 
@@ -27,7 +27,7 @@ class AIConfigSave(BaseModel):
 class AIConfigResponse(BaseModel):
     provider: str = Field(..., examples=["gemini"])
     base_url: Optional[str] = Field(None, examples=["http://localhost:11434"])
-    model_version: str = Field(..., examples=["gemini-1.5-flash"])
+    model_version: str = Field(..., examples=["gemini-3-flash-preview"])
     system_prompt: Optional[str] = Field(None, description="目前生效的提示詞")
     is_active: bool = Field(..., examples=[True])
     has_key: bool = Field(default=False, description="資料庫是否已存在此供應商的金鑰") # 👈 確保有 default
