@@ -60,9 +60,18 @@ def get_daily_missions(current_user: Member = Depends(get_current_user), db: Ses
             if goal_count == 0:
                 ex_titles.append("預算規劃")
 
+            # 🌟 修正：先找出使用者已擁有的卡片 ID 清單
+            owned_card_ids = db.query(AchCard.lib_id).filter(
+                AchCard.user_id == uid, 
+                AchCard.is_unlocked == True
+            ).all()
+            owned_card_ids = [r[0] for r in owned_card_ids]
+
             query = db.query(MissCardsLibrary).filter(
                 MissCardsLibrary.type == 'MISSION', 
-                ~MissCardsLibrary.title.in_(ex_titles)
+                ~MissCardsLibrary.title.in_(ex_titles),
+                # 🌟 核心過濾：如果該任務有獎勵卡片，且卡片已擁有，就不抽它
+                ~MissCardsLibrary.card_reward_id.in_(owned_card_ids)
             )
             
             if active_lib_ids: 
@@ -114,6 +123,7 @@ def accept_mission(miss_id: int, current_user: Member = Depends(get_current_user
     db.commit()
     return {"message": "接取成功"}
 
+
 @router.post("/{miss_id}/claim", response_model=schemas.ClaimRewardResponse)
 def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_current_user), db: Session = Depends(get_db)):
     mission = db.query(DailyMission).filter(DailyMission.miss_id == miss_id, DailyMission.user_id == current_user.user_id).first()
@@ -125,7 +135,9 @@ def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_curren
     card_msg = ""
     if lib.card_reward_id is not None:
         reward_id = lib.card_reward_id
+        # 🌟 先檢查是否存在，避免 Duplicate Entry 500 錯誤
         existing = db.query(AchCard).filter(AchCard.user_id == current_user.user_id, AchCard.lib_id == reward_id).first()
+        
         if existing:
             if not existing.is_unlocked:
                 existing.is_unlocked = True
@@ -133,12 +145,13 @@ def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_curren
                 card_msg = "解鎖成功！"
             else:
                 current_user.points += 50
-                card_msg = "已擁有，獎勵 50 金幣"
+                card_msg = "已擁有此卡，獎勵 50 金幣"
         else:
-            db.add(AchCard(user_id=current_user.user_id, lib_id=reward_id, is_unlocked=True, unlocked_at=datetime.now()))
+            # 🌟 這裡要寫乾淨，不要亂加 flush 或 rollback
+            db.add(AchCard(user_id=current_user.user_id, lib_id=reward_id, is_unlocked=True, unlocked_at=datetime.now(), current_val=0))
             card_msg = "獲得新卡牌！"
-        db.flush()
 
+    # --- 稀有任務觸發邏輯 (維持原樣) ---
     rare_mission_map = {'理財初心者': '紀律的試煉', '節流冒險者': '夢夢的積累', '投資先鋒': '極限的挑戰', '財富領主': '智慧的洞察'}
     rare_titles = list(rare_mission_map.values())
     current_series = (lib.series_name or "").strip()
@@ -160,6 +173,8 @@ def claim_mission_reward(miss_id: int, current_user: Member = Depends(get_curren
                 is_rare_triggered = True
 
     if not is_rare_triggered: mission.miss_status = 2
+    
+    # 🌟 只有在最後統一 commit 即可
     db.commit()
     return {"message": "領取成功", "earned_xp": lib.xp_reward, "new_level": current_user.level, "new_balance_xp": current_user.xp, "card_reward": card_msg if card_msg else None}
 

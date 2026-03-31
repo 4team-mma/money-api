@@ -65,7 +65,7 @@ class GameService:
             ).all()
 
         for dm, lib in active_missions:
-            # 1. 預算控制：今日總支出控制在 $500 以內
+            # 1. 預算控制
             if lib.title == '預算控制':
                 total_exp = db.query(func.sum(AddRecord.add_amount)).filter(
                     AddRecord.user_id == user_id,
@@ -74,66 +74,60 @@ class GameService:
                 ).scalar() or 0
                 
                 if float(total_exp) <= 500:
-                    dm.current_val = lib.target_val # 500/500 完成
+                    dm.current_val = lib.target_val 
                 else:
-                    dm.current_val = 0 # 失敗或重置
+                    dm.current_val = 0
 
-            # 2. 節能減碳：今日交通類總消費不超過 $100
+            # 2. 節能減碳
             elif lib.title == '節能減碳':
                 traffic_exp = db.query(func.sum(AddRecord.add_amount)).filter(
                     AddRecord.user_id == user_id,
                     AddRecord.add_date == today,
                     AddRecord.add_type == False,
-                    AddRecord.add_class == '交通' # 確保你的分類名稱正確
+                    AddRecord.add_class == '交通'
                 ).scalar() or 0
                 
                 if float(traffic_exp) <= 100:
-                    dm.current_val = lib.target_val # 100/100 完成
+                    dm.current_val = lib.target_val 
                 else:
                     dm.current_val = 0
             
-            # 🌟 新增 3. 減少外食：今日飲食類消費不超過 $300
+            # 🌟 3. 減少外食 (修正點：判斷式必須縮排進 elif 內)
             elif lib.title == '減少外食':
                 food_exp = db.query(func.sum(AddRecord.add_amount)).filter(
-                AddRecord.user_id == user_id,
-                AddRecord.add_date == today,
-                AddRecord.add_type == False,
-                AddRecord.add_class == '飲食' # ⚠️ 請確認你資料庫定義的分類名稱是「飲食」
-            ).scalar() or 0
+                    AddRecord.user_id == user_id,
+                    AddRecord.add_date == today,
+                    AddRecord.add_type == False,
+                    AddRecord.add_class == '飲食'
+                ).scalar() or 0
+                
+                if float(food_exp) <= 300:
+                    dm.current_val = lib.target_val 
+                else:
+                    dm.current_val = 0
             
-            # 如果整天吃不到 300，進度填滿 (1/1 或 300/300)
-            # 根據你 SQL 的 target_val 是 300，我們把 current_val 設為 300 表示達成
-            if float(food_exp) <= 300:
-                dm.current_val = lib.target_val 
-            else:
-                dm.current_val = 0 # 超過就失敗
-            
-            # 🌟 新增 4. 無現金支付判定
-            if lib.title == '無現金支付':
-            # 找出今天該使用者的所有支出紀錄 (add_type=False)
+            # 🌟 4. 無現金支付 (修正點：改為 elif 並修正內部縮排)
+            elif lib.title == '無現金支付':
                 records = db.query(AddRecord).filter(
                     AddRecord.user_id == user_id,
                     AddRecord.add_date == today,
                     AddRecord.add_type == False
-            ).all()
+                ).all()
 
-            if not records:
-                # 如果今天完全沒消費，依據你的設計決定是否算達成。通常建議沒消費也算守住紀錄。
-                dm.current_val = 0 
-                continue
-
-            # 檢查這些紀錄所屬的帳戶類型
-            all_credit = True
-            for r in records:
-                acc = db.query(Account).filter(Account.account_id == r.account_id).first()
-                if not acc or acc.account_type != 'credit': # 只要有一筆不是 credit
-                    all_credit = False
-                    break
-            
-            if all_credit:
-                dm.current_val = lib.target_val # 達成 1/1
-            else:
-                dm.current_val = 0 # 只要有一筆非信用卡消費，進度歸零
+                if not records:
+                    dm.current_val = 0 
+                else:
+                    all_credit = True
+                    for r in records:
+                        acc = db.query(Account).filter(Account.account_id == r.account_id).first()
+                        if not acc or acc.account_type != 'credit':
+                            all_credit = False
+                            break
+                    
+                    if all_credit:
+                        dm.current_val = lib.target_val
+                    else:
+                        dm.current_val = 0
             
             
 
@@ -286,15 +280,23 @@ class GameService:
                 
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
+                    # 🌟 新增：零錢存錢 (相容轉帳動作 或 存入性質的記帳)
+                    if lib.title == '零錢存錢':
+                        # 只要是「轉帳」分類，或是「收入(add_type=True)」都算達成一次
+                        if category == '轉帳' or (category == '記帳' and add_type is True):
+                            dm.current_val += increment
+                    
+                    # 🌟 優化：資金調度 (配合 NT_任務 系列)
+                    elif lib.title == '資金調度':
+                        if category == '轉帳':
+                            dm.current_val += increment
+                    
                     # 優化：記帳達人或類似任務，通常指「花費紀錄」
                     if lib.title == '記帳達人':
                         if add_type is False: # 僅限支出才累加
                             dm.current_val += increment
                     
-                    # 優化：資金調度任務判定
-                    elif lib.title == '資金調度':
-                        if category == '轉帳': # 確保只有從 transfers.py 來的才算
-                            dm.current_val += increment
+                    
                             
                     else:
                         # 這邊是要填寫特殊要求的，只要符合**「只要有記帳，不管記什麼都給分」**的任務，都不用填進來，例如:
