@@ -350,8 +350,9 @@ class GroqDataGeneratorApp(ctk.CTk):
         else:
             mode_text = "多項式" if mode_choice == "MULTI" else "單項式"
             self.log(f"🔥 連線 Groq ({model_name}) 批次生成 {count} 筆 `{selected_option}` {mode_text}句子...")
-            system_context = f"{SYSTEM_KNOWLEDGE}\n\n【重要強制規定】：請確保輸出文字絕對不能有簡體中文，有簡體字的一律換成台灣繁體中文！\n\n"
-            final_prompt = f"{system_context}任務：{user_defined_prompt}\n請直接列表輸出這 {count} 句，一行一句，嚴禁任何解釋或引號："
+            system_context = f"{SYSTEM_KNOWLEDGE}\n\n【強制規定】：使用繁體中文。不可有簡體字。\n"
+            # 修改這裡：讓指令簡潔
+            final_prompt = f"{system_context}\n任務：{user_defined_prompt}\n請直接輸出列表，一行一句，總共剛好 {count} 句，不要任何開場與結尾："
         
         try:
             client = Groq(api_key=api_key)
@@ -371,7 +372,13 @@ class GroqDataGeneratorApp(ctk.CTk):
 
             lines = result_text.split('\n')
             success_count = 0
+            target_count = int(count) # 🌟 先把目標數量轉成數字
             for line in lines:
+                
+                # 🛑 這裡新增一條「強制煞車」邏輯
+                if success_count >= target_count:
+                    break
+                
                 clean_line = line.strip("1234567890.、- *\"'")
                 if len(clean_line) > 10 if self.is_mysql_mode else len(clean_line) > 2:
                     if self.is_mysql_mode:
