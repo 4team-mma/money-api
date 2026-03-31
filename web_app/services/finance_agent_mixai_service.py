@@ -5,6 +5,7 @@ import jieba
 import onnxruntime as ort
 import re
 from typing import Any, Optional, Dict, List
+from web_app.services.vector_db_tools import VectorDBTools
 
 class FinanceAgentMixAIService:
     # 🌟 完全去 Pickle 化：改用 Dict 和 List 存儲
@@ -47,10 +48,12 @@ class FinanceAgentMixAIService:
         """
         assert cls.word_index is not None
         tokens = text.split()
-        # 將字轉為 index，字典找不到則給 0 (OOV)
-        sequence = [cls.word_index.get(word, 0) for word in tokens]
+        # ⚠️ 修正點：只保留字典裡有的字，沒有的直接忽略，不要塞 0
+        sequence = []
+        for word in tokens:
+            if word in cls.word_index:
+                sequence.append(cls.word_index[word])
         
-        # 固定長度的 Padding
         padded = np.zeros((1, maxlen), dtype=np.float32)
         if sequence:
             trunc = sequence[:maxlen]
@@ -92,60 +95,38 @@ class FinanceAgentMixAIService:
 
     @classmethod
     def apply_v10_logic(cls, text_str, keras_intent):
-        """邱比特行為邏輯攔截器 V10 - 究極進化版"""
-        action_keywords = ['買', '花', '吃', '喝', '給', '拿', '領', '存', '記', '付', '收', '入']
-        action_count = sum(1 for kw in action_keywords if kw in text_str)
+        """邱比特行為邏輯攔截器 V10 (ChromaDB 向量進化 + 絕對法則防護)"""
+        
+        # 🛡️ 1. 啟動向量警衛室
+        vector_intent = VectorDBTools.search_intent(text_str)
+        if vector_intent is not None:
+            print(f"🛡️ [向量警衛室] 攔截成功！覆蓋模型直覺: {keras_intent} -> {vector_intent}")
+            return vector_intent
 
-        digit_groups = re.findall(r'\d+', text_str)
-        money_unit_count = text_str.count('元') + text_str.count('塊')
-        money_strength = max(money_unit_count, len(digit_groups))
-
-        # 1. 建議攔截
-        if any(kw in text_str for kw in ['建議', '該怎麼', '該怎', '還是', '如何做好', '怎麼做']):
-            return 'ADVISOR'
-
-        # 2. 查詢攔截
-        query_triggers = ['多少', '剩多少', '還剩', '預算炸了', '會不會', '查一下', '清單', '明細', '統計']
-        if any(kw in text_str for kw in query_triggers):
-            query_targets = sum(1 for kw in ['開銷', '收入', '餘額', '預算', '支出', '資產'] if kw in text_str)
-            if query_targets >= 2 or any(kw in text_str for kw in ['還有', '順便', '和']):
-                return 'MULTI_QUERY'
-            return 'QUERY'
-
-        # 3. 閒聊與意圖降級攔截
-        emotion_keywords = ['到底要不要', '哈哈', '送給你', '好開心', '呢', '傷心', '嗚嗚']
-        if any(kw in text_str for kw in emotion_keywords):
-            record_actions = ['存', '記', '買', '花', '支', '付', '收', '入', '領']
-            has_real_action = any(kw in text_str for kw in record_actions)
-
-            if '到底要不要' in text_str or '呢' in text_str or '嗎' in text_str:
-                if not has_real_action: return 'CHAT'
-            if keras_intent in ['RECORD', 'MULTI_RECORD'] and (money_strength >= 1 or has_real_action):
-                return keras_intent
-            if money_strength == 0 and not has_real_action:
-                return 'CHAT'
-
-        # 4. 多筆判定
-        is_multi_record = False
-        multi_markers = ['順便', '又', '加上', '然後', '之外', '還有', '第一', '第二']
-        if money_strength >= 2:
-            if action_count >= 2 or any(m in text_str for m in multi_markers):
-                is_multi_record = True
-
+        print(f"🤖 [ONNX模型] 警衛室放行，使用模型直覺: {keras_intent}")
         final_intent = keras_intent
-        if is_multi_record:
-            if 'KNOWLEDGE' in final_intent: final_intent = 'MULTI_KNOWLEDGE'
-            elif 'QUERY' in final_intent: final_intent = 'MULTI_QUERY'
-            else: final_intent = 'MULTI_RECORD'
-        elif final_intent == 'RECORD':
-            if money_strength == 0 and action_count == 0:
-                final_intent = 'CHAT'
-
-        # 5. 知識庫保護
-        knowledge_keywords = ['任務', '成就', '主題', '背景', '解鎖', '手冊', '規則', 'CPI', '卡牌', '物價指數']
-        if any(kw in text_str for kw in knowledge_keywords):
-            if any(kw in text_str for kw in ['好簡單', '太難了', '真累', '開心', '早上好']):
+        
+        # ==========================================
+        # 🚨 2. [絕對法則]：沒錢就不能記帳！(解決「買台積電爽啦」痛點)
+        # ==========================================
+        if final_intent in ['RECORD', 'MULTI_RECORD']:
+            # 抓取句子裡的阿拉伯數字，或是「元、塊、萬」等明確單位
+            digit_groups = re.findall(r'\d+', text_str)
+            money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')
+            
+            # 如果完全沒有數字，也沒有錢的單位，代表只是在講幹話或分享心情
+            if len(digit_groups) == 0 and money_unit_count == 0:
+                print("🚨 [絕對法則] 發現沒有具體金額！強制將 RECORD 降級為 CHAT")
                 return 'CHAT'
+
+        # ==========================================
+        # 📚 3. 純知識名詞保護
+        # ==========================================
+        knowledge_keywords = ['任務', '成就', '主題', '背景', '解鎖', '手冊', '規則', '簽到', '卡牌', 'CPI', '物價指數']
+        if any(kw in text_str for kw in knowledge_keywords):
+            if any(kw in text_str for kw in ['好簡單', '太難了', '真累', '開心', '好開心', '早上好', '嗚嗚']):
+                return 'CHAT'
+            multi_markers = ['順便', '又', '加上', '然後', '之外', '還有']
             if any(m in text_str for m in multi_markers):
                 return 'MULTI_KNOWLEDGE'
             return 'KNOWLEDGE'

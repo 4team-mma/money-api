@@ -85,11 +85,14 @@ class FinanceAgentService:
 
     @staticmethod
     #  1. 加上 async，並把 user_id: int 改成 user: Member
-    async def get_context(db: Session, user: Member, message: str, persona_key: str | None = "cute") -> dict:
+    async def get_context(db: Session, user: Member, message: str, persona_key: str | None = "cute", override_intent: str | None = None) -> dict:
         
-        user_id = user.user_id # 2.把 user_id 抽出來，讓下面原本的程式碼不會壞掉
+        user_id = user.user_id 
         
-        intent = FinanceAgentService.analyze_intent(message)
+        # 如果有傳 override_intent 就用傳入的，否則就自己分析
+        intent = override_intent if override_intent else FinanceAgentService.analyze_intent(message)
+        
+        
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         today = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -112,23 +115,21 @@ class FinanceAgentService:
         # ==========================================
         # 💡 意圖 B：理財顧問與基準線分析 (ADVISOR)
         # ==========================================
-        elif intent == "ADVISOR":
-            # 🌟 名字要對齊你的檔案！
+        # 🌟 這裡修改：讓 MULTI_ADVISOR 也進入顧問邏輯
+        elif intent in ["ADVISOR", "MULTI_ADVISOR"]:
             from .advisor_tools import FinancialAdvisorService
-            
             abnormal_report = await FinancialAdvisorService.get_ai_context(db, user) 
-            
             prompt = ADVISOR_TEMPLATE.format(
                 today=today,
-                persona=PERSONAS["professional"], # 強制使用專業喵喵
+                persona=PERSONAS["professional"],
                 abnormal_report=abnormal_report
             )
-            return {"intent": "ADVISOR", "system_prompt": prompt}
-        
+            return {"intent": intent, "system_prompt": prompt} # 回傳原始 intent 即可
         # ==========================================
-        # 💡 意圖 C：記帳並要求回傳 JSON (RECORD)
+        # 💡 意圖 C：記帳並要求回傳 JSON (RECORD 與 MULTI_RECORD)
         # ==========================================
-        elif intent == "RECORD":
+        # 🌟 這裡修改：讓 MULTI_RECORD 也進入記帳邏輯
+        elif intent in ["RECORD", "MULTI_RECORD"]: 
             from ..models import Account
             first_acc = db.query(Account).filter(Account.user_id == user_id).first()
             default_acc_name = first_acc.account_name if first_acc else "我的錢包"
@@ -141,12 +142,12 @@ class FinanceAgentService:
                 default_acc_name=default_acc_name,
                 format_instructions=parser.get_format_instructions() 
             )
-            return {"intent": "RECORD", "system_prompt": prompt}
+            return {"intent": intent, "system_prompt": prompt} # 保持回傳當前的 intent
 
         # ==========================================
-        # 💡 意圖 D：系統手冊 (KNOWLEDGE) 🌟 新增
+        # 💡 意圖 D：系統手冊 (KNOWLEDGE 與 MULTI_KNOWLEDGE)
         # ==========================================
-        elif intent == "KNOWLEDGE":
+        elif intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
             from .vector_db_tools import VectorDBTools
             retrieved_docs = VectorDBTools.search_manual(message)
             prompt = KNOWLEDGE_TEMPLATE.format(
@@ -158,8 +159,10 @@ class FinanceAgentService:
             return {"intent": "KNOWLEDGE", "system_prompt": prompt}
 
         # ==========================================
-        # 💡 意圖 E：查帳與數據查詢 (QUERY)
+        # 💡 意圖 E：查帳與數據查詢 (QUERY 與 MULTI_QUERY)
         # ==========================================
+        #  因為我們前面的 if/elif 已經把其他意圖都過濾掉了
+        # 所以這裡的 else 會處理剩下的意圖，包含 QUERY 和 MULTI_QUERY，所以這部分不需要改！
         else:
             context_parts = [f"[系統時間]: {today}"]
             msg = message.lower()
@@ -224,17 +227,32 @@ class FinanceAgentService:
             
         secure_api_key = SecretStr(groq_api_key)
         
-        # 🌟 這裡！把模型換成更聰明的 llama3-70b-8192
+        # 這裡！把模型換成更聰明的 llama3-70b-8192
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_api_key)
         
         parser = PydanticOutputParser(pydantic_object=RecordResponseSchema)
         
+        # 🌟 終極修復：強制加上「純 JSON」的死命令
+        strict_json_rules = (
+            "【最高指令：絕對禁止任何廢話】\n"
+            "請你扮演一個無情的資料轉換機，你唯一的任務就是輸出符合格式的 JSON 字典。\n"
+            "1. 絕對不允許在 JSON 之前或之後加上任何文字（例如：『好的』、『喵』、『這是結果』）。\n"
+            "2. 請直接以 `{` 開頭，並以 `}` 結尾。\n"
+            "3. 不要使用 ```json 的 Markdown 標籤，只輸出純文字格式的 JSON。\n"
+        )
+
         final_prompt = PromptTemplate(
-            template="{system_prompt}\n\n[小主人的話]：{user_message}",
-            input_variables=["system_prompt", "user_message"]
+            template="{strict_json_rules}\n{system_prompt}\n\n[小主人的話]：{user_message}",
+            input_variables=["strict_json_rules", "system_prompt", "user_message"]
         )
         
         chain = final_prompt | llm | parser
-        result = chain.invoke({"system_prompt": system_prompt, "user_message": user_message})
+        
+        # 傳入額外的 strict_json_rules 變數
+        result = chain.invoke({
+            "strict_json_rules": strict_json_rules,
+            "system_prompt": system_prompt, 
+            "user_message": user_message
+        })
         
         return result.model_dump()

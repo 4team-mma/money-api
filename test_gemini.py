@@ -24,7 +24,7 @@ async def list_available_models():
         count = 0
         for model in models:
             # 這裡我們不檢查屬性，直接印出 name
-            # 正常來說，這些模型名稱會長得像 "gemini-1.5-flash"
+            # 正常來說，這些模型名稱會長得像 "gemini-3-flash-preview"
             print(f"📌 {model.name}")
             count += 1
             
