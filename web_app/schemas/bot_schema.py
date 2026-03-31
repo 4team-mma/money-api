@@ -1,6 +1,6 @@
 # web_app/schemas/bot_schema.py
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List  # 🌟 1. 這裡要引入 List
 
 class FinanceRecordSchema(BaseModel):
     # 這是前端判斷最核心的欄位
@@ -23,4 +23,8 @@ class FinanceRecordSchema(BaseModel):
 # 🌟 新增：雙軌輸出包裝 (同時包含對話與資料)
 class RecordResponseSchema(BaseModel):
     reply_text: str = Field(description="用符合 Persona 的可愛喵喵語氣回應小主人，例如：『喵！幫你整理好這筆帳囉，請確認！』")
-    action_data: FinanceRecordSchema = Field(description="要寫入資料庫的嚴格格式資料")
+    
+    # 🌟 2. 這裡改成 List，並且給 LLM 下達強烈暗示！
+    action_data: List[FinanceRecordSchema] = Field(
+        description="要寫入資料庫的嚴格格式資料。必須是一個陣列(List)。如果句子裡有多筆收支，請務必拆分成多個物件填入陣列中。"
+    )
