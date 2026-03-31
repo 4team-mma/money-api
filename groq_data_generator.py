@@ -1,6 +1,6 @@
 # python groq_data_generator.py
 import customtkinter as ctk
-import pandas as pd
+import csv
 import threading
 import os
 import glob
@@ -172,24 +172,39 @@ class GroqDataGeneratorApp(ctk.CTk):
             else: 
                 return f"生成 {count} 筆 INSERT INTO 語法，新增至 `{selected_option}` 表。user_id 皆填 1。"
         else: # NLP 模式
+            c = int(count)
             if mode_choice == "MULTI":
-                # 這裡保留了最精華的 80/20 比例控制
-                c = int(count)
                 prompts = {
-                    "RECORD": f"生成 {c} 句台灣人「一次記多筆帳」的自然口語。嚴格規則：\n1. 每句話只能包含 2 到 3 個日常消費項目，絕對不能超過 3 個！\n2. 【重要比例控制】：在這 {c} 句話裡面，請讓大約 {int(c*0.8)} 句完全不要加總計。\n3. 剩下的 {int(c*0.2)} 句，才可以在句尾加上總計（例如：午餐100，下午咖啡60，總共花了160元）。",
-                    "QUERY": f"生成 {c} 句台灣人「一次查詢多個財務資訊」的口語說法。例如：『幫我查這個月的飲食預算剩多少，順便看銀行帳戶總餘額』。內容嚴格限制在個人財務管理。",
-                    "CHAT": f"生成 {c} 句跟理財助手「閒聊多個財務狀況」的說法。例如：『最近好像花太多錢了，有點焦慮，且這個月都沒存到錢』。只能跟財務、記帳、省錢有關。",
-                    "ADVISOR": f"結合上方系統知識，生成 {c} 句向顧問「一次詢問多個理財或預算建議」的說法。例如：『我該怎麼分配交通跟娛樂預算？還有獎金建議投資嗎？』",
-                    "KNOWLEDGE": f"結合上方系統知識，生成 {c} 句詢問「系統操作」並包含多個問題的說法。例如：『SJ組的卡牌怎麼收集？還有簽到第七天給多少XP？』"
+                    "RECORD": f"【任務】：生成 {c} 句台灣人「一次記錄多筆消費」的自然口語。\n"
+                              f"【重要特徵】：每一句必須包含 2 到 3 個明確金額與動詞，且必須使用連接詞（如：又、順便、加上、然後）。\n"
+                              f"【比例控制】：{int(c*0.8)} 句不要加總計；{int(c*0.2)} 句結尾加上總額（如：總共180元）。\n"
+                              f"【範例】：『早餐吃50元然後又買了杯35元的奶茶』、『剛交了房租1萬5順便付了水費300』。",
+                    
+                    "QUERY": f"【任務】：生成 {c} 句台灣人「一次查詢多個財務資訊」的口語。\n"
+                             f"【重要特徵】：必須包含連接詞（如：順便、還有、再幫我、以及、也要看），內容包含餘額、預算、支出、收入。\n"
+                             f"【範例】：『查一下我這週花了多少，還有下個月預算剩多少？』、『看我的錢包餘額，順便查飲食支出。』",
+                    
+                    "CHAT": f"【任務】：生成 {c} 句跟理財助手「閒聊多個財務心情」的說法。\n"
+                            f"【重要特徵】：必須包含情緒詞（如：焦慮、爽、開心）與理財情境（如：省錢、存錢、花太多）。\n"
+                            f"【數字控制】：只有 30% 的句子包含模糊數字（如：這個月又花幾千塊）。\n"
+                            f"【範例】：『這個月好像花太多了，有點焦慮，而且都沒存到錢。』",
+                    
+                    "ADVISOR": f"【身分】：你是台灣使用者。任務：生成 {c} 句向顧問「尋求多個理財建議」的說法。\n"
+                               f"【重要特徵】：每一句必須包含具體金額（如：10萬塊、月薪4萬），詢問投資、分配或預算建議。\n"
+                               f"【範例】：『我月薪4萬該怎麼分配交通費？還有剩下的5000元建議存股嗎？』",
+                    
+                    "KNOWLEDGE": f"【任務】：生成 {c} 句詢問「系統規則或名詞解釋」且包含多個問題的說法。\n"
+                                 f"【重要特徵】：包含連接詞，針對簽到、卡牌、XP、任務、CPI、薪資分析進行詢問。\n"
+                                 f"【範例】：『SJ組的卡牌怎麼收集？還有簽到滿七天會送什麼？』"
                 }
                 return prompts.get(selected_option, "")
             else:
                 prompts = {
-                    "RECORD": f"生成 {count} 句台灣人「單純記一筆帳」的口語說法。必須包含金額和項目。例如：午餐100元。內容嚴格限制在記帳。",
-                    "QUERY": f"生成 {count} 句台灣人「查帳、問預算、問餘額」的口語說法。",
-                    "CHAT": f"生成 {count} 句跟理財助手「關於財務與省錢的閒聊」的說法。",
-                    "ADVISOR": f"結合上方系統知識，生成 {count} 句向理財顧問「尋求單一理財建議」的說法。",
-                    "KNOWLEDGE": f"結合上方系統知識，生成 {count} 句詢問「單一系統操作」的說法。"
+                    "RECORD": f"生成 {c} 句台灣人「單純記一筆帳」的口語。必須包含 1 個金額與 1 個項目。範例：『午餐120元』、『剛剛買飲料花45塊』。",
+                    "QUERY": f"生成 {c} 句台灣人「查詢單一財務資訊」的口語。範例：『我預算剩多少？』、『查一下這個月的支出』。",
+                    "CHAT": f"生成 {c} 句關於理財心情的單純閒聊（不含記帳動作）。範例：『省錢真的好難喔』、『發票又沒中了，嗚嗚』。",
+                    "ADVISOR": f"【身分】：台灣使用者。生成 {c} 句「尋求單一理財建議」的口語。必須含具體金額。範例：『我有10萬塊建議存哪裡？』。",
+                    "KNOWLEDGE": f"生成 {c} 句詢問「單一系統操作或名詞」的說法。範例：『CPI是什麼？』、『卡牌在哪裡看？』。"
                 }
                 return prompts.get(selected_option, "")
 
@@ -335,8 +350,9 @@ class GroqDataGeneratorApp(ctk.CTk):
         else:
             mode_text = "多項式" if mode_choice == "MULTI" else "單項式"
             self.log(f"🔥 連線 Groq ({model_name}) 批次生成 {count} 筆 `{selected_option}` {mode_text}句子...")
-            system_context = f"{SYSTEM_KNOWLEDGE}\n\n【重要強制規定】：請確保輸出文字絕對不能有簡體中文，有簡體字的一律換成台灣繁體中文！\n\n"
-            final_prompt = f"{system_context}任務：{user_defined_prompt}\n請直接列表輸出這 {count} 句，一行一句，嚴禁任何解釋或引號："
+            system_context = f"{SYSTEM_KNOWLEDGE}\n\n【強制規定】：使用繁體中文。不可有簡體字。\n"
+            # 修改這裡：讓指令簡潔
+            final_prompt = f"{system_context}\n任務：{user_defined_prompt}\n請直接輸出列表，一行一句，總共剛好 {count} 句，不要任何開場與結尾："
         
         try:
             client = Groq(api_key=api_key)
@@ -356,7 +372,13 @@ class GroqDataGeneratorApp(ctk.CTk):
 
             lines = result_text.split('\n')
             success_count = 0
+            target_count = int(count) # 🌟 先把目標數量轉成數字
             for line in lines:
+                
+                # 🛑 這裡新增一條「強制煞車」邏輯
+                if success_count >= target_count:
+                    break
+                
                 clean_line = line.strip("1234567890.、- *\"'")
                 if len(clean_line) > 10 if self.is_mysql_mode else len(clean_line) > 2:
                     if self.is_mysql_mode:
@@ -400,11 +422,16 @@ class GroqDataGeneratorApp(ctk.CTk):
                     f.write(sql_line + "\n")
             self.log(f"💾 SQL 語法已成功儲存至: {filename}")
         else:
-            filename = self.get_next_filename(base_name, "xlsx")
-            df = pd.DataFrame(self.generated_data)
+            # 如果想降低大小不用panda可以改存csv
+            filename = self.get_next_filename(base_name, "csv")
+            # df = pd.DataFrame(self.generated_data)
             try:
-                df.to_excel(filename, index=False)
-                self.log(f"💾 NLP 訓練集已成功儲存至: {filename}")
+                with open(filename, 'w', newline='',            encoding='utf-8-sig') as f:
+                    writer = csv.DictWriter(f, fieldnames=["text", "intent"])
+                    writer.writeheader()
+                    writer.writerows(self.generated_data)
+                self.log(f"💾 NLP 訓練集已成功儲存.csv至: {filename}")
+                
             except PermissionError:
                 self.log(f"❌ 儲存失敗！請確保 {filename} 沒有在 Excel 中開啟。")
 
