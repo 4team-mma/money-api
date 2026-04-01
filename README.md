@@ -71,13 +71,14 @@ git clone https://github.com/4team-mma/money-api.git
 
 
 
+
 ## 非共用套件:
 - uv pip install customtkinter requests pandas openpyxl
 
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
-
+- uv remove spacy
 
 # 安裝依賴:
 - 執行：uv sync 

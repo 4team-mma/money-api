@@ -4,7 +4,7 @@ import numpy as np
 import jieba
 import onnxruntime as ort
 import re
-from typing import Any, Optional, Dict, List
+from typing import Optional, Dict, List
 from web_app.services.vector_db_tools import VectorDBTools
 
 class FinanceAgentMixAIService:
@@ -105,6 +105,15 @@ class FinanceAgentMixAIService:
 
         print(f"🤖 [ONNX模型] 警衛室放行，使用模型直覺: {keras_intent}")
         final_intent = keras_intent
+        
+        # ==========================================
+        # 🚀 這裡新增：[絕對法則 - 查詢攔截]
+        # 即使模型直覺是 CHAT，只要命中這些「有沒有、紀錄」關鍵字，強制變 QUERY
+        # ==========================================
+        query_hard_keywords = ['有沒有', '吃過', '買過', '紀錄', '查一下', '找一下', '過嗎']
+        if any(k in text_str for k in query_hard_keywords):
+            print(f"🚨 [絕對法則] 偵測到事實查詢關鍵字！強制轉換為 QUERY")
+            return 'QUERY'
         
         # ==========================================
         # 🚨 2. [絕對法則]：沒錢就不能記帳！(解決「買台積電爽啦」痛點)
