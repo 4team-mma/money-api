@@ -49,6 +49,7 @@ dependencies = [
     "pyinstaller>=6.19.0",
     "cohere>=5.21.1",
     "anthropic>=0.88.0",
+    "onnxruntime>=1.19.2",
 ]
 
 [dependency-groups]
