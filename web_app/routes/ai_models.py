@@ -11,6 +11,7 @@ from ..utils.ai_security import decrypt_api_key, encrypt_api_key
 from ..services.gemini_service import GeminiService
 from ..services.ollama_service import OllamaService
 from ..services.finance_agent_service import FinanceAgentService
+from ..services.groq_service import GroqService
 
 from typing import Optional
 import os
@@ -231,6 +232,27 @@ async def chat_with_meow(
                 )
                 reply = result["text"]
                 actual_model_used = result["actual_model"]
+                
+                
+            elif config.provider == "groq":  # 🌟 核心新增
+                env_key = os.getenv("GROQ_API_KEY")
+                db_key = None
+                if config.api_key and config.api_key != "none":
+                    try:
+                        db_key = decrypt_api_key(config.api_key)
+                    except: pass
+                
+                final_key = db_key or env_key
+                if not final_key: raise Exception("找不到有效 Groq Key 喵！")
+
+                reply = await GroqService.chat_async(
+                    api_key=final_key,
+                    model_id=config.model_version,
+                    prompt=req.message,
+                    system_instruction=final_system_prompt
+                )
+                actual_model_used = config.model_version
+            
 
             elif config.provider == "ollama":
                 reply = await OllamaService.chat_async(
