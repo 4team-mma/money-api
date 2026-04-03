@@ -10,24 +10,24 @@ print("🕵️‍♂️ 啟動假資料自動檢查器...\n")
 def check_suspicious_data(row):
     text = str(row['text'])
     intent = str(row['intent'])
-    
+
     # 規則 1：如果是 MULTI_RECORD，但句子裡根本沒有「連接詞」或「兩個以上的數字」
     if intent == 'MULTI_RECORD':
         multi_markers = ['然後', '又', '加上', '順便', '還有', '另外']
         money_matches = re.findall(r'\d+', text)
         if not any(m in text for m in multi_markers) and len(money_matches) < 2:
             return "❌ 標記為 MULTI_RECORD，但缺乏連接詞或多筆金額"
-            
+
     # 規則 2：如果是 SINGLE 意圖 (如 RECORD 或 ADVISOR)，卻出現多項式的特徵
     if intent in ['RECORD', 'ADVISOR', 'QUERY']:
         multi_markers = ['和', '與', '分別', '分配到', '比例']
         if any(m in text for m in multi_markers):
             return f"⚠️ 標記為 {intent} (單項)，但語句中含有多項分配字眼"
-            
+
     # 規則 3：句子太短 (可能是瑕疵資料)
     if len(text) < 4:
         return "⚠️ 句子過短，可能無效"
-        
+
     return "OK"
 
 # 隱藏 tkinter 主視窗
@@ -65,12 +65,12 @@ try:
 
     if len(suspicious_df) > 0:
         print(f"\n🚨 抓到了 {len(suspicious_df)} 筆可疑資料！")
-        
+
         # 在終端機印出前幾筆
         for index, row in suspicious_df.head(10).iterrows():
             print(f"- [{row['intent']}] {row['text']} => {row['check_result']}")
         print("...")
-        
+
         # 匯出成 Excel 讓你慢慢修改
         output_dir = os.path.dirname(file_path)
         output_file = os.path.join(output_dir, "需要人工修補的資料.xlsx")

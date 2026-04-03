@@ -12,12 +12,12 @@ def cleanup_old_notifications():
     with SessionLocal() as db:
         try:
             thirty_days_ago = datetime.now() - timedelta(days=30)
-            
+
             deleted_count = db.query(Notification).filter(
                 Notification.is_read == True,
                 Notification.created_at < thirty_days_ago
             ).delete(synchronize_session=False) # 增加效能，不更新當前 session 快取
-            
+
             db.commit()
             if deleted_count > 0:
                 logger.info(f"🧹 [Cleanup] 自動清理完成：已刪除 {deleted_count} 則過期通知。")

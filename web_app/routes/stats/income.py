@@ -42,7 +42,7 @@ async def get_income_category_stats(
         for r in records:
             amount = float(r.add_amount or 0)
             grand_total += amount # 這是原始總額
-            
+
             # 拆分標籤並去除前後空格
             tags = [t.strip() for t in (r.add_tag or "未分類標籤").split(",") if t.strip()]
             for t in tags:

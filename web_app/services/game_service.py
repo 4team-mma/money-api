@@ -26,13 +26,13 @@ class GameService:
         # 確保初始數值不是 None
         if user.xp is None: user.xp = 0
         if user.level is None: user.level = 1
-        
+
         user.xp += xp_to_add
-        
+
         # 溢位升級判斷
         while True:
             required = GameService.get_required_xp(user.level)
-            
+
             # 如果目前經驗值超過門檻，且尚未達到等級上限
             if user.xp >= required and user.level < 100:
                 user.xp -= required  # 扣除升級消耗，剩餘 XP 繼續累積
@@ -40,11 +40,11 @@ class GameService:
             else:
                 # XP 不足或已滿級，停止判斷
                 break
-        
+
         # 這裡不需要 db.commit()，由呼叫此 Service 的 Router 決定何時 commit
         db.add(user)
         return user
-    
+
     @staticmethod
     def check_end_of_day_missions(db: Session, user_id: int):
         """
@@ -54,7 +54,7 @@ class GameService:
         #now = datetime.now()
         # 只要超過 23:00 或是手動觸發結算邏輯
         # 這裡我們設定只要調用就檢查，但你也可以加 if now.hour >= 23:
-        
+
         today = date.today()
         active_missions = db.query(DailyMission, MissCardsLibrary)\
             .join(MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id)\
@@ -72,9 +72,9 @@ class GameService:
                     AddRecord.add_date == today,
                     AddRecord.add_type == False
                 ).scalar() or 0
-                
+
                 if float(total_exp) <= 500:
-                    dm.current_val = lib.target_val 
+                    dm.current_val = lib.target_val
                 else:
                     dm.current_val = 0
 
@@ -86,12 +86,12 @@ class GameService:
                     AddRecord.add_type == False,
                     AddRecord.add_class == '交通'
                 ).scalar() or 0
-                
+
                 if float(traffic_exp) <= 100:
-                    dm.current_val = lib.target_val 
+                    dm.current_val = lib.target_val
                 else:
                     dm.current_val = 0
-            
+
             # 🌟 3. 減少外食 (修正點：判斷式必須縮排進 elif 內)
             elif lib.title == '減少外食':
                 food_exp = db.query(func.sum(AddRecord.add_amount)).filter(
@@ -100,12 +100,12 @@ class GameService:
                     AddRecord.add_type == False,
                     AddRecord.add_class == '飲食'
                 ).scalar() or 0
-                
+
                 if float(food_exp) <= 300:
-                    dm.current_val = lib.target_val 
+                    dm.current_val = lib.target_val
                 else:
                     dm.current_val = 0
-            
+
             # 🌟 4. 無現金支付 (修正點：改為 elif 並修正內部縮排)
             elif lib.title == '無現金支付':
                 records = db.query(AddRecord).filter(
@@ -115,7 +115,7 @@ class GameService:
                 ).all()
 
                 if not records:
-                    dm.current_val = 0 
+                    dm.current_val = 0
                 else:
                     all_credit = True
                     for r in records:
@@ -123,32 +123,32 @@ class GameService:
                         if not acc or acc.account_type != 'credit':
                             all_credit = False
                             break
-                    
+
                     if all_credit:
                         dm.current_val = lib.target_val
                     else:
                         dm.current_val = 0
-            
-            
+
+
 
         db.commit()
-    
+
 
     @staticmethod
     def update_mission_progress(
-        db: Session, 
-        user_id: int, 
-        category: str, 
-        increment: int = 1, 
-        amount: float = 0, 
-        tag: Optional[str] = None, 
+        db: Session,
+        user_id: int,
+        category: str,
+        increment: int = 1,
+        amount: float = 0,
+        tag: Optional[str] = None,
         record_class: Optional[str] = None,
         note: Optional[str] = None,
         add_type: Optional[bool] = None
     ):
         """
         全域任務掃描器：更新使用者任務進度
-        
+
         :param db: 資料庫 Session
         :param user_id: 使用者 ID
         :param category: 動作類別 (如: '記帳', '系統', '挑戰', 'NT_任務')
@@ -159,7 +159,7 @@ class GameService:
         :param note: 傳入該筆紀錄的備註 (add_note)
         :param add_type: 傳入該筆紀錄的類型 (True=收入, False=支出)
         """
-        
+
         # 1. 找出該使用者所有「進行中 (miss_status=1)」的任務
         active_missions = db.query(DailyMission, MissCardsLibrary)\
             .join(MissCardsLibrary, DailyMission.lib_id == MissCardsLibrary.lib_id)\
@@ -171,10 +171,10 @@ class GameService:
         for dm, lib in active_missions:
             # 判斷類別是否匹配 (包含子類別與挑戰)
             is_category_match = (lib.category == category) or (lib.category == '挑戰') or (lib.category.endswith('_任務'))
-            
+
             if is_category_match:
                 # --- A. 特定標題的特殊邏輯 ---
-                
+
                 # 1. 深度思考：備註心得 > 100 字元
                 if lib.title == '深度思考':
                     if note is not None and len(note) > 100:
@@ -218,7 +218,7 @@ class GameService:
                     else:
                         dm.current_val = 0
                     continue
-                    
+
 
                 # 7. 客製分類：檢查標籤不在預設名單
                 elif lib.title == '客製分類':
@@ -230,7 +230,7 @@ class GameService:
                 # 8. 大額支出判定 (>= 1000)
                 elif lib.title == '大額支出':
                     if amount >= 1000:
-                        dm.current_val = lib.target_val 
+                        dm.current_val = lib.target_val
                     continue
 
                 # 9. 工作紀錄與人際開銷 (SJ 任務)
@@ -240,7 +240,7 @@ class GameService:
                 elif lib.title == '人際開銷' and record_class == '社交':
                     dm.current_val += increment
                     continue
-                    
+
                 # 10. 智慧的洞察：AI 聊天觸發 (NT 稀有任務)
                 elif lib.title == '智慧的洞察':
                     if category == 'AI_聊天' and note:
@@ -249,35 +249,35 @@ class GameService:
                         if 'CPI' in msg and any(k in msg for k in ['最高', '指標']):
                             dm.current_val = lib.target_val
                     continue
-                            
+
                 # 11. 宏觀分析：年度報表匯出 (NF 任務)
                 elif lib.title == '宏觀分析':
                     # 只要類別匹配成功（由 API 傳入 '宏觀分析'），就直接加 1
                     if category == '宏觀分析':
                         dm.current_val += increment
                     continue
-                
+
                 # 12. 雙向標籤：任務判斷
                 if lib.title == '雙向標籤':
                     if tag:
                         # 假設標籤在資料庫中是以逗點分隔儲存，例如 "需要,自訂標籤1"
                         # 我們先將字串拆解成清單
                         tag_list = [t.strip() for t in tag.split(',') if t.strip()]
-                        
+
                         # 判定條件：
                         # 1. 標籤總數至少要 2 個
                         # 2. 且其中至少有一個不屬於預設名單（自訂標籤）
                         default_tags = ['需要', '想要', '旅遊']
                         custom_tags = [t for t in tag_list if t not in default_tags]
-                        
+
                         # 如果標籤總數 >= 2 且包含自訂標籤
                         if len(tag_list) >= 2 and len(custom_tags) >= 1:
                             dm.current_val = lib.target_val # 達成任務
                     continue # 處理完畢跳過後續邏輯
-                
-                
-                
-                
+
+
+
+
                 # --- B. 一般累進邏輯 (如: 隨手一記、收入進帳等) ---
                 else:
                     # 🌟 新增：零錢存錢 (相容轉帳動作 或 存入性質的記帳)
@@ -285,19 +285,19 @@ class GameService:
                         # 只要是「轉帳」分類，或是「收入(add_type=True)」都算達成一次
                         if category == '轉帳' or (category == '記帳' and add_type is True):
                             dm.current_val += increment
-                    
+
                     # 🌟 優化：資金調度 (配合 NT_任務 系列)
                     elif lib.title == '資金調度':
                         if category == '轉帳':
                             dm.current_val += increment
-                    
+
                     # 優化：記帳達人或類似任務，通常指「花費紀錄」
                     if lib.title == '記帳達人':
                         if add_type is False: # 僅限支出才累加
                             dm.current_val += increment
-                    
-                    
-                            
+
+
+
                     else:
                         # 這邊是要填寫特殊要求的，只要符合**「只要有記帳，不管記什麼都給分」**的任務，都不用填進來，例如:
                         # 隨手一記：目標 1/1，記一筆就達成。
@@ -311,4 +311,4 @@ class GameService:
 
         # 執行 commit 將進度寫入資料庫
         db.commit()
-        
+

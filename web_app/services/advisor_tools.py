@@ -23,7 +23,7 @@ class FinancialAdvisorService:
         total_cur = sum(item['amount'] for item in current_exp)
         total_past = sum(item['amount'] for item in past_exp)
         growth_rate = (total_cur - total_past) / total_past if total_past > 0 else 0
-        
+
         # 3. 抓取淨資產 (調用你原本的 trends.py 邏輯)
         net_worth_data = get_net_worth_history(db, user)
         current_net_worth = net_worth_data['monthly'][0]['net'] if net_worth_data['monthly'] else 0

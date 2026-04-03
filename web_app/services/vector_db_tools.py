@@ -24,7 +24,7 @@ class VectorDBTools:
             hf_token = os.getenv("HF_TOKEN")
             if not hf_token:
                 raise ValueError("找不到 HF_TOKEN，請確認 .env 檔案設定喵！")
-                
+
             print("🚀 [系統] 首次初始化 HuggingFace 向量引擎...")
             cls._embeddings = HuggingFaceEndpointEmbeddings(
                 model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -61,19 +61,19 @@ class VectorDBTools:
         """在 2 樓搜尋手冊知識 (使用 Cohere 重排)"""
         try:
             vectorstore = VectorDBTools.get_manual_store()
-            
+
             # 1. Chroma 粗撈 (抓 10 筆)
             docs = vectorstore.similarity_search(query, k=10)
-            
+
             if not docs:
                 return "喵喵在手冊裡找不到相關的說明喵..."
 
             cohere_client = VectorDBTools._get_cohere_client()
-            
+
             if cohere_client:
                 # 2. 抽出文字內容準備給 Cohere
                 doc_texts = [doc.page_content for doc in docs]
-                
+
                 # 3. 呼叫 Cohere API 進行精密打分與重排
                 results = cohere_client.rerank(
                     query=query,
@@ -81,41 +81,41 @@ class VectorDBTools:
                     top_n=k, # 只取前 k 名
                     model='rerank-multilingual-v3.0' # 指定多語言模型
                 )
-                
+
                 # 4. 組裝重排後的結果
                 best_docs = [docs[res.index] for res in results.results]
             else:
                 # 如果沒有設 API Key，就退回原本的 Chroma 排序
                 best_docs = docs[:k]
-                
+
             context_text = "\n\n".join([f"【參考段落 {i+1}】\n{doc.page_content}" for i, doc in enumerate(best_docs)])
             return context_text
-            
+
         except Exception as e:
             print(f"查詢錯誤: {e}")
             return "喵喵的手冊資料庫連線中斷，請稍後再試喵！"
-    
+
     @staticmethod
     def search_intent(query: str) -> Optional[str]:
         """在 1 樓搜尋意圖防呆範例"""
         try:
             vectorstore = VectorDBTools.get_intent_store()
-            
+
             # 尋找最相似的 1 句話
             docs_and_scores = vectorstore.similarity_search_with_score(query, k=1)
-            
+
             if docs_and_scores:
                 doc, score = docs_and_scores[0]
                 # 🌟 門檻值：如果你覺得它亂攔截，調低(例如 0.2)；攔截不到，調高(例如 0.4)
-                if score < 0.3: 
-                    return doc.metadata["intent"] 
-            
-            return None 
-            
+                if score < 0.3:
+                    return doc.metadata["intent"]
+
+            return None
+
         except Exception as e:
             print(f"ChromaDB 意圖查詢錯誤: {e}")
             return None
-        
+
     @classmethod
     def _get_cohere_client(cls):
         """共用的 Cohere Client (單例模式)"""

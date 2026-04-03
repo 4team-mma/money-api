@@ -13,7 +13,7 @@
 ```bash
 # 就算前端傳字串 "100.5"，Pydantic 也會自動幫你轉成 Decimal
 class AddRecordCreate(BaseModel):
-    add_amount: Decimal 
+    add_amount: Decimal
     add_date: date
 ```
 

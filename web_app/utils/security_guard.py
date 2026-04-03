@@ -16,16 +16,16 @@ BLACKLIST_KEYWORDS = [
 def is_malicious(user_input: str) -> bool:
     if not user_input:
         return False
-        
+
     input_lower = user_input.lower()
     for keyword in BLACKLIST_KEYWORDS:
         # ⚠️ 防呆設計：防止清單裡有空字串 ("") 或純空白 (" ")
         if keyword.strip() == "":
             continue
-            
+
         if keyword in input_lower:
             # 💡 加上這行 Log，終端機就會印出到底是「哪個字」害它被攔下來！
             print(f"🚨 [警衛室攔截] 抓到關鍵字: '{keyword}' (原句: {user_input})")
             return True
-            
+
     return False

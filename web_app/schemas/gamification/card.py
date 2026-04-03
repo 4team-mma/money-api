@@ -13,9 +13,9 @@ class CardDisplay(BaseModel):
     is_owned: bool
     is_hidden: bool
     description: Optional[str]
-    current_val: int 
+    current_val: int
     target_val: int
-    
+
     class Config:
         from_attributes = True
 

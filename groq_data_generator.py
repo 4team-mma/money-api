@@ -15,7 +15,7 @@ import time
 load_dotenv()
 
 # 🎨 系統外觀設定
-ctk.set_appearance_mode("Dark")  
+ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green") # 綠色主題，與 Ollama 區分
 
 # 🧠 MMA 系統專屬知識庫
@@ -46,11 +46,11 @@ class GroqDataGeneratorApp(ctk.CTk):
         super().__init__()
         self.title("白白AI資料生成器 (雲端極速知識版)")
         self.geometry("750x950") # 加高以容納 Prompt 編輯區
-        
+
         # --- UI 介面佈局 ---
         self.title_label = ctk.CTkLabel(self, text="😺MMA雲端資料生成器", font=("Arial", 24, "bold"))
         self.title_label.pack(pady=10)
-        
+
         self.key_frame = ctk.CTkFrame(self)
         self.key_frame.pack(pady=5, padx=20, fill="x")
         ctk.CTkLabel(self.key_frame, text="Groq API Key:").pack(side="left", padx=10, pady=10)
@@ -62,27 +62,27 @@ class GroqDataGeneratorApp(ctk.CTk):
         self.model_frame = ctk.CTkFrame(self)
         self.model_frame.pack(pady=5, padx=20, fill="x")
         ctk.CTkLabel(self.model_frame, text="雲端 Groq 模型:").pack(side="left", padx=10, pady=10)
-        
+
         self.model_mapping = {
             "Llama 3.3 70B (穩定主力/假資料神機)": "llama-3.3-70b-versatile",
-            "Llama 3.1 8B (極速生成/輕量首選)": "llama-3.1-8b-instant", 
+            "Llama 3.1 8B (極速生成/輕量首選)": "llama-3.1-8b-instant",
             "Llama 4 Scout (最新視覺/多模態/日常)": "meta-llama/llama-4-scout-17b-16e-instruct",
             "GPT OSS 120B (超強推理/複雜邏輯)": "openai/gpt-oss-120b",
             "GPT OSS 20B (輕量推理/速度快)": "openai/gpt-oss-20b",
             "Qwen 3 32B (強大開源/程式與生成)": "qwen/qwen3-32b"
         }
-        
+
         self.model_combo = ctk.CTkComboBox(self.model_frame, values=list(self.model_mapping.keys()), width=300)
         self.model_combo.set("Llama 3.3 70B (穩定主力/假資料神機)")
         self.model_combo.pack(side="left", padx=10)
-        
+
         self.mode_switch = ctk.CTkSwitch(self.model_frame, text="開啟 MySQL 假資料模式", command=self.toggle_mode)
         self.mode_switch.pack(side="right", padx=20)
 
         self.intent_mode_frame = ctk.CTkFrame(self)
         self.intent_mode_frame.pack(pady=5, padx=20, fill="x")
         ctk.CTkLabel(self.intent_mode_frame, text="句型模式:").pack(side="left", padx=10, pady=10)
-        
+
         self.intent_mode_var = ctk.StringVar(value="SINGLE")
         self.rb_single = ctk.CTkRadioButton(self.intent_mode_frame, text="單項目 (一句一筆/單一意圖)", variable=self.intent_mode_var, value="SINGLE", command=self.on_intent_change)
         self.rb_single.pack(side="left", padx=20)
@@ -91,42 +91,42 @@ class GroqDataGeneratorApp(ctk.CTk):
 
         self.setting_frame = ctk.CTkFrame(self)
         self.setting_frame.pack(pady=5, padx=20, fill="x")
-        
+
         self.intent_label = ctk.CTkLabel(self.setting_frame, text="生成類別:")
         self.intent_label.grid(row=0, column=0, padx=10, pady=10)
-        
+
         self.nlp_options = ["RECORD (記帳)", "QUERY (查詢)", "CHAT (閒聊)", "ADVISOR (顧問)", "KNOWLEDGE (手冊)"]
         self.mysql_options = ["adds (帳單紀錄)", "budgets (預算設定)", "savings_goals (儲蓄目標)", "accounts (我的帳戶)", "transactions (轉帳紀錄)", "feedbacks (意見回饋)"]
-        
+
         self.intent_combo = ctk.CTkComboBox(self.setting_frame, values=self.nlp_options, width=180, command=self.on_intent_change)
         self.intent_combo.grid(row=0, column=1, padx=5, pady=10)
-        
+
         self.upload_btn = ctk.CTkButton(self.setting_frame, text="📁 上傳自訂表", command=self.upload_schema, fg_color="gray", state="disabled", width=120)
         self.upload_btn.grid(row=0, column=2, padx=5, pady=10)
-        
+
         self.reset_btn = ctk.CTkButton(self.setting_frame, text="🔄 恢復預設", command=self.reset_schema, fg_color="gray", state="disabled", width=100)
         self.reset_btn.grid(row=0, column=3, padx=5, pady=10)
-        
-        self.custom_schema_content = "" 
-        self.custom_table_name = ""     
-        
+
+        self.custom_schema_content = ""
+        self.custom_table_name = ""
+
         ctk.CTkLabel(self.setting_frame, text="生成數量:").grid(row=1, column=0, padx=10, pady=10)
         self.count_entry = ctk.CTkEntry(self.setting_frame, width=80)
-        self.count_entry.insert(0, "100") 
+        self.count_entry.insert(0, "100")
         self.count_entry.grid(row=1, column=1, padx=10, pady=10)
-        
+
         # 🌟 全新升級：Prompt 預覽與編輯區
         self.prompt_frame = ctk.CTkFrame(self)
         self.prompt_frame.pack(pady=5, padx=20, fill="x")
-        
+
         self.prompt_top_frame = ctk.CTkFrame(self.prompt_frame, fg_color="transparent")
         self.prompt_top_frame.pack(fill="x", padx=10, pady=5)
-        
+
         ctk.CTkLabel(self.prompt_top_frame, text="✏️ Prompt 預覽與自訂 (可直接修改):", font=("Arial", 14, "bold")).pack(side="left")
-        
+
         self.save_prompt_btn = ctk.CTkButton(self.prompt_top_frame, text="💾 更新並鎖定 Prompt", width=120, command=self.lock_custom_prompt)
         self.save_prompt_btn.pack(side="right", padx=5)
-        
+
         self.reset_prompt_btn = ctk.CTkButton(self.prompt_top_frame, text="🔄 恢復預設", width=80, fg_color="gray", command=self.on_intent_change)
         self.reset_prompt_btn.pack(side="right", padx=5)
 
@@ -136,21 +136,21 @@ class GroqDataGeneratorApp(ctk.CTk):
 
         self.log_box = ctk.CTkTextbox(self, height=200, font=("Arial", 14))
         self.log_box.pack(pady=5, padx=20, fill="both", expand=True)
-        
+
         self.btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.btn_frame.pack(pady=5)
         self.start_btn = ctk.CTkButton(self.btn_frame, text="🚀 雲端極速生成", command=self.start_generation_thread, height=40, font=("Arial", 16, "bold"))
         self.start_btn.pack(side="left", padx=10)
-        
+
         self.generated_data = []
         self.is_mysql_mode = False
-        
+
         self.progress_bar = ctk.CTkProgressBar(self, width=400)
         self.progress_bar.pack(pady=5)
-        self.progress_bar.set(0)        
+        self.progress_bar.set(0)
         self.progress_label = ctk.CTkLabel(self, text="準備就緒 | 耗時: 0.0s", font=("Arial", 12))
         self.progress_label.pack()
-        
+
         self.is_generating = False
         self.start_time = 0
 
@@ -163,7 +163,7 @@ class GroqDataGeneratorApp(ctk.CTk):
         mode_choice = self.intent_mode_var.get()
         count = self.count_entry.get()
         if not count.isdigit(): count = "100"
-        
+
         if self.mode_switch.get() == 1: # MySQL 模式
             if selected_option.startswith("自訂表:"):
                 return f"請根據以下的資料表結構，生成 {count} 筆 MySQL INSERT 語法。表結構：\n{self.custom_schema_content}"
@@ -173,7 +173,7 @@ class GroqDataGeneratorApp(ctk.CTk):
                 return f"生成 {count} 筆 INSERT 至 `accounts` 表。欄位包含: account_type, account_name, initial_balance(1000~50000), current_balance, account_icon(💳/🏦)。"
             elif selected_option == "feedbacks":
                 return f"生成 {count} 筆 INSERT 至 `feedbacks` 表。欄位: question_type(系統Bug/功能建議), use_page, content(模擬抱怨或建議20字內)。"
-            else: 
+            else:
                 return f"生成 {count} 筆 INSERT INTO 語法，新增至 `{selected_option}` 表。user_id 皆填 1。"
         else: # NLP 模式
             c = int(count)
@@ -217,7 +217,7 @@ class GroqDataGeneratorApp(ctk.CTk):
                         f"【重要特徵】：使用台灣常用的提問語氣。句子中必須包含兩個不同的問題（使用「還有」、「順便問」等連接詞）。\n"
                         f"【範例】：『預算進度條變成紅色是什麼意思？還有怎麼解鎖深海主題？』、『CPI指數是什麼？另外如果密碼忘記了怎麼辦？』"
                     )
-             
+
                 }
                 return prompts.get(selected_option, "")
             else:
@@ -253,11 +253,11 @@ class GroqDataGeneratorApp(ctk.CTk):
 
     def on_intent_change(self, *args):
         """🌟 當使用者切換選項或修改數量時，自動更新 Prompt 文字框"""
-        self.is_prompt_locked = False 
+        self.is_prompt_locked = False
         default_prompt = self.get_default_prompt_template()
         self.prompt_box.delete("1.0", "end")
         self.prompt_box.insert("end", default_prompt)
-        
+
         # 綁定數量改變時也自動更新 prompt (如果還沒被鎖定)
         self.count_entry.bind("<KeyRelease>", self.update_prompt_if_not_locked)
 
@@ -272,9 +272,9 @@ class GroqDataGeneratorApp(ctk.CTk):
         self.log("✅ Prompt 已手動更新並鎖定！接下來將使用您自訂的內容生成。")
 
     def toggle_mode(self):
-        self.log_box.delete("1.0", "end") 
+        self.log_box.delete("1.0", "end")
         self.is_mysql_mode = self.mode_switch.get() == 1
-        
+
         if self.is_mysql_mode:
             self.intent_combo.configure(values=self.mysql_options)
             self.intent_combo.set(self.mysql_options[0])
@@ -289,7 +289,7 @@ class GroqDataGeneratorApp(ctk.CTk):
             self.reset_btn.configure(state="disabled", fg_color="gray")
             self.rb_single.configure(state="normal")
             self.rb_multi.configure(state="normal")
-            self.custom_schema_content = "" 
+            self.custom_schema_content = ""
             self.log("🔄 已切換為【Keras 意圖訓練模式】！")
         self.on_intent_change()
 
@@ -306,7 +306,7 @@ class GroqDataGeneratorApp(ctk.CTk):
                     current_values.insert(0, new_option)
                 self.intent_combo.configure(values=current_values)
                 self.intent_combo.set(new_option)
-                self.reset_btn.configure(state="normal", fg_color="#d63a3a") 
+                self.reset_btn.configure(state="normal", fg_color="#d63a3a")
                 self.log(f"📁 成功載入自訂表結構 [{self.custom_table_name}]！")
                 self.on_intent_change()
             except Exception as e:
@@ -337,13 +337,13 @@ class GroqDataGeneratorApp(ctk.CTk):
         # 絕對路徑，確保資料夾會建立在app旁邊
         save_dir = os.path.join(base_dir, "ai_training", "dataset")
         os.makedirs(save_dir, exist_ok=True)
-        
+
         pattern = os.path.join(save_dir, f"{base_name}_*.{extension}")
         existing_files = glob.glob(pattern)
-        
+
         if not existing_files:
             return os.path.join(save_dir, f"{base_name}_001.{extension}")
-            
+
         max_num = 0
         for f in existing_files:
             try:
@@ -365,28 +365,28 @@ class GroqDataGeneratorApp(ctk.CTk):
         if not api_key:
             self.log("❌ 錯誤：請先輸入 Groq API Key！")
             return
-            
+
         self.start_btn.configure(state="disabled", text="⏳ 雲端運算中...")
         self.generated_data = []
-        
+
         self.is_generating = True
         self.start_time = time.time()
         self.progress_bar.configure(mode="indeterminate")
         self.progress_bar.start()
         self.update_timer()
-        
+
         threading.Thread(target=self.generate_data, args=(api_key,), daemon=True).start()
 
     def generate_data(self, api_key):
         display_model_name = self.model_combo.get()
         model_name = self.model_mapping.get(display_model_name) or "llama-3.3-70b-versatile"
         count = self.count_entry.get()
-        selected_option = self.intent_combo.get().split(" ")[0] 
+        selected_option = self.intent_combo.get().split(" ")[0]
         mode_choice = self.intent_mode_var.get()
-        
+
         # 🌟 核心：直接讀取使用者在介面上修改好的 Prompt
         user_defined_prompt = self.prompt_box.get("1.0", "end").strip()
-        
+
         if self.is_mysql_mode:
             self.log(f"🔥 連線 Groq ({model_name}) 批次生成 {count} 筆 SQL...")
             final_prompt = f"{user_defined_prompt}\n純SQL輸出，每行一條，嚴禁markdown與解釋。"
@@ -396,32 +396,32 @@ class GroqDataGeneratorApp(ctk.CTk):
             system_context = f"{SYSTEM_KNOWLEDGE}\n\n【強制規定】：使用繁體中文。不可有簡體字。\n"
             # 修改這裡：讓指令簡潔
             final_prompt = f"{system_context}\n任務：{user_defined_prompt}\n請直接輸出列表，一行一句，總共剛好 {count} 句，不要任何開場與結尾："
-        
+
         try:
             client = Groq(api_key=api_key)
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": final_prompt}],
                 model=model_name,
-                temperature=0.8, 
+                temperature=0.8,
             )
-            
+
             content = response.choices[0].message.content
             result_text = str(content).strip() if content is not None else ""
-                
-            if "```sql" in result_text: 
+
+            if "```sql" in result_text:
                 result_text = result_text.split("```sql")[1].split("```")[0].strip()
-            elif "```" in result_text: 
+            elif "```" in result_text:
                 result_text = result_text.split("```")[1].strip()
 
             lines = result_text.split('\n')
             success_count = 0
             target_count = int(count) # 🌟 先把目標數量轉成數字
             for line in lines:
-                
+
                 # 🛑 這裡新增一條「強制煞車」邏輯
                 if success_count >= target_count:
                     break
-                
+
                 clean_line = line.strip("1234567890.、- *\"'")
                 if len(clean_line) > 10 if self.is_mysql_mode else len(clean_line) > 2:
                     if self.is_mysql_mode:
@@ -429,13 +429,13 @@ class GroqDataGeneratorApp(ctk.CTk):
                     else:
                         final_intent = f"MULTI_{selected_option}" if mode_choice == "MULTI" else selected_option
                         self.generated_data.append({"text": clean_line, "intent": final_intent})
-                    
-                    if success_count < 10: 
+
+                    if success_count < 10:
                         self.log(f"✔️ {clean_line[:60]}...")
                     success_count += 1
-            
+
             self.log(f"\n✅ 成功獲取 {success_count} 筆資料！(Groq 官方通道連線成功！)")
-            
+
             # 儲存檔案
             save_name = selected_option if not (self.is_mysql_mode and selected_option.startswith("自訂表:")) else self.custom_table_name
             self.save_to_file(save_name)
@@ -444,20 +444,20 @@ class GroqDataGeneratorApp(ctk.CTk):
             self.log("❌ 錯誤：Groq 官方驗證失敗 (401)！請確認金鑰是否過期或被官方停用。")
         except Exception as e:
             self.log(f"❌ 連線失敗！\n錯誤原因：{e}\n建議：請檢查網路或稍後再試。")
-            
+
         finally:
             self.is_generating = False
             self.progress_bar.stop()
             self.progress_bar.configure(mode="determinate")
-            self.progress_bar.set(1.0) 
-            
+            self.progress_bar.set(1.0)
+
             total_time = time.time() - self.start_time
             self.progress_label.configure(text=f"✅ 完成！總耗時: {total_time:.1f} 秒")
             self.start_btn.configure(state="normal", text="🚀 雲端極速生成")
 
     def save_to_file(self, base_name):
         if not self.generated_data: return
-        
+
         if self.is_mysql_mode:
             filename = self.get_next_filename(f"{base_name}_mock", "sql")
             with open(filename, 'w', encoding='utf-8') as f:
@@ -474,10 +474,10 @@ class GroqDataGeneratorApp(ctk.CTk):
                     writer.writeheader()
                     writer.writerows(self.generated_data)
                 self.log(f"💾 NLP 訓練集已成功儲存.csv至: {filename}")
-                
+
             except PermissionError:
                 self.log(f"❌ 儲存失敗！請確保 {filename} 沒有在 Excel 中開啟。")
 
 if __name__ == "__main__":
-    app = GroqDataGeneratorApp()  
+    app = GroqDataGeneratorApp()
     app.mainloop()

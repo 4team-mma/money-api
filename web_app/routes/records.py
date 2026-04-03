@@ -256,7 +256,7 @@ async def create_record(
 
     if data.add_type is False:  # 支出
         account.current_balance -=  amt_decimal
-        
+
         # 預算檢查邏輯
         today = date.today()
         first_day_of_month = today.replace(day=1)
@@ -276,7 +276,7 @@ async def create_record(
                     AddRecord.add_type == False,
                     AddRecord.add_date >= first_day_of_month
                 ).scalar() or Decimal(0)
-                
+
                 # 加上本次新增金額 (因為 db 尚未 commit，需手動加上)
                 total_spent += amt_decimal
                 usage_percent = (total_spent / budget.amount) * 100
@@ -330,7 +330,7 @@ async def create_record(
         if goal:
             # 更新目標目前的金額
             goal.current_amount += amt_decimal
-            
+
             # 檢查是否達標
             if goal.current_amount >= goal.target_amount:
                 # 檢查是否已發過「達成通知」(避免重複發送)
@@ -355,16 +355,16 @@ async def create_record(
                     db.add(new_notification)
                     # 同時將目標狀態改為已完成
                     goal.status = "completed"
-    
+
     db.commit()
     db.refresh(new_record)
 
     # 🌟 這裡加入全域掃描器
     # 根據 add_type 判斷類別 (True: 收入, False: 支出)
-    category_label = '記帳' 
+    category_label = '記帳'
     GameService.update_mission_progress(
-        db, 
-        user_id=current_user.user_id, 
+        db,
+        user_id=current_user.user_id,
         category=category_label,
         amount=float(new_record.add_amount), # 傳入金額供「大額支出」判定
         tag=new_record.add_tag,         # 🌟 傳入標籤內容
@@ -372,7 +372,7 @@ async def create_record(
         note=new_record.add_note,       # 🌟 傳入備註字串
         add_type=new_record.add_type    # 🌟 傳入布林值 (True=收入, False=支出)
     )
-    
+
     return new_record
 
 
@@ -425,7 +425,7 @@ async def update_record(
         # 預算檢查邏輯 (修改後若為支出則觸發)
         today = date.today()
         first_day_of_this_month = today.replace(day=1)
-        
+
         # 只有當紀錄日期落在「本月」時才檢查預算
         if db_record.add_date >= first_day_of_this_month:
             budget = db.query(Budget).filter(
@@ -493,7 +493,7 @@ async def update_record(
         if goal:
             # 更新目標目前的金額
             goal.current_amount += db_record.add_amount
-            
+
             # 檢查是否達標
             if goal.current_amount >= goal.target_amount:
                 # 檢查是否已發過「達成通知」(避免重複發送)
@@ -524,13 +524,13 @@ async def update_record(
     # 🌟 這裡加入全域掃描器：觸發「除錯大師」
     # 只要成功執行 Patch 請求，就視為完成一次除錯
     GameService.update_mission_progress(
-        db, 
-        user_id=current_user.user_id, 
+        db,
+        user_id=current_user.user_id,
         category='記帳', # 因為除錯大師的 category 是記帳
         increment=1
     )
-    
-    
+
+
     return db_record
 
 
@@ -568,11 +568,11 @@ async def delete_record(
             if goal:
                 # 扣除進度
                 goal.current_amount -= record.add_amount
-                
+
                 # 狀態判定：如果扣除後低於目標，且原本狀態是已完成 (completed)
                 if goal.current_amount < goal.target_amount and goal.status == "completed":
                     goal.status = "active"  # 改回進行中
-                    
+
 
     db.delete(record)
     db.commit()

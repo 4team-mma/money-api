@@ -64,8 +64,8 @@ def format_currency(value):
 def create_pie_chart(income, expense, font_name):
     d = Drawing(400, 180)
     # 使用 cast 避開 Pylance 對 slices 屬性的錯誤偵測
-    pc = cast(Any, Pie()) 
-    
+    pc = cast(Any, Pie())
+
     pc.x = 90
     pc.y = 20
     pc.width = 110
@@ -80,12 +80,12 @@ def create_pie_chart(income, expense, font_name):
     # ✅ 必須先定義顏色變數，再賦值給 slices
     color_income = colors.HexColor("#2db6ec")  # 翡翠藍
     color_expense = colors.HexColor("#fb7185")  # 珊瑚粉
-    
+
     pc.slices[0].fillColor = color_income
     pc.slices[1].fillColor = color_expense
     pc.slices.strokeWidth = 1
     pc.slices.strokeColor = colors.white
-    
+
     leg = Legend()
     leg.x = 260
     leg.y = 120
@@ -257,7 +257,7 @@ async def export_report(
     if report_format == "pdf" and (report_type == "yearly" or "year-" in time_range):
         try:
             GameService.update_mission_progress(db, user_id=current_user.user_id, category='宏觀分析', increment=1)
-            db.commit() 
+            db.commit()
         except Exception as e:
             db.rollback()
             print(f"任務更新失敗: {str(e)}")

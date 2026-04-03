@@ -21,15 +21,15 @@ def get_current_user(
         payload = verify_token(token)
         user_id = payload.get("sub")
         user = db.query(Member).filter(Member.user_id == user_id).first()
-        
+
         if not user:
             raise HTTPException(status_code=401, detail="無效的驗證憑證")
-        
+
         # 備份純字串 (供 Exception Handler 穩定抓取)
         # 即使 user 物件後來在 DB Error 中失效，這兩個字串也會永遠留在 request 裡
         request.state.user_id_str = str(user.user_id)
         request.state.username_str = str(user.username)
-        
+
         return user
     except Exception:
         raise HTTPException(status_code=401, detail="憑證解析失敗")
@@ -51,7 +51,7 @@ async def get_current_user_ws(
 ) -> Member:
     try:
         # 沿用你原本的 verify_token
-        payload = verify_token(token) 
+        payload = verify_token(token)
         user_id = payload.get("sub")
         user = db.query(Member).filter(Member.user_id == user_id).first()
         if not user:

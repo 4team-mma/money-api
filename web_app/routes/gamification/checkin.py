@@ -76,7 +76,7 @@ def perform_checkin(
         earned_xp=earned_xp
     )
     db.add(new_checkin)
-    
+
     # 原本current_user.xp += earned_xp
     # 🌟 修改這裡：不再只是 += earned_xp，而是呼叫自動升級邏輯
     # 假設你把 add_user_xp 放在 GameService 裡面
@@ -86,8 +86,8 @@ def perform_checkin(
 
     # 🌟 7. 你的全域掃描器：觸發「每日報到」任務 (Category='系統')
     GameService.update_mission_progress(
-        db, 
-        user_id=current_user.user_id, 
+        db,
+        user_id=current_user.user_id,
         category='系統'
     )
 
@@ -116,7 +116,7 @@ def get_checkin_status(
 
     record = db.query(Checkin).filter(Checkin.user_id == uid, Checkin.checkin_date == today).first()
     last = db.query(Checkin).filter(Checkin.user_id == uid, Checkin.checkin_date == yesterday).first()
-    
+
     # 決定 UI 要亮到第幾格
     if record:
         ui_cycle_day = (record.streak_count - 1) % 7 + 1
@@ -128,7 +128,7 @@ def get_checkin_status(
     # 預測今日領取金額
     target_streak = last.streak_count + 1 if last else 1
     target_cycle_day = (target_streak - 1) % 7 + 1
-    
+
     if target_cycle_day == 7:
         predicted_xp = 50
     elif 3 <= target_cycle_day <= 6:

@@ -10,8 +10,8 @@ router = APIRouter()
 
 # ===== GET 所有帳戶 =====
 @router.get(
-    "/", 
-    response_model=List[AccountResponse], 
+    "/",
+    response_model=List[AccountResponse],
     summary="取得所有帳戶清單",
     description="根據目前登入的使用者資訊，抓取該用戶名下建立的所有資產帳戶，包括帳戶名稱、幣別及目前餘額。",
     response_description="成功回傳該使用者的帳戶列表"
@@ -24,8 +24,8 @@ def get_accounts(
 
 # ===== POST 新增帳戶 =====
 @router.post(
-    "/", 
-    response_model=AccountResponse, 
+    "/",
+    response_model=AccountResponse,
     status_code=status.HTTP_201_CREATED,
     summary="建立新帳戶",
     description="建立一個新的資產帳戶。系統會自動將初始餘額 (initial_balance) 設定為目前餘額 (current_balance)，並與當前使用者綁定。",
@@ -65,7 +65,7 @@ def create_account(
 
 # ===== DELETE 刪除帳戶 =====
 @router.delete(
-    "/{account_id}", 
+    "/{account_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="刪除指定帳戶",
     description="永久刪除指定的帳戶。執行前會嚴格檢查帳戶歸屬權，若非該帳戶擁有者將無法刪除。",
@@ -78,7 +78,7 @@ def delete_account(
 ):
     # 1. 查找帳戶
     account_query = db.query(Account).filter(
-        Account.account_id == account_id, 
+        Account.account_id == account_id,
         Account.user_id == current_user.user_id
     )
     account = account_query.first()
@@ -111,7 +111,7 @@ def delete_account(
     except Exception as e:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"刪除失敗，資料庫發生錯誤: {str(e)}"
         )
 
@@ -120,7 +120,7 @@ def delete_account(
 
 # ===== PUT 更新帳戶 =====
 @router.put(
-    "/{account_id}", 
+    "/{account_id}",
     response_model=AccountResponse,
     summary="修改帳戶內容",
     description="更新現有帳戶的詳細資訊（如名稱、圖示等）。此端點僅會更新 Request Body 中有傳送的欄位，未傳送的欄位將保持原樣。",

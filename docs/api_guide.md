@@ -41,11 +41,11 @@ async def login(...):
     """
     (這裡寫詳細說明)
     一般會員登入接口，取得 JWT Token。
-    
+
     - **輸入限制**:
         - `identifier`: 支援 Email 或 Username。
         - `password`: 密碼錯誤統一回傳 401。
-    
+
     - **回傳**: JWT Access Token。
     """
     # ... 程式碼邏輯
@@ -63,20 +63,20 @@ from pydantic import BaseModel, Field
 class MemberLogin(BaseModel):
     # ✅ 正確範例
     identifier: str = Field(
-        ..., 
-        description="使用者帳號或信箱", 
+        ...,
+        description="使用者帳號或信箱",
         examples=["user@example.com"]  # 🌟 這裡會變成 Swagger 的預設填入值
     )
-    
+
     password: str = Field(
-        ..., 
-        description="使用者密碼", 
+        ...,
+        description="使用者密碼",
         examples=["mypassword123"]
     )
 ```
 ### 🅱️ 情況 B：GET Query (在 Router 寫)
 - **位置**：網址參數 (如 `/report?year=2026`)
-- **位置**： `routes/xxx.py` 
+- **位置**： `routes/xxx.py`
 - **規範**：使用 `Query` 搭配 `examples`。
 ```bash
 from fastapi import Query
@@ -85,8 +85,8 @@ from fastapi import Query
 async def export_report(
     # ✅ 正確範例
     time_range: str = Query(
-        "current-month", 
-        description="時間範圍代碼", 
+        "current-month",
+        description="時間範圍代碼",
         examples=["year-2026"] # 🌟 Swagger 範例
     )
 ):
@@ -98,5 +98,3 @@ async def export_report(
 - **[]標題**：API 旁邊是否有綠色/藍色的 Emoji 標題？ (步驟 1)
 - **[]說明**：展開後是否有詳細的文字說明？ (步驟 2)
 - **[]測試**：按下 Try it out 後，輸入框是否自動填入了範例值？ (步驟 3)
-
-

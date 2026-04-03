@@ -190,7 +190,7 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
     return {"msg": "註冊成功"}
 
 @router.post("/auth/login", summary="🔐 會員登入")
-async def login(data: MemberLogin, 
+async def login(data: MemberLogin,
                 request: Request,
                 db: Session = Depends(get_db)):
     """
@@ -242,20 +242,20 @@ async def login(data: MemberLogin,
 
     # 登入成功，重置失敗次數
     user.failed_login_attempts = 0
-    
+
     # 🌟 核心：如果有傳入 line_user_id，就寫入資料庫完成綁定
     if data.line_user_id:
         user.line_user_id = data.line_user_id
-        
+
     # 把重置失敗次數跟 line_user_id 一起 commit 存檔
     db.commit()
-    
+
     # 4. 處理「記住我」邏輯
     if data.remember_me:
         access_token_expires = timedelta(days=30)
     else:
         access_token_expires = timedelta(hours=1)
-    
+
     access_token = create_access_token(
         data={"sub": str(user.user_id)},
         expires_delta=access_token_expires
@@ -269,22 +269,22 @@ async def login(data: MemberLogin,
         # A. 裝置辨識
         ua_string = request.headers.get("user-agent", "")
         user_agent = parse(ua_string)
-        
+
         # 針對 Win11 隱私標頭做微調 (若有)
         os_info = f"{user_agent.os.family} {user_agent.os.version_string}"
         if "Windows" in os_info and "10" in os_info:
             os_info = "Windows 11/10" # 標註相容版本
-        
+
         device_name = f"{os_info}"
         if user_agent.is_mobile:
             device_name = f"{user_agent.device.model} ({user_agent.os.family})"
-        
+
         browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
 
         # B. 精準縣市定位
         client_host = request.client.host if request.client else "127.0.0.1"
         location_name = "台灣"
-        
+
         # 排除本機 IP，避免呼叫 API 浪費資源
         if client_host != "127.0.0.1" and client_host != "localhost":
             try:
@@ -299,7 +299,7 @@ async def login(data: MemberLogin,
 
         # C. 維護紀錄 (先將此 User 其他紀錄改為 False，再存入最新一筆)
         db.query(LoginActivity).filter(LoginActivity.user_id == user.user_id).update({"is_current": False})
-        
+
         new_login_log = LoginActivity(
             user_id=user.user_id,
             ip_address=client_host,
@@ -313,7 +313,7 @@ async def login(data: MemberLogin,
     except Exception as e:
         db.rollback()
         print(f"DEBUG: 寫入登入紀錄失敗: {e}")
-        
+
     return {
         "msg": "登入成功",
         "access_token": access_token,
@@ -413,7 +413,7 @@ async def google_auth(data: GoogleAuthRequest,
     if data.line_user_id:
         user.line_user_id = data.line_user_id
         db.commit()
-    
+
     # 5. 簽發 JWT Token
     access_token = create_access_token(data={"sub": str(user.user_id)})
 
@@ -423,14 +423,14 @@ async def google_auth(data: GoogleAuthRequest,
         user_agent = parse(ua_string)
         device_name = f"{user_agent.os.family} {user_agent.os.version_string}"
         browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
-        
+
         if user_agent.is_mobile:
             device_name = f"{user_agent.device.model} ({user_agent.os.family})"
 
         client_host = request.client.host if request.client else "127.0.0.1"
 
         db.query(LoginActivity).filter(LoginActivity.user_id == user.user_id).update({"is_current": False})
-        
+
         new_login_log = LoginActivity(
             user_id=user.user_id,
             ip_address=client_host,

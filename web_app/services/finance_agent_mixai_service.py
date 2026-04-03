@@ -13,7 +13,7 @@ class FinanceAgentMixAIService:
     label_list: Optional[List[str]] = None
     ort_session: Optional[ort.InferenceSession] = None
     maxlen: int = 40
-    
+
     MODEL_DIR = os.path.join(os.getcwd(), "web_app", "models", "checkpoints")
 
     @classmethod
@@ -38,10 +38,10 @@ class FinanceAgentMixAIService:
                     cls.word_index = json.load(f)
                 with open(label_path, 'r', encoding='utf-8') as f:
                     cls.label_list = json.load(f)
-                
+
                 cls.ort_session = ort.InferenceSession(onnx_path)
                 print("🚀 [MixAIService] 初始化成功！")
-                
+
             except Exception as e:
                 print(f"❌ 載入失敗: {e}")
                 raise e
@@ -59,7 +59,7 @@ class FinanceAgentMixAIService:
         for word in tokens:
             if word in cls.word_index:
                 sequence.append(cls.word_index[word])
-        
+
         padded = np.zeros((1, maxlen), dtype=np.float32)
         if sequence:
             trunc = sequence[:maxlen]
@@ -75,16 +75,16 @@ class FinanceAgentMixAIService:
         assert cls.ort_session is not None
 
         text_str = str(message)
-        
+
         # 1. 預處理：斷詞 + 轉序列 + Padding
         cut_text = " ".join(jieba.cut(text_str))
         padded_seq = cls._manual_texts_to_sequences(cut_text, maxlen=cls.maxlen)
-        
+
         # 2. ONNX 模型推論
         input_name = cls.ort_session.get_inputs()[0].name
         raw_probs = cls.ort_session.run(None, {input_name: padded_seq})[0]
-        probs = np.array(raw_probs) 
-        
+        probs = np.array(raw_probs)
+
         # 3. 取得模型直覺 (使用 label_list 取代 encoder)
         best_idx = int(np.argmax(probs, axis=1)[0])
         confidence = float(probs[0][best_idx])
@@ -92,7 +92,7 @@ class FinanceAgentMixAIService:
 
         # 4. 執行 V10 行為邏輯攔截器修正
         final_intent = cls.apply_v10_logic(text_str, keras_intent)
-        
+
         return {
             "predicted_intent": keras_intent,
             "final_intent": final_intent,
@@ -102,25 +102,25 @@ class FinanceAgentMixAIService:
     @classmethod
     def apply_v10_logic(cls, text_str, keras_intent):
         """邱比特行為邏輯攔截器 V10 (統一變數與關鍵字版本)"""
-        
+
         # 🛡️ 1. 向量警衛室優先
         vector_intent = VectorDBTools.search_intent(text_str)
         if vector_intent is not None:
             return vector_intent
 
         final_intent = keras_intent
-        
+
         # 🚀 2. [絕對法則 - 查詢攔截]
         query_hard_keywords = ['有沒有', '吃過', '買過', '紀錄', '查一下', '找一下', '過嗎']
         if any(k in text_str for k in query_hard_keywords):
             return 'QUERY'
-        
-        # 🚨 3. [絕對法則 - 記帳認定] 
+
+        # 🚨 3. [絕對法則 - 記帳認定]
         # 統一關鍵字清單，不再變動
         if final_intent in ['RECORD', 'MULTI_RECORD']:
             digit_groups = re.findall(r'\d+', text_str)
             money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')
-            
+
             # 🌟 統一使用 finance_keywords 名稱與清單
             finance_keywords = ['存', '領', '花', '賺', '薪水', '中獎', '噴了', '飛了', '支出', '買了', '付', '收']
             has_finance_word = any(k in text_str for k in finance_keywords)

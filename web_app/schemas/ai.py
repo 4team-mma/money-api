@@ -12,15 +12,15 @@ class AIConfigSave(BaseModel):
     provider: AIProvider = Field(..., description="模型供應商", examples=["gemini"])
     # 🔐 api_key 保持選填，因為有時候只是想切換模型而不更新 Key
     api_key: Optional[str] = Field(None, description="API 金鑰 (選填)")
-    
+
     # 🌐 base_url 設為選填 (Optional)，因為 Gemini 走 SDK 不需要此欄位
     base_url: Optional[str] = Field(None, description="伺服器位址 (Ollama/Anything 需要)", examples=["http://localhost:11434"])
-    
+
     # 🤖 model_version 建議給一個通用的預設值
     model_version: str = Field("gemini-3-flash-preview", description="模型版本", examples=["gemini-2.0-flash"])
-    
+
     system_prompt: Optional[str] = Field(
-        "你是一個親切的理財助手喵喵，說話結尾要帶喵~", 
+        "你是一個親切的理財助手喵喵，說話結尾要帶喵~",
         description="系統提示詞 (人格設定)"
     )
 
@@ -42,15 +42,15 @@ class ChatRequest(BaseModel):
 class ChatMessage(BaseModel):
     role: str = Field(..., description="角色: user, assistant, system")
     content: str = Field(..., description="對話內容")
-    
+
 
 # line測試用
 # Swagger 手動按 Execute，你沒有（也沒辦法手動生出）LINE 伺服器專屬的加密簽章。會有Invalid signature很正常。
 class LineWebhookPayload(BaseModel):
     destination: str
     events: list
-    
-    
+
+
 # 測試模型用的
 class AICompareResultDetail(BaseModel):
     intent: str = Field(..., description="意圖名稱")

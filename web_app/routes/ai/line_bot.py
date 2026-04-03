@@ -3,10 +3,10 @@ import json
 from datetime import datetime
 from decimal import Decimal
 from fastapi import APIRouter, Request, HTTPException
-from linebot import LineBotApi, WebhookParser  
+from linebot import LineBotApi, WebhookParser
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, 
+    MessageEvent, TextMessage, TextSendMessage,
     TemplateSendMessage, ButtonsTemplate, MessageAction,
     PostbackEvent, FlexSendMessage
 )
@@ -21,18 +21,18 @@ from web_app.routes.ai_models import chat_with_meow
 
 router = APIRouter()
 line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN', ''))
-parser = WebhookParser(os.getenv('LINE_CHANNEL_SECRET', '')) 
+parser = WebhookParser(os.getenv('LINE_CHANNEL_SECRET', ''))
 
 @router.post("/webhook")
 async def line_webhook(request: Request):
     signature = request.headers.get("X-Line-Signature", "")
     body = await request.body()
     body_str = body.decode("utf-8")
-    
+
     try:
         parsed_data = parser.parse(body_str, signature)
         events = parsed_data if isinstance(parsed_data, list) else getattr(parsed_data, 'events', [])
-        
+
         for event in events:
             if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
                 await handle_async_message(event)
@@ -42,7 +42,7 @@ async def line_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid signature")
     except Exception as e:
         print(f"❌ Webhook Error: {e}")
-    
+
     return "OK"
 
 # ==========================================
@@ -104,27 +104,27 @@ async def handle_async_message(event):
                 req = ChatRequest(message=user_msg, persona="理財小助手喵喵")
                 try:
                     ai_res = await chat_with_meow(req=req, db=db, current_user=user)
-                    ai_res = ai_res or {} 
-                    
+                    ai_res = ai_res or {}
+
                     if ai_res.get("is_command") and ai_res.get("action_data"):
                         action_data = ai_res.get("action_data") or {}
-                        
+
                         amount = action_data.get("add_amount", 0)
                         note = action_data.get("add_note", "無備註")
-                        record_type = action_data.get("record_type", "expense") 
-                        
+                        record_type = action_data.get("record_type", "expense")
+
                         try:
                             amount = int(float(amount))
                         except:
                             amount = 0
-                            
+
                         # ==========================================
                         # 🌟 分流：轉帳卡片 vs 收支卡片
                         # ==========================================
                         if record_type == "transfer":
                             from_acc = action_data.get("from_account", "我的錢包")
                             to_acc = action_data.get("to_account", "我的錢包")
-                            
+
                             if from_acc == to_acc:
                                 reply_content = TextSendMessage(
                                     text="喵嗚？你沒有跟喵喵說要從哪裡轉到哪裡喔！\n請完整告訴我，例如：\n「從 國泰世華 轉 200元 到 我的錢包」喵！"
@@ -137,7 +137,7 @@ async def handle_async_message(event):
                                     "f_acc": from_acc,
                                     "t_acc": to_acc
                                 }, ensure_ascii=False)
-                                
+
                                 bubble_contents = [
                                     {"type": "text", "text": "🔄 轉帳確認", "weight": "bold", "color": "#0056FF", "size": "xl"},
                                     {"type": "separator", "margin": "md"},
@@ -174,12 +174,12 @@ async def handle_async_message(event):
                                     }
                                 }
                                 reply_content = FlexSendMessage(alt_text="請確認您的交易", contents=bubble)
-                        
+
                         else:
                             is_income = (record_type == "income")
                             # 🌟 Pylance 黃線殺手：把 add_class 搬到這裡來了！
                             add_class = action_data.get("add_class", "其他")
-                            
+
                             postback_data = json.dumps({
                                 "act": "add",
                                 "amt": amount,
@@ -187,7 +187,7 @@ async def handle_async_message(event):
                                 "cls": add_class,
                                 "inc": is_income
                             }, ensure_ascii=False)
-                            
+
                             bubble_contents = [
                                 {"type": "text", "text": "📝 記帳確認", "weight": "bold", "color": "#1DB446", "size": "xl"},
                                 {"type": "separator", "margin": "md"},
@@ -223,10 +223,10 @@ async def handle_async_message(event):
                                 }
                             }
                             reply_content = FlexSendMessage(alt_text="請確認您的交易", contents=bubble)
-                        
+
                     else:
                         reply_content = TextSendMessage(text=ai_res.get("reply", "喵... 思考中。"))
-                        
+
                 except Exception as ai_e:
                     print(f"❌ AI Core Error: {ai_e}")
                     reply_content = TextSendMessage(text="喵嗚... AI 引擎有點累了，請再試一次。")
@@ -246,7 +246,7 @@ async def handle_async_message(event):
 async def handle_async_postback(event):
     line_user_id = event.source.user_id
     pb_data_str = event.postback.data
-    
+
     db = SessionLocal()
     try:
         user = db.query(Member).filter(Member.line_user_id == line_user_id).first()
@@ -256,11 +256,11 @@ async def handle_async_postback(event):
         act = data.get("act")
         amt = Decimal(str(data.get("amt", 0)))
         note = data.get("note", "無備註")
-        
+
         if act == "add":
             default_acc = db.query(Account).filter(Account.user_id == user.user_id).first()
             acc_id = default_acc.account_id if default_acc else 1
-            is_income = data.get("inc", False) 
+            is_income = data.get("inc", False)
 
             new_record = AddRecord(
                 user_id=user.user_id,
@@ -278,10 +278,10 @@ async def handle_async_postback(event):
 
             msg_text = "🎉 紀錄已寫入系統喵！"
             if default_acc:
-                if is_income: 
+                if is_income:
                     default_acc.current_balance += amt
                     msg_text = f"🎉 恭喜發財！已將【{note} {amt}元】存入，錢包變厚了喵！"
-                else:         
+                else:
                     default_acc.current_balance -= amt
                     msg_text = f"💸 紀錄成功！已從餘額扣除【{note} {amt}元】喵！"
 
@@ -291,18 +291,18 @@ async def handle_async_postback(event):
         elif act == "transfer":
             f_acc_name = data.get("f_acc", "")
             t_acc_name = data.get("t_acc", "")
-            
+
             f_acc = db.query(Account).filter(Account.user_id == user.user_id, Account.account_name.like(f"%{f_acc_name}%")).first()
             t_acc = db.query(Account).filter(Account.user_id == user.user_id, Account.account_name.like(f"%{t_acc_name}%")).first()
-            
+
             default_acc = db.query(Account).filter(Account.user_id == user.user_id).first()
             if not f_acc: f_acc = default_acc
             if not t_acc: t_acc = default_acc
-            
+
             if not f_acc or not t_acc:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 轉帳失敗：找不到您指定的帳戶喵！"))
                 return
-            
+
             new_tx = Transaction(
                 user_id=user.user_id,
                 transaction_date=datetime.now().date(),
@@ -312,12 +312,12 @@ async def handle_async_postback(event):
                 amount=amt
             )
             db.add(new_tx)
-            
+
             f_acc.current_balance -= amt
             t_acc.current_balance += amt
-            
+
             db.commit()
-            
+
             msg_text = f"🔄 轉帳大成功喵！\n已從【{f_acc.account_name}】轉出 {amt} 元至【{t_acc.account_name}】。"
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg_text))
 

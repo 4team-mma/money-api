@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # --- 🎯 路徑定義 (修正 Pylance 紅線) ---
 TEMP_DIR = "web_app/temp/excel"
-DEFAULT_TEST_FILE = os.path.join(TEMP_DIR, "hard_cases.xlsx") 
+DEFAULT_TEST_FILE = os.path.join(TEMP_DIR, "hard_cases.xlsx")
 CURRENT_BATCH_FILE = os.path.join(TEMP_DIR, "current_test_batch.xlsx")
 MODELS_DIR = "web_app/models/checkpoints"
 CHROMA_DIR = ".chromadb"
@@ -76,7 +76,7 @@ class ArenaBrains:
         self.v1_labels = []
         self.v2_labels = []
         self.chroma_store = None
-        
+
         # 載入順序：先讀設定，再載模型
         self._load_config()
         self._load_models()
@@ -117,7 +117,7 @@ class ArenaBrains:
                 if not self.v2_labels:
                     with open(os.path.join(MODELS_DIR, "label_map.json"), "r", encoding="utf-8") as f:
                         self.v2_labels = json.load(f)
-            
+
             # 3. 載入 ChromaDB
             hf_token = os.getenv("HF_TOKEN")
             if hf_token and os.path.exists(CHROMA_DIR):
@@ -139,7 +139,7 @@ class ArenaBrains:
         words = jieba.lcut(text)
         seq = [vocab.get(w, 0) for w in words]
         input_array = np.zeros((1, self.MAX_LEN), dtype=np.float32)
-        
+
         if self.PADDING_TYPE == "post":
             for i, word_id in enumerate(seq):
                 if i >= self.MAX_LEN: break
@@ -160,7 +160,7 @@ class ArenaBrains:
 
     def predict_v2(self, text: str):
         if not self.v2_session: return "UNKNOWN", 0.0, False
-        
+
         # [階段 1]：語意攔截 (ChromaDB)
         if self.chroma_store:
             try:
@@ -168,13 +168,13 @@ class ArenaBrains:
                 if docs and docs[0][1] < 0.4:
                     return docs[0][0].metadata["intent"], 1.0, True
             except: pass
-        
+
         # [階段 2]：模型推論 (ONNX)
         input_data = self._text_to_pad_seq(text, self.v2_vocab)
         outputs = self.v2_session.run(None, {self.v2_session.get_inputs()[0].name: input_data})
         probs = np.array(outputs[0])[0]
         keras_intent = self.v2_labels[int(np.argmax(probs))]
-        
+
         # [階段 3]：🌟 理科保鑣 (Regex) 修正誤判
         final_intent = keras_intent
         digit_groups = re.findall(r'\d+', text)
@@ -213,38 +213,38 @@ async def get_reply(db: Session, user: Member, message: str, target_intent: str)
     try:
         ctx = await FinanceAgentService.get_context(db=db, user=user, message=message, override_intent=target_intent)
         system_prompt = ctx.get("system_prompt", "你是理財助手喵喵。")
-        
+
         config = db.query(AIConfig).filter(AIConfig.user_id == user.user_id, AIConfig.is_active == True).first()
-        if not config: 
+        if not config:
             config = db.query(AIConfig).filter(AIConfig.user_id == 1, AIConfig.is_active == True).first()
-        
+
         provider = config.provider if config else "gemini"
         model_ver = config.model_version if config else "gemini-3-flash-preview"
         base_url = config.base_url if config else "http://localhost:11434"
 
         if provider == "ollama":
             reply_text = await OllamaService.chat_async(
-                prompt=message, 
+                prompt=message,
                 system_instruction=system_prompt,
                 base_url=base_url,
                 model_id=model_ver
             )
             return f"[Ollama - {model_ver}]\n{reply_text}"
-            
+
         elif provider == "gemini":
             env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             db_key = "none"
             if config and config.api_key and config.api_key != "none":
                 try: db_key = decrypt_api_key(config.api_key)
                 except: pass
-            
+
             # 🌟 [關鍵修正] 解決 Pylance 紅線：確保 final_key 絕對是 str
             raw_key = db_key if (db_key and len(db_key) > 10) else env_key
             if raw_key is None:
                 return "❌ 系統錯誤：找不到有效的 API Key"
-            
+
             final_key: str = str(raw_key) # 強制轉型確保類型安全
-            
+
             gemini_res = await GeminiService.chat_async(
                 api_key=final_key,
                 model_id=model_ver,
@@ -297,7 +297,7 @@ async def batch_test_ai(db: Session = Depends(get_db), current_user: Member = De
     try:
         wb = openpyxl.load_workbook(file_path, data_only=True)
         sheet = wb.active
-        if sheet is None: 
+        if sheet is None:
             raise HTTPException(status_code=500, detail="Excel 檔案沒有有效的工作表喵！")
         headers = [cell.value for cell in sheet[1]]
         t_idx, i_idx = headers.index('text'), headers.index('intent')
@@ -319,14 +319,14 @@ async def batch_test_ai(db: Session = Depends(get_db), current_user: Member = De
 async def compare_ai_intent(message: str = Body(..., embed=True), db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
     if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
     if is_malicious(message): return {"legacy": {"intent": "BLOCKED"}}
-    
+
     legacy_i = FinanceAgentService.analyze_intent(message)
     v1_i, v1_c = arena_brains.predict_v1(message)
     v2_i, v2_c, v2_int = arena_brains.predict_v2(message)
-    
+
     new_log = IntentReviewLog(user_id=current_user.user_id, user_message=message, predicted_intent=v2_i, confidence_score=Decimal(str(v2_c)))
     db.add(new_log); db.commit(); db.refresh(new_log)
-    
+
     # 🌟 這裡呼叫剛補回來的 get_reply
     legacy_res, v2_res = await asyncio.gather(
         get_reply(db, current_user, message, legacy_i),

@@ -15,10 +15,10 @@ async def get_financial_insight(
 ):
     # 1. 抓取真實數據
     financial_data = await FinancialAdvisorService.get_ai_context(db, current_user)
-    
+
     # 2. 生成 Prompt
     prompt = get_financial_analysis_prompt(financial_data)
-    
+
     # 3. 呼叫 Gemini
     api_key = os.getenv("GOOGLE_API_KEY")
     result = await GeminiService.chat_async(
@@ -27,5 +27,5 @@ async def get_financial_insight(
         prompt=prompt,
         system_instruction=SYSTEM_INSTRUCTION
     )
-    
+
     return {"summary": result["text"], "raw_metrics": financial_data["metrics"]}

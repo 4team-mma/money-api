@@ -15,7 +15,7 @@ load_dotenv()
 # 檔案路徑設定
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # 你的基礎題庫
-TEST_DATA_FILE = os.path.join(BASE_DIR, "web_app", "temp", "excel", "hard_cases.xlsx") 
+TEST_DATA_FILE = os.path.join(BASE_DIR, "web_app", "temp", "excel", "hard_cases.xlsx")
 CHROMA_PERSIST_DIR = os.path.join(BASE_DIR, ".chromadb")
 
 
@@ -35,7 +35,7 @@ def ingest_intents():
         print(f"📊 正在讀取基礎防呆題庫: {TEST_DATA_FILE}")
         df = pd.read_excel(TEST_DATA_FILE)
         df = df.dropna(subset=['text', 'intent'])
-        
+
         texts.extend(df['text'].astype(str).tolist())
         metadatas.extend([{"intent": str(intent), "source": "excel_base"} for intent in df['intent'].tolist()])
         print(f"✔️ 從 Excel 載入 {len(df)} 筆基礎資料。")
@@ -52,11 +52,11 @@ def ingest_intents():
             IntentReviewLog.is_reviewed == 1,
             IntentReviewLog.corrected_intent.isnot(None)
         ).all()
-        
+
         for log in reviewed_logs:
             texts.append(str(log.user_message))
             metadatas.append({"intent": str(log.corrected_intent), "source": "human_review"})
-            
+
         print(f"✔️ 從 MySQL 載入 {len(reviewed_logs)} 筆人類審核錯題。")
     except Exception as e:
         print(f"❌ 無法連線資料庫或撈取錯誤，將只使用 Excel 資料。錯誤原因: {e}")
@@ -97,7 +97,7 @@ def ingest_intents():
         collection_name="intent_examples",
         persist_directory=CHROMA_PERSIST_DIR
     )
-    
+
     print("\n🎉 大功告成！包含最新 MySQL 錯題記憶的「意圖警衛室」已建置完畢！")
 
 if __name__ == "__main__":

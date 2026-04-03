@@ -55,7 +55,7 @@ def update_member_profile(
     """
     修改指定使用者的個人資料。
 
-    - **修改權限**: 
+    - **修改權限**:
         1. 僅限**本人**修改自己的資料。
         2. **管理員**可修改任何人的資料。
     - **更新機制**: 僅更新有傳入的欄位，其餘保持不變。
@@ -82,7 +82,7 @@ def update_member_profile(
 def get_me(current_user: Member = Depends(get_current_user)):
     """
     快速取得當前已登入使用者的詳細資訊。
-    
+
     - **流程**: 從 JWT Token 中解析 `user_id` 並從資料庫快取中回傳。
     - **用途**: 用於前端初始化個人頁面。
     """
@@ -157,8 +157,8 @@ async def delete_my_account(
 # 6. 取得特定用戶資料 (為了解決前端獲取等級的問題)
 @router.get("/{user_id}", response_model=MemberResponse, summary="🔍 取得特定用戶資料")
 def get_member_by_id(
-    user_id: int, 
-    db: Session = Depends(get_db), 
+    user_id: int,
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     """
@@ -171,5 +171,5 @@ def get_member_by_id(
     user = db.query(Member).filter(Member.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="找不到該使用者")
-    
+
     return user
