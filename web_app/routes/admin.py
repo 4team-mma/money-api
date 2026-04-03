@@ -26,7 +26,7 @@ async def get_all_users(skip: int = 0, limit: int = 20, db: Session = Depends(ge
 @router.get("/users/{user_id}", summary="🔍 取得用戶完整詳情")
 async def get_admin_user_detail(user_id: int, db: Session = Depends(get_db)):
     now = datetime.now()
-    
+
     # 建立子查詢：計算該用戶的本月筆數
     monthly_count_sub = db.query(func.count(AddRecord.add_id)) \
         .filter(AddRecord.user_id == user_id) \
@@ -36,7 +36,7 @@ async def get_admin_user_detail(user_id: int, db: Session = Depends(get_db)):
 
     # 主查詢
     result = db.query(
-        Member, 
+        Member,
         func.count(AddRecord.add_id).label("total_records"),
         monthly_count_sub.label("monthly_records")
     ).outerjoin(AddRecord, Member.user_id == AddRecord.user_id) \
@@ -45,9 +45,9 @@ async def get_admin_user_detail(user_id: int, db: Session = Depends(get_db)):
 
     if not result:
         raise HTTPException(status_code=404, detail="找不到該會員")
-    
+
     user, total_count, monthly_count = result
-    
+
     return {
         "uid": user.user_id,
         "username": user.username,
@@ -67,15 +67,15 @@ async def get_admin_user_detail(user_id: int, db: Session = Depends(get_db)):
 
 @router.post("/users/test-account", summary="🧪 建立測試帳號")
 async def create_test_user(
-    username: str, 
-    email: str, 
-    password: str, 
+    username: str,
+    email: str,
+    password: str,
     db: Session = Depends(get_db)
 ):
     # 1. 檢查 Email 是否已存在
     if db.query(Member).filter(Member.email == email).first():
         raise HTTPException(status_code=400, detail="Email 已被註冊")
-    
+
     # 2. 建立新成員
     new_user = Member(
         username=username,
@@ -89,7 +89,7 @@ async def create_test_user(
         level=1,
         points=100  # 給予初始點數
     )
-    
+
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -97,16 +97,16 @@ async def create_test_user(
 
 @router.post("/admins", summary="🛡️ 建立新管理員")
 async def create_admin_user(
-    username: str, 
-    email: str, 
-    password: str, 
+    username: str,
+    email: str,
+    password: str,
     name: str,
     db: Session = Depends(get_db)
 ):
     # 檢查重複
     if db.query(Member).filter((Member.email == email) | (Member.username == username)).first():
         raise HTTPException(status_code=400, detail="帳號或 Email 已存在")
-    
+
     new_admin = Member(
         username=username,
         email=email,
@@ -116,7 +116,7 @@ async def create_admin_user(
         status="active",
         job="系統管理員"
     )
-    
+
     db.add(new_admin)
     db.commit()
     return {"msg": f"管理員 {username} 建立成功"}
@@ -125,17 +125,17 @@ async def create_admin_user(
 async def reset_all_test_users(db: Session = Depends(get_db)):
     # 找出所有測試員的 ID
     test_user_ids = [u.user_id for u in db.query(Member.user_id).filter(Member.role == "test").all()]
-    
+
     if not test_user_ids:
         return {"msg": "目前沒有測試帳號需要重置"}
 
     # 🌟 關鍵修正：必須先刪除「依賴帳戶 ID」的資料
     # 1. 先刪除轉帳紀錄（它依賴 account_id）
     db.query(Transaction).filter(Transaction.user_id.in_(test_user_ids)).delete(synchronize_session=False)
-    
+
     # 2. 刪除收支紀錄（它也依賴 account_id）
     db.query(AddRecord).filter(AddRecord.user_id.in_(test_user_ids)).delete(synchronize_session=False)
-    
+
     # 3. 刪除儲蓄目標（這也有外鍵連到 Account）
     db.query(SavingsGoal).filter(SavingsGoal.user_id.in_(test_user_ids)).delete(synchronize_session=False)
 
@@ -225,7 +225,7 @@ async def generate_test_data(db: Session = Depends(get_db)):
                 add_note="[系統生成] 自動化測試數據"
             )
             db.add(new_record)
-            
+
             # 更新帳戶餘額 (模擬真實交易)
             if is_income:
                 test_account.current_balance += amt
@@ -235,7 +235,7 @@ async def generate_test_data(db: Session = Depends(get_db)):
         # 4. 成長進度模擬
         GameService.add_user_xp(db, user, random.randint(1000, 3000))
         user.last_login = datetime.now()
-        
+
 
     db.commit()
     return {"msg": f"已為 {len(test_users)} 位測試員注入隨機數據"}
@@ -245,14 +245,14 @@ async def adjust_user_xp(user_id: int, amount: int, db: Session = Depends(get_db
     user = db.query(Member).filter(Member.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="找不到會員")
-    
+
     # 🛡️ 調用封裝好的遊戲服務邏輯
     # 它會自動處理：user.xp += amount -> 判斷升級 -> 扣除消耗 -> 重複判定直到 XP 不足升級
     GameService.add_user_xp(db, user, amount)
-    
+
     db.commit()
     db.refresh(user)
-    
+
     return {
         "msg": f"已為 {user.username} 調整 {amount} XP",
         "new_xp": user.xp,
@@ -262,9 +262,9 @@ async def adjust_user_xp(user_id: int, amount: int, db: Session = Depends(get_db
 
 @router.post("/users/{user_id}/notify", summary="🔔 發送系統通知")
 async def send_user_notification(
-    user_id: int, 
-    title: str, 
-    description: str, 
+    user_id: int,
+    title: str,
+    description: str,
     db: Session = Depends(get_db)
 ):
     new_notify = Notification(
@@ -284,8 +284,8 @@ async def send_user_notification(
 # 管理員強制刪除用戶
 @router.delete("/users/{user_id}", summary="🗑️ 管理員強制註銷帳號", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_user(
-    user_id: int, 
-    db: Session = Depends(get_db), 
+    user_id: int,
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     target_user = db.query(Member).filter(Member.user_id == user_id).first()
@@ -329,7 +329,7 @@ async def toggle_user_status(user_id: int, db: Session = Depends(get_db)):
     user.status = new_status
     db.commit()
     db.refresh(user)
-    
+
     status_text = "停用" if new_status == "banned" else "啟用"
     return {"msg": f"會員 {user.username} 已成功{status_text}", "status": new_status}
 
@@ -456,7 +456,7 @@ async def get_category_analysis(type: int = 0, db: Session = Depends(get_db)):
         WHERE row_num IN (FLOOR((total_rows+1)/2), CEIL((total_rows+1)/2))
         GROUP BY add_class
     """).bindparams(type=type) # ✨ 這裡傳入參數
-    
+
     median_results = db.execute(median_subquery).all()
     median_map = {row[0]: float(row[1]) for row in median_results}
 
@@ -468,7 +468,7 @@ async def get_category_analysis(type: int = 0, db: Session = Depends(get_db)):
         func.count(AddRecord.add_id).label("freq_count"),
         func.count(func.distinct(AddRecord.user_id)).label("user_reach")
     ).filter(
-        AddRecord.add_type == type, 
+        AddRecord.add_type == type,
         AddRecord.add_amount != None
     ).group_by(
         AddRecord.add_class
@@ -495,7 +495,7 @@ async def get_account_analysis(db: Session = Depends(get_db)):
     # 1. 取得全局分母
     # 總用戶數 (分母：計算滲透率)
     total_users_count = db.query(func.count(Member.user_id)).filter(Member.role == "user").scalar() or 1
-    
+
     # 所有帳戶的絕對值總額 (分母：計算配置比例，使用絕對值避免資產負債抵銷導致比例異常)
     all_accounts_sum = db.query(func.sum(func.abs(Account.current_balance))).scalar() or 1
 
@@ -529,7 +529,7 @@ async def get_account_analysis(db: Session = Depends(get_db)):
     analysis_results = []
     for i, r in enumerate(account_stats, 1):
         owner_count = float(r.user_reach or 0)
-        
+
         analysis_results.append({
             "id": i,
             "account_type": r.account_type,
@@ -560,7 +560,7 @@ async def get_dashboard_summary(db: Session = Depends(get_db)):
     # 1. 總註冊用戶數 (排除管理員)
     total_users_query = db.query(Member).filter(Member.role == "user").all()
     total_users_count = len(total_users_query)
-    
+
     # 2. 活躍用戶數 (最近 7 天內有更新紀錄)
     seven_days_ago = now - timedelta(days=7)
     active_users_count = db.query(func.count(Member.user_id)).filter(
@@ -597,7 +597,7 @@ async def get_dashboard_summary(db: Session = Depends(get_db)):
             # 這裡要抓該用戶的記帳天數
             a_days = db.query(func.count(func.distinct(AddRecord.add_date))).filter(AddRecord.user_id == u.user_id).scalar() or 0
             reg_days = max((now - u.created_at).days + 1, 1)
-            
+
             # 覆蓋率
             total_coverage_rate += min(((a_days / reg_days) * 100), 100.0)
             # 活躍度

@@ -12,7 +12,7 @@ router = APIRouter()
 
 # 2===== [管理者專用] 取得所有回饋列表 =====
 @router.get(
-    "/all", 
+    "/all",
     response_model=List[FeedbackResponse],
     summary="管理端：取得系統所有回饋",
     description="取得所有使用者的回饋，並透過 joinedload 抓取使用者資訊（如用戶名、Email）。"
@@ -24,7 +24,7 @@ def get_all_feedbacks(
     # 使用 joinedload 確保 user 物件被載入，對應 Schema 中的 UserSimpleInfo
     feedbacks = (
         db.query(Feedback)
-        .options(joinedload(Feedback.user)) 
+        .options(joinedload(Feedback.user))
         .order_by(Feedback.created_at.desc())
         .all()
     )
@@ -50,13 +50,13 @@ def update_feedback_admin(
         .filter(Feedback.feedback_id == feedback_id)
         .first()
     )
-    
+
     if not feedback:
         raise HTTPException(status_code=404, detail="找不到該回饋紀錄")
 
     # 更新狀態 (0=待處理, 1=處理中, 2=已解決)
     feedback.is_replied = data.is_replied
-    
+
     # 如果有填寫回覆內容
     if data.admin_answer is not None:
         feedback.admin_answer = data.admin_answer
@@ -72,7 +72,7 @@ def update_feedback_admin(
 
 # 1===== [一般用戶] 提交新回饋 =====
 @router.post(
-    "/", 
+    "/",
     response_model=FeedbackResponse,
     summary="提交新的意見回饋"
 )
@@ -98,12 +98,12 @@ def create_feedback(
 
 # 4===== [一般用戶] 取得個人歷史 =====
 @router.get(
-    "/my", 
+    "/my",
     response_model=List[FeedbackResponse],
     summary="取得使用者個人的回饋歷史"
 )
 def get_my_feedbacks(
-    db: Session = Depends(get_db), 
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     return (

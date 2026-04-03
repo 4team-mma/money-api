@@ -1,14 +1,12 @@
 # python ingest_knowledge.py
 import os
 import glob
-import shutil
 from dotenv import load_dotenv
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 import chromadb
-from chromadb.config import Settings
 
 load_dotenv()
 
@@ -31,15 +29,14 @@ def ingest_data():
             # 🔪 只把 system_manual 這個房間刪掉！其他房間 (如 user_memories) 完全不受影響
             client.delete_collection("system_manual")
             print("✅ 已清空舊的系統手冊！")
-        except ValueError:
-            # 如果房間本來就不存在，會跳 ValueError，我們直接忽略即可
-            pass
-        # shutil.rmtree(CHROMA_PERSIST_DIR)這是暴力清除清除舊的向量資料庫 
-        
+        except (Exception, ValueError):
+            # 不管是找不到房間還是其他小事，都直接跳過
+            print("✨ 沒偵測到舊房間，準備直接建立新的...")
+
     # 📄 3. 自動掃描並讀取資料夾內所有的 .md 檔案
     all_documents = []
     md_files = glob.glob(os.path.join(DATA_DIR, "*.md"))
-    
+
     if not md_files:
         print(f"❌ 在 {DATA_DIR} 找不到任何 .md 檔案！")
         return
@@ -48,7 +45,7 @@ def ingest_data():
         print(f"📄 讀取手冊: {filepath}")
         loader = TextLoader(filepath, encoding="utf-8")
         all_documents.extend(loader.load())
-    
+
     # ✂️ 4. 切割段落
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     chunks = text_splitter.split_documents(all_documents)
@@ -59,7 +56,7 @@ def ingest_data():
         model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         huggingfacehub_api_token=hf_token
     )
-    
+
     print("💾 正在上傳至雲端轉為向量並存入本機 ChromaDB...")
     Chroma.from_documents(
         documents=chunks,

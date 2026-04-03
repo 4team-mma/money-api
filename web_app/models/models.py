@@ -164,21 +164,21 @@ class Notification(Base):
     reminder_title: Mapped[str] = mapped_column(String(50), nullable=False)
     # 提醒類型：'manual' (手動), 'budget' (預算警告), 'savings' (目標達成)
     category: Mapped[str] = mapped_column(String(20), server_default="manual")
-    
+
     reminder_date_start: Mapped[date] = mapped_column(Date, nullable=False)
 
     # 就算忘記傳時間，資料庫也能自動填入「寫入當下」的時間
     reminder_time: Mapped[time] = mapped_column(
-        Time, 
+        Time,
         server_default=func.current_time(),
         default=lambda: datetime.now().time()
     )
-    
+
     # 週期：none, daily, weekly, monthly
     repeat_cycle: Mapped[str] = mapped_column(String(20), server_default="none")
-    
+
     description: Mapped[Optional[str]] = mapped_column(String(200))
-    
+
     # 狀態控制
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="1") # 是否啟用提醒
     is_read: Mapped[bool] = mapped_column(Boolean, server_default="0")   # 是否已讀(針對系統通知)
@@ -192,10 +192,10 @@ class Budget(Base):
 
     budget_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id"), nullable=False)
-    
+
     # 預算金額
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    
+
     # 如果 category 和 tag 都是 Null，則視為「月總預算」
     category: Mapped[Optional[str]] = mapped_column(String(50))
     tag: Mapped[Optional[str]] = mapped_column(String(50))
@@ -254,7 +254,7 @@ class Feedback(Base):
     # 管理者回覆內容 (可為空)
     admin_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     # 是否已回覆 (0: 未回, 1: 已回)
-    is_replied: Mapped[int] = mapped_column(Integer, server_default="0") 
+    is_replied: Mapped[int] = mapped_column(Integer, server_default="0")
     # 註：SQLAlchemy 中 Boolean 通常對應 TINYINT，也可以寫 Mapped[bool] = mapped_column(Boolean, default=False)
     # 回覆時間
     replied_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -335,7 +335,7 @@ class SalaryBenchmark(Base):
             name="unique_salary_record",
         ),
     )
-    
+
 # 11. 系統/個人偏好設定 (User Settings)
 class Setting(Base):
     __tablename__ = "settings"
@@ -389,7 +389,7 @@ class AIConfig(Base):
 
     # 對應 ENUM('gemini', 'ollama')
     provider: Mapped[str] = mapped_column(String(20), nullable=False)
-    
+
     api_key: Mapped[Optional[str]] = mapped_column(String(500), comment="加密後的金鑰")
     base_url: Mapped[str] = mapped_column(
         String(255), server_default="http://localhost:11434", comment="Ollama 地端網址"
@@ -398,7 +398,7 @@ class AIConfig(Base):
 
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, comment="AI 的人格設定")
     max_tokens: Mapped[int] = mapped_column(Integer, server_default="2000")
-    
+
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -425,7 +425,7 @@ class Checkin(Base):
     checkin_date: Mapped[date] = mapped_column(
         Date, nullable=False, comment="打卡日期(YYYY-MM-DD)"
     )
-    
+
     streak_count: Mapped[int] = mapped_column(
         Integer, default=1, comment="目前連續打卡天數"
     )
@@ -435,7 +435,7 @@ class Checkin(Base):
     earned_xp: Mapped[int] = mapped_column(
         Integer, default=0, comment="本次打卡獲得的經驗值"
     )
-    
+
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="最後更新時間"
     )
@@ -448,53 +448,53 @@ class MissCardsLibrary(Base):
     lib_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True, comment="唯一識別碼"
     )
-    
+
     # 對應 ENUM('MISSION', 'CARD', 'ACHIEVEMENT')
     type: Mapped[str] = mapped_column(
         String(20), nullable=False, comment="類型：MISSION, CARD, ACHIEVEMENT"
     )
-    
+
     title: Mapped[str] = mapped_column(
         String(100), nullable=False, comment="名稱(如：策略喵-INTJ)"
     )
-    
+
     # 對應 ENUM('NORMAL', 'RARE', 'EPIC')
     difficulty: Mapped[str] = mapped_column(
         String(20), server_default="NORMAL", comment="稀有度/難度"
     )
-    
+
     category: Mapped[Optional[str]] = mapped_column(
         String(20), comment="屬性(如：I/E/T/F，或 Analysis/Saving)"
     )
-    
+
     series_name: Mapped[str] = mapped_column(
         String(50), server_default="普通", comment="系列名稱"
     )
-    
+
     target_val: Mapped[int] = mapped_column(
         Integer, default=1, comment="解鎖門檻"
     )
     xp_reward: Mapped[int] = mapped_column(
         Integer, default=0, comment="達成後獲得的XP"
     )
-    
+
     # 自關聯：如果是任務，獎勵的卡片 ID 指向自己這張表的 lib_id
     card_reward_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("misscards_library.lib_id"), nullable=True, comment="任務贈送的卡牌lib_id"
     )
-    
+
     reward_unlock_feature: Mapped[Optional[str]] = mapped_column(
         String(100), comment="集滿系列後解鎖的功能代碼"
     )
-    
+
     is_hidden: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="是否為隱藏項目"
     )
-    
+
     image_url: Mapped[Optional[str]] = mapped_column(
         String(255), comment="喵喵圖片檔案名稱"
     )
-    
+
     description: Mapped[Optional[str]] = mapped_column(
         Text, comment="成就/卡牌描述"
     )
@@ -520,25 +520,25 @@ class DailyMission(Base):
     lib_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("misscards_library.lib_id"), nullable=False, comment="關聯 Library"
     )
-    
+
     # 0:進行中, 1:待領取, 2:已領取
     miss_status: Mapped[int] = mapped_column(
         Integer, default=0, comment="0:進行中, 1:待領取, 2:已領取"
     )
-    
+
     current_val: Mapped[int] = mapped_column(
         Integer, default=0, comment="今日任務進度"
     )
-    
+
     slot_num: Mapped[Optional[int]] = mapped_column(
         Integer, comment="任務槽位：1, 2, 3"
     )
-    
+
     # 使用 server_default=func.current_date() 對應 SQL 的 DEFAULT (CURRENT_DATE)
     created_at: Mapped[date] = mapped_column(
         Date, server_default=func.current_date(), comment="任務產生日期"
     )
-    
+
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now()
     )
@@ -560,19 +560,19 @@ class AchCard(Base):
     lib_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("misscards_library.lib_id"), nullable=False, comment="關聯 Library"
     )
-    
+
     is_unlocked: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="是否已獲得/解鎖"
     )
-    
+
     unlocked_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, comment="正式解鎖的時間"
     )
-    
+
     current_val: Mapped[int] = mapped_column(
         Integer, default=0, comment="累積型數據(如：累積打卡天數)"
     )
-    
+
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), comment="進度最後更新時間"
     )
@@ -596,7 +596,7 @@ class SavingsGoal(Base):
     # 目標狀態 (例如: active, completed, failed)
     status: Mapped[str] = mapped_column(String(20), default="active")
     account: Mapped[Optional["Account"]] = relationship("Account")
-    
+
 # 18. 登入紀錄表 (用於顯示最近登入活動)
 class LoginActivity(Base):
     __tablename__ = "login_activities"
@@ -611,26 +611,27 @@ class LoginActivity(Base):
     location: Mapped[str] = mapped_column(String(100), server_default="Unknown")
     login_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, server_default="0")
-    
-    
-    
+
+
+
 # 18. 模型評分資料表 (邱比特大腦評測用)
 class IntentReviewLog(Base):
     __tablename__ = "intent_review_log"
 
     review_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
-    
+
     user_message: Mapped[str] = mapped_column(Text, nullable=False)
-    
+
     # AI 預測區塊
     predicted_intent: Mapped[str] = mapped_column(String(20), nullable=False)
     confidence_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
-    
+
     # 人類審核區塊
     corrected_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0") # 0: 未審, 1: 已審
-    
+
+    llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

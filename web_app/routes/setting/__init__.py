@@ -12,6 +12,6 @@ router.include_router(setting_export_router, prefix="/setting_export")
 
 router.include_router(setting_profile_router, prefix="/setting_profile")
 
-router.include_router(setting_preference_router, prefix="/setting_preference") 
+router.include_router(setting_preference_router, prefix="/setting_preference")
 
 router.include_router(setting_account_router, prefix="/setting_account")

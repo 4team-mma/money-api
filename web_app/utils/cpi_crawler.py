@@ -62,7 +62,7 @@ def fetch_and_update_cpi():
     包含智慧跳過機制：若資料庫已有最新月份資料，則不進行爬取。
     """
     logger.info("--- [CPI 檢查程序啟動] ---")
-    
+
     current_date = datetime.now()
     current_year = current_date.year
     min_save_year = current_year - 5
@@ -75,7 +75,7 @@ def fetch_and_update_cpi():
         #    規則：如果是每個月 5 號前，最新資料應該是「上上個月」
         #    規則：如果是每個月 6 號後，最新資料應該是「上個月」
         #    (這裡簡化處理：直接檢查資料庫最新的那筆，是否為「上個月」或「本月」)
-        
+
         # 取得「上個月」的年份與月份 (例如現在 2月，上個月就是 1月)
         last_month_date = current_date.replace(day=1) - timedelta(days=1)
         target_period_str = last_month_date.strftime("%YM%m") # 格式：2026M01
@@ -89,7 +89,7 @@ def fetch_and_update_cpi():
 
         if latest_record:
             logger.info(f"🔍 資料庫目前最新資料為: {latest_record.period} (目標: {target_period_str})")
-            
+
             # 如果資料庫已經有「上個月」的資料 (或者因為某些原因已經有本月的)
             # 或者是 5 號以前，資料庫有「上上個月」的其實也算最新，但為了保險，
             # 我們只要判斷：如果 Database 的最新月份 >= 上個月，就代表已經更新過了。
@@ -98,12 +98,12 @@ def fetch_and_update_cpi():
                 logger.info("✅ 檢測到資料已是最新，跳過本次爬蟲任務。")
                 print(msg)
                 return # <--- 直接結束，不再發送 Request 也不跑迴圈
-        
+
         # ---------------------------------------------------------
         # 以下為原本的爬蟲邏輯 (只有當上面檢查沒過時才會執行)
         # ---------------------------------------------------------
         logger.info("🚀 資料庫落後或無資料，開始執行爬蟲更新...")
-        
+
         try:
             response = requests.get(CPI_URL, timeout=30, verify=False)
             response.encoding = "utf-8"

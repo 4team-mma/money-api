@@ -215,16 +215,16 @@ async def create_transfer(
     )
     db.add(new_tx)
     db.commit()
-    
-    
+
+
     # 🌟 新增：觸發轉帳任務進度
     GameService.update_mission_progress(
-        db, 
-        user_id=current_user.user_id, 
+        db,
+        user_id=current_user.user_id,
         category='轉帳', # 確保任務池裡的「資金調度」category 也是「轉帳」
         increment=1
     )
-    
+
     return {"msg": "轉帳成功", "transaction_id": new_tx.transaction_id}
 
 # 4. 修改轉帳紀錄
@@ -255,7 +255,7 @@ async def update_transfer(
     # 還原儲蓄進度
     goal_old_from = db.query(SavingsGoal).filter(SavingsGoal.account_id == old_tx.from_account_id, SavingsGoal.user_id == current_user.user_id).first()
     if goal_old_from: goal_old_from.current_amount += old_tx.amount # 還原原本被轉出的錢
-    
+
     goal_old_to = db.query(SavingsGoal).filter(SavingsGoal.account_id == old_tx.to_account_id, SavingsGoal.user_id == current_user.user_id).first()
     if goal_old_to: goal_old_to.current_amount -= old_tx.amount # 扣除原本存入的錢
 

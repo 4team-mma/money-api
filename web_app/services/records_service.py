@@ -51,11 +51,11 @@ class RecordsService:
         amt = Decimal(str(data.get("add_amount", 0)))
         accounts = db.query(Account).filter(Account.user_id == user_id).limit(2).all()
         if len(accounts) < 2: raise ValueError("轉帳需要至少兩個帳戶喵")
-        
+
         from_acc, to_acc = accounts[0], accounts[1]
         from_acc.current_balance -= amt
         to_acc.current_balance += amt
-        
+
         new_tx = Transaction(
             user_id=user_id,
             transaction_date=RecordsService.get_taiwan_now().date(),

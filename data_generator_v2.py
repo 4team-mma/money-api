@@ -10,7 +10,7 @@ import tkinter.filedialog as fd
 import time
 
 # 🎨 系統外觀設定
-ctk.set_appearance_mode("Dark")  
+ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue") # 藍色主題
 
 # 🧠 MMA 系統專屬知識庫 (壓縮提煉版，用於餵給 AI 確保假資料準確性)
@@ -37,16 +37,16 @@ class DataGeneratorApp(ctk.CTk):
         super().__init__()
         self.title("白白AI資料生成器 (地端 Ollama 豪華知識版)")
         self.geometry("850x1000") # 加高以容納 Prompt 編輯區
-        
+
         # --- UI 介面佈局 ---
         self.title_label = ctk.CTkLabel(self, text="🤖 Ollama 地端資料生成器", font=("Arial", 24, "bold"))
         self.title_label.pack(pady=10)
-        
+
         # 🧠 模型設定區
         self.model_frame = ctk.CTkFrame(self)
         self.model_frame.pack(pady=5, padx=20, fill="x")
         ctk.CTkLabel(self.model_frame, text="本地 Ollama 模型:").pack(side="left", padx=10, pady=10)
-        
+
         self.model_mapping = {
             "Llama 3.1 8B (綜合性能最強/台灣口語好)": "llama3.1",
             "DeepSeek R1 8B (最強推理思維/複雜 SQL)": "deepseek-r1:8b",
@@ -55,11 +55,11 @@ class DataGeneratorApp(ctk.CTk):
             "Gemma 3 4B (小巧聰明/適合日常邏輯)": "gemma3:4b",
             "Gemma 3 1B (極度輕量/幾乎不佔資源)": "gemma3:1b"
         }
-        
+
         self.model_combo = ctk.CTkComboBox(self.model_frame, values=list(self.model_mapping.keys()), width=350)
-        self.model_combo.set("Llama 3.1 8B (綜合性能最強/台灣口語好)") 
+        self.model_combo.set("Llama 3.1 8B (綜合性能最強/台灣口語好)")
         self.model_combo.pack(side="left", padx=10)
-        
+
         self.mode_switch = ctk.CTkSwitch(self.model_frame, text="開啟 MySQL 模式", command=self.toggle_mode)
         self.mode_switch.pack(side="right", padx=20)
 
@@ -67,7 +67,7 @@ class DataGeneratorApp(ctk.CTk):
         self.intent_mode_frame = ctk.CTkFrame(self)
         self.intent_mode_frame.pack(pady=5, padx=20, fill="x")
         ctk.CTkLabel(self.intent_mode_frame, text="句型模式:").pack(side="left", padx=10, pady=10)
-        
+
         self.intent_mode_var = ctk.StringVar(value="SINGLE")
         self.rb_single = ctk.CTkRadioButton(self.intent_mode_frame, text="單項目 (一句一筆/單一意圖)", variable=self.intent_mode_var, value="SINGLE", command=self.on_intent_change)
         self.rb_single.pack(side="left", padx=20)
@@ -77,42 +77,42 @@ class DataGeneratorApp(ctk.CTk):
         # 意圖/資料表選擇與數量
         self.setting_frame = ctk.CTkFrame(self)
         self.setting_frame.pack(pady=5, padx=20, fill="x")
-        
+
         self.intent_label = ctk.CTkLabel(self.setting_frame, text="生成類別:")
         self.intent_label.grid(row=0, column=0, padx=10, pady=10)
-        
+
         self.nlp_options = ["RECORD (記帳)", "QUERY (查詢)", "CHAT (閒聊)", "ADVISOR (顧問)", "KNOWLEDGE (手冊)"]
         self.mysql_options = ["adds (帳單紀錄)", "budgets (預算設定)", "savings_goals (儲蓄目標)", "accounts (我的帳戶)", "transactions (轉帳紀錄)", "feedbacks (意見回饋)"]
-        
+
         self.intent_combo = ctk.CTkComboBox(self.setting_frame, values=self.nlp_options, width=180, command=self.on_intent_change)
         self.intent_combo.grid(row=0, column=1, padx=5, pady=10)
-        
+
         self.upload_btn = ctk.CTkButton(self.setting_frame, text="📁 上傳自訂表", command=self.upload_schema, fg_color="gray", state="disabled", width=120)
         self.upload_btn.grid(row=0, column=2, padx=5, pady=10)
-        
+
         self.reset_btn = ctk.CTkButton(self.setting_frame, text="🔄 恢復預設", command=self.reset_schema, fg_color="gray", state="disabled", width=100)
         self.reset_btn.grid(row=0, column=3, padx=5, pady=10)
-        
-        self.custom_schema_content = "" 
-        self.custom_table_name = ""     
-        
+
+        self.custom_schema_content = ""
+        self.custom_table_name = ""
+
         ctk.CTkLabel(self.setting_frame, text="生成數量:").grid(row=1, column=0, padx=10, pady=10)
         self.count_entry = ctk.CTkEntry(self.setting_frame, width=80)
-        self.count_entry.insert(0, "50") 
+        self.count_entry.insert(0, "50")
         self.count_entry.grid(row=1, column=1, padx=10, pady=10)
 
         # 🌟 全新升級：Prompt 預覽與編輯區
         self.prompt_frame = ctk.CTkFrame(self)
         self.prompt_frame.pack(pady=5, padx=20, fill="x")
-        
+
         self.prompt_top_frame = ctk.CTkFrame(self.prompt_frame, fg_color="transparent")
         self.prompt_top_frame.pack(fill="x", padx=10, pady=5)
-        
+
         ctk.CTkLabel(self.prompt_top_frame, text="✏️ Prompt 預覽與自訂 (可直接修改):", font=("Arial", 14, "bold")).pack(side="left")
-        
+
         self.save_prompt_btn = ctk.CTkButton(self.prompt_top_frame, text="💾 更新並鎖定 Prompt", width=120, command=self.lock_custom_prompt)
         self.save_prompt_btn.pack(side="right", padx=5)
-        
+
         self.reset_prompt_btn = ctk.CTkButton(self.prompt_top_frame, text="🔄 恢復預設", width=80, fg_color="gray", command=self.on_intent_change)
         self.reset_prompt_btn.pack(side="right", padx=5)
 
@@ -123,22 +123,22 @@ class DataGeneratorApp(ctk.CTk):
         # Log 顯示區
         self.log_box = ctk.CTkTextbox(self, height=200, font=("Arial", 14))
         self.log_box.pack(pady=5, padx=20, fill="both", expand=True)
-        
+
         # 📊 進度條與時間標籤
         self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.progress_frame.pack(pady=5, padx=20, fill="x")
-        
+
         self.progress_bar = ctk.CTkProgressBar(self.progress_frame, width=400)
         self.progress_bar.pack(pady=5)
-        self.progress_bar.set(0)        
-        
+        self.progress_bar.set(0)
+
         self.progress_label = ctk.CTkLabel(self.progress_frame, text="進度: 0% | 耗時: 0.0s", font=("Arial", 12))
         self.progress_label.pack()
 
         # 按鈕區
         self.start_btn = ctk.CTkButton(self, text="🚀 地端加速生成", command=self.start_generation_thread, height=40, font=("Arial", 16, "bold"))
         self.start_btn.pack(pady=10)
-        
+
         self.generated_data = []
         self.is_mysql_mode = False
         self.start_time = 0
@@ -150,7 +150,7 @@ class DataGeneratorApp(ctk.CTk):
         """🌟 根據目前選項，回傳預設的 Prompt 內容"""
         selected_option = self.intent_combo.get().split(" ")[0]
         mode_choice = self.intent_mode_var.get()
-        
+
         if self.mode_switch.get() == 1: # MySQL 模式
             if selected_option.startswith("自訂表:"):
                 return f"請根據以下的資料表結構，生成 1 筆 MySQL INSERT 語法。嚴禁 markdown 標籤。\n表結構：\n{self.custom_schema_content}"
@@ -160,7 +160,7 @@ class DataGeneratorApp(ctk.CTk):
                 return "生成 1 筆 INSERT 至 `accounts` 表。欄位包含: account_type, account_name, initial_balance(1000~50000), current_balance, account_icon(💳/🏦)。"
             elif selected_option == "feedbacks":
                 return "生成 1 筆 INSERT 至 `feedbacks` 表。欄位: question_type(系統Bug/功能建議), use_page, content(模擬抱怨或建議20字內)。"
-            else: 
+            else:
                 return f"生成 1 筆 INSERT INTO 語法新增至 `{selected_option}` 表。user_id=1。"
         else: # NLP 模式
             if mode_choice == "MULTI":
@@ -195,9 +195,9 @@ class DataGeneratorApp(ctk.CTk):
         self.log("✅ Prompt 已手動更新並鎖定！接下來將使用您自訂的內容生成。")
 
     def toggle_mode(self):
-        self.log_box.delete("1.0", "end") 
+        self.log_box.delete("1.0", "end")
         self.is_mysql_mode = self.mode_switch.get() == 1
-        
+
         if self.is_mysql_mode:
             self.intent_combo.configure(values=self.mysql_options)
             self.intent_combo.set(self.mysql_options[0])
@@ -212,9 +212,9 @@ class DataGeneratorApp(ctk.CTk):
             self.reset_btn.configure(state="disabled", fg_color="gray")
             self.rb_single.configure(state="normal")
             self.rb_multi.configure(state="normal")
-            self.custom_schema_content = "" 
+            self.custom_schema_content = ""
             self.log("🔄 已切換為【Keras 意圖訓練模式】！")
-        
+
         # 切換模式後，更新 Prompt 文字框
         self.on_intent_change()
 
@@ -224,20 +224,20 @@ class DataGeneratorApp(ctk.CTk):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     self.custom_schema_content = f.read()
-                
+
                 self.custom_table_name = os.path.basename(path).split('.')[0]
                 new_option = f"自訂表: {self.custom_table_name}"
-                
+
                 current_values = list(self.intent_combo.cget("values"))
                 if new_option not in current_values:
                     current_values.insert(0, new_option)
-                
+
                 self.intent_combo.configure(values=current_values)
                 self.intent_combo.set(new_option)
-                
-                self.reset_btn.configure(state="normal", fg_color="#d63a3a") 
+
+                self.reset_btn.configure(state="normal", fg_color="#d63a3a")
                 self.log(f"📁 成功載入自訂表結構 [{self.custom_table_name}]！")
-                
+
                 # 載入後自動更新 Prompt
                 self.on_intent_change()
             except Exception as e:
@@ -267,13 +267,13 @@ class DataGeneratorApp(ctk.CTk):
 
         save_dir = os.path.join(base_dir, "ai_training", "dataset")
         os.makedirs(save_dir, exist_ok=True)
-        
+
         pattern = os.path.join(save_dir, f"{base_name}_*.{extension}")
         existing_files = glob.glob(pattern)
-        
+
         if not existing_files:
             return os.path.join(save_dir, f"{base_name}_001.{extension}")
-            
+
         max_num = 0
         for f in existing_files:
             try:
@@ -287,22 +287,22 @@ class DataGeneratorApp(ctk.CTk):
     def start_generation_thread(self):
         self.start_btn.configure(state="disabled", text="⏳ 燃燒算力中...")
         self.generated_data = []
-        
+
         # 啟動進度條與計時基準
         self.start_time = time.time()
         self.progress_bar.configure(mode="determinate")
         self.progress_bar.set(0)
         self.progress_label.configure(text="進度: 0% | 耗時: 0.0s")
-        
+
         threading.Thread(target=self.generate_data, daemon=True).start()
 
     def generate_data(self):
         display_model_name = self.model_combo.get()
         model_name = self.model_mapping.get(display_model_name, "llama3.1")
         total_count = int(self.count_entry.get())
-        selected_option = self.intent_combo.get().split(" ")[0] 
+        selected_option = self.intent_combo.get().split(" ")[0]
         mode_choice = self.intent_mode_var.get()
-        
+
         self.success_count = 0
         self.log(f"🔥 呼叫 Ollama ({model_name}) 開始生成 {total_count} 筆資料...")
 
@@ -310,7 +310,7 @@ class DataGeneratorApp(ctk.CTk):
             try:
                 # 🌟 直接讀取介面上使用者自訂 (或預設) 的 Prompt 內容！
                 user_defined_prompt = self.prompt_box.get("1.0", "end").strip()
-                
+
                 if self.is_mysql_mode:
                     current_table_name = selected_option if not selected_option.startswith("自訂表:") else self.custom_table_name
                     final_prompt = f"{user_defined_prompt}\n純SQL輸出，嚴禁解釋。"
@@ -321,37 +321,37 @@ class DataGeneratorApp(ctk.CTk):
                 # 🚀 呼叫地端 Ollama API
                 url = "http://localhost:11434/api/generate"
                 payload = {
-                    "model": model_name, 
-                    "prompt": final_prompt, 
+                    "model": model_name,
+                    "prompt": final_prompt,
                     "stream": False,
-                    "options": {"temperature": 0.85, "num_predict": 128} 
+                    "options": {"temperature": 0.85, "num_predict": 128}
                 }
-                
+
                 response = requests.post(url, json=payload, timeout=60) # 60秒超時保護
                 if response.status_code == 200:
                     res_text = response.json().get("response", "").strip().strip("1234567890.、- *\"'")
-                    
+
                     if len(res_text) > 2:
                         if self.is_mysql_mode:
                             self.generated_data.append(res_text)
                         else:
                             label = f"MULTI_{selected_option}" if mode_choice == "MULTI" else selected_option
                             self.generated_data.append({"text": res_text, "intent": label})
-                        
+
                         self.success_count += 1
-                        
-                        if self.success_count % 3 == 0 or self.success_count <= 3: 
+
+                        if self.success_count % 3 == 0 or self.success_count <= 3:
                             self.log(f"✔️ [{self.success_count}] {res_text[:50]}...")
                 else:
                     self.log(f"⚠️ 第 {i+1} 筆生成異常，狀態碼: {response.status_code}")
 
             except requests.exceptions.ConnectionError:
                 self.log("❌ 錯誤：無法連線至 Ollama！請確認 Ollama 軟體是否已啟動。")
-                break 
+                break
             except Exception as e:
                 self.log(f"⚠️ 第 {i+1} 筆發生超時或錯誤: {str(e)}，跳過並繼續下一筆...")
-                continue 
-            
+                continue
+
             # 🔄 更新進度條與時間
             elapsed = time.time() - self.start_time
             progress_pct = (i + 1) / total_count
@@ -365,7 +365,7 @@ class DataGeneratorApp(ctk.CTk):
         duration = time.time() - self.start_time
         self.progress_label.configure(text=f"✅ 完成！總耗時: {duration:.1f} 秒")
         self.start_btn.configure(state="normal", text="🚀 地端加速生成")
-        
+
         if self.success_count > 0:
             self.log(f"\n✨ 生成完畢！預計 {total_count} 筆，成功產出 {self.success_count} 筆。")
             save_name = current_table_name if self.is_mysql_mode else selected_option
@@ -373,7 +373,7 @@ class DataGeneratorApp(ctk.CTk):
 
     def save_to_file(self, base_name):
         if not self.generated_data: return
-        
+
         if self.is_mysql_mode:
             filename = self.get_next_filename(f"{base_name}_mock", "sql")
             try:
@@ -383,7 +383,7 @@ class DataGeneratorApp(ctk.CTk):
                 self.log(f"💾 SQL 已成功儲存至: {filename}")
             except Exception as e:
                 self.log(f"❌ SQL 儲存失敗: {str(e)}")
-                
+
         else:
             filename = self.get_next_filename(base_name, "xlsx")
             df = pd.DataFrame(self.generated_data)

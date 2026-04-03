@@ -2,7 +2,7 @@
 
   mma-app
 <img src="./web_app/static/favicon.ico" alt="mma-app" width="30">
-</h1> 
+</h1>
 
 [團隊開發流程](docs/git-workflow.md) |
 [專案結構說明](docs/architecture.md) |
@@ -12,7 +12,8 @@
 [API撰寫說明文檔](docs/api_guide.md) |
 [爬蟲自動化說明文檔](docs/crawler.md) |
 [AI機器人說明文檔](docs/ai_models.md) |
-[新手開發注意事項](docs/beginner.md)
+[新手開發注意事項](docs/beginner.md)  |
+[開發維護key手冊](docs/DEVELOPER_SECURITY.md)  |
 
 
 
@@ -67,8 +68,11 @@ git clone https://github.com/4team-mma/money-api.git
 2026.03.30更新：
 - uv add customtkinter
 - uv add pyinstaller
-
-
+2026.04.02更新:
+- uv add cohere # 輕量級的二次排序 (Re-ranking)功能
+- uv add anthropic # 育育更新
+- uv add pre-commit --dev # key檢查機器人:需放在根目錄
+- uv add detect-secrets --dev # 檢查白名單
 
 
 ## 非共用套件:
@@ -77,10 +81,10 @@ git clone https://github.com/4team-mma/money-api.git
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
-
+- uv remove spacy
 
 # 安裝依賴:
-- 執行：uv sync 
+- 執行：uv sync
 - macOS電腦如果執行./dev.sh不允許  請先使用：chmod +x dev.sh
 - 如有更新套件,更新完git記得執行 uv sync 就可以自動補齊缺少的套件
 

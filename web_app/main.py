@@ -118,7 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="salary_startup_check",
         replace_existing=True
     )
-    
+
     # B. 定期排程 (每月 20 號 - 薪資資料通常比較慢出來)
     scheduler.add_job(
         run_all_salary_tasks, "cron", day=20, hour=10, minute=0,
@@ -136,14 +136,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="notification_startup_cleanup",
         replace_existing=True
     )
-    
+
     # B. 定期排程 (每天凌晨 03:00 執行)
     scheduler.add_job(
-        cleanup_old_notifications, 
-        "cron", 
-        hour=3, 
+        cleanup_old_notifications,
+        "cron",
+        hour=3,
         minute=0,
-        id="daily_notification_cleanup", 
+        id="daily_notification_cleanup",
         replace_existing=True
     )
     # ==========================
@@ -158,18 +158,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="login_activity_startup_cleanup",
         replace_existing=True
     )
-    
+
     # B. 定期排程 (每天凌晨 03:30 執行)
     # 這是給伺服器 24 小時運作時使用的正常維護邏輯。
     scheduler.add_job(
-        cleanup_old_login_activities, 
-        "cron", 
-        hour=3, 
+        cleanup_old_login_activities,
+        "cron",
+        hour=3,
         minute=30,
-        id="daily_login_activity_cleanup", 
+        id="daily_login_activity_cleanup",
         replace_existing=True
     )
-    
+
 
     scheduler.start()
     logging.info("🚀 APScheduler 已啟動 - CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄")
@@ -200,10 +200,10 @@ cat_logo = r"""
    )         (    1
   (           )  號
  ( (  )   (  ) )
-(__(__)___(__)__).   
+(__(__)___(__)__).
                                 Welcome to MoneyMMA API!
-                                            Meow~ 
-    
+                                            Meow~
+
 """
 
 
@@ -265,7 +265,7 @@ def send_discord_alert(message: str, background_tasks: BackgroundTasks, level: s
         # 傳出去前先過濾敏感資訊
         safe_message = mask_sensitive(message)
         payload = {"content": f"{emoji} **[Money MMA 報警系統]**\n{safe_message}"}
-        
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(webhook_url, json=payload, timeout=5.0)
@@ -293,11 +293,11 @@ async def universal_handler(request: Request, exc: Exception):
     # 使用 getattr 並給予預設值 "訪客"，安全性最高
     u_id = getattr(request.state, "user_id_str", "訪客")
     u_name = getattr(request.state, "username_str", "")
-    
+
     u_info = f"User ID: {u_id} ({u_name})" if u_name else f"User ID: {u_id}"
-    
+
     logger.error(f"非預期錯誤 User:{u_info} Path:{request.url.path}", exc_info=True)
-    
+
     error_stack = traceback.format_exc()
     alert = (
         f"❌ **[程式發生崩潰]**\n"
@@ -309,7 +309,7 @@ async def universal_handler(request: Request, exc: Exception):
     send_discord_alert(alert, background_tasks, level="CRITICAL")
 
     return JSONResponse(
-        status_code=500, 
+        status_code=500,
         content={"success": False, "detail": "系統發生錯誤，維修人員已收到通知。"},
         background=background_tasks # 將任務掛載到 Response
     )
@@ -322,9 +322,9 @@ async def db_exception_handler(request: Request, exc: SQLAlchemyError):
      # 使用 getattr 並給予預設值 "訪客"，安全性最高
     u_id = getattr(request.state, "user_id_str", "訪客")
     u_name = getattr(request.state, "username_str", "")
-    
+
     u_info = f"User ID: {u_id} ({u_name})" if u_name else f"User ID: {u_id}"
-    
+
     prefix, msg = "[DB 一般錯誤]", "資料庫處理異常"
     if isinstance(exc, OperationalError):
         prefix, msg = "🚨 [DB 連線崩潰]", "系統忙碌中，請稍後再試"
@@ -332,7 +332,7 @@ async def db_exception_handler(request: Request, exc: SQLAlchemyError):
         prefix, msg = "ℹ️ [DB 資料衝突]", "資料重複或格式不符"
 
     logger.error(f"{prefix} User:{u_info} Path:{request.url.path} Err:{str(exc)}", exc_info=True)
-    
+
     alert = (
         f"**{prefix}**\n"
         f"👤 用戶: `{u_info}`\n"
@@ -377,7 +377,7 @@ app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事�
 app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
 app.include_router(ai_models.router, prefix="/api/ai_models", tags=["AI模型設定"])
 app.include_router(ws.router, prefix="/api/ws", tags=["WebSocket"])
-app.include_router(gamification.router, prefix="/api/game", 
+app.include_router(gamification.router, prefix="/api/game",
     tags=["成就系統:每日簽到(checkin)每日任務(missions)成就卡牌(cards)Header摘要(summary)"])
 app.include_router(
     admin.router,
@@ -388,8 +388,8 @@ app.include_router(
 app.include_router(analysis.router, prefix="/api/analysis", tags=["消費趨勢分析"])
 app.include_router(stats_router, prefix="/api/stats", tags=["圖表分析"])
 app.include_router(planning_router, prefix="/api/planning", tags=["理財規劃"])
-app.include_router(ai.router, 
-    prefix="/api/v1/ai", 
+app.include_router(ai.router,
+    prefix="/api/v1/ai",
     tags=["AI 擴充功能"]
 )
 

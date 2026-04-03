@@ -25,11 +25,11 @@ def clean_industry_name(raw_tag):
 
 def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
     logger.info(f"🚀 開始抓取薪資數據: {salary_type_name}")
-    
+
     current_date = datetime.now()
     current_year = current_date.year
     min_save_year = current_year - 5
-    
+
     with SessionLocal() as db:
         # 🌟 核心優化：取得資料庫中目前「最新」的年月 (例如 "2026M01")
         latest_record = (
@@ -38,7 +38,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
             .order_by(SalaryBenchmark.period.desc())
             .first()
         )
-        
+
         # 如果資料庫沒資料，就從 5 年前開始算；如果有，就把最新的月份記下來
         db_latest_period = latest_record.period if latest_record else f"{min_save_year}M01"
 
@@ -49,7 +49,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
         if latest_record and latest_record.period >= target_period_str:
             msg = f"✅ [薪資爬蟲] {salary_type_name} 資料已是最新 ({latest_record.period})，跳過。"
             logger.info(msg)
-            print(msg) 
+            print(msg)
             return
 
     # --- 若沒通過檢查，開始爬蟲 ---
@@ -57,7 +57,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
     try:
         response = requests.get(url, timeout=30, verify=False)
         response.encoding = "utf-8"
-        
+
         if response.status_code != 200:
             logger.error(f"❌ 無法下載薪資資料: {url}")
             return
@@ -72,7 +72,7 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
 
         new_count = 0
         update_count = 0
-        
+
         for rec in records:
             raw_period = rec.get("年月別_Year_and_month")
             if not raw_period:
@@ -133,10 +133,10 @@ def fetch_salary_data(url, salary_type_name, is_real_val, xml_root_tag):
                             )
                         )
                         db.flush()
-                        
+
                         new_count += 1
                 except ValueError:
-                    continue 
+                    continue
                 except Exception:
                     continue
 

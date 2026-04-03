@@ -1,7 +1,7 @@
 # 實戰範例：以 AddRecord 為例
 [回首頁](../README.md) |
 [ORM](../docs/orm.md) |
-[Pydanic](../docs/pydanic.md) 
+[Pydanic](../docs/pydanic.md)
 
 ## 開發建議
 - 標準 CRUD (Pydantic 驗證 + ORM 寫入)
@@ -42,7 +42,7 @@ async def create_record(
     db.add(new_record) # 4. 使用 ORM 存檔
     db.commit()
     db.refresh(new_record)
-    
+
     return new_record # 5. 雖然回傳 ORM 物件，但 FastAPI 會根據 response_model 自動轉成 Pydantic JSON
 
 ```
@@ -55,5 +55,3 @@ async def create_record(
 - Response: 用於輸出 (可格式化日期、排除敏感欄位)。
 - ORM 物件不在前端直接呈現： 永遠透過 response_model 過濾 ORM 物件。這能防止資料庫異動導致前端 API 報錯。
 - 計算與統計： 像「本月收支統計」這種功能，使用 ORM 的 func.sum() 是最佳實作，因為它在資料庫層級計算，效能最高。
-
-

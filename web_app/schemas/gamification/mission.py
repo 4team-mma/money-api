@@ -6,7 +6,7 @@ from datetime import date
 class MissionDisplay(BaseModel):
     miss_id: int
     title: str
-    difficulty: str  
+    difficulty: str
     category: Optional[str]
     description: Optional[str] # 新增描述
     xp_reward: int

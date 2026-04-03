@@ -20,7 +20,7 @@ connect_args = {}
 if IS_ON_RENDER:
     # 【雲端模式】
     DATABASE_URL = os.getenv("DATABASE_URL")
-    DEBUG = False 
+    DEBUG = False
     # 🌟 重點：Render 上的 Linux 系統憑證路徑
     connect_args = {
         "ssl": {
@@ -50,7 +50,7 @@ engine = create_engine(
     connect_args=connect_args,  # 🌟 注入 SSL 設定
     pool_size=10,
     max_overflow=6,
-    pool_pre_ping=True,  
+    pool_pre_ping=True,
     pool_recycle=300,    # 💡 專業建議：TiDB 建議縮短回收時間 (例如 300s)，避免閒置連線被砍
     echo=False #DEBUG
 )

@@ -4,23 +4,23 @@ from typing import Optional
 
 class NotificationCreate(BaseModel):
     reminder_title: str = Field(
-        description="提醒標題", 
-        min_length=1, 
+        description="提醒標題",
+        min_length=1,
         max_length=100
     )
-    
+
     reminder_date_start: date = Field(
         description="提醒日期"
     )
-    
+
     reminder_time: Optional[time] = Field(
-        default=None, 
+        default=None,
         description="提醒時間"
     )
-    
+
     description: Optional[str] = Field(
-        default=None, 
-        max_length=500, 
+        default=None,
+        max_length=500,
         description="詳細描述"
     )
 

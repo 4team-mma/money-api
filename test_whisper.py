@@ -17,7 +17,7 @@ pipe = pipeline(
     model="openai/whisper-small",
     device=device,
     # 這裡的 torch_dtype 已經被官方棄用，改成 dtype
-    model_kwargs={"dtype": torch.float16 if device == 0 else torch.float32} 
+    model_kwargs={"dtype": torch.float16 if device == 0 else torch.float32}
 )
 
 def run_transcription(file_path: str):
@@ -27,14 +27,14 @@ def run_transcription(file_path: str):
 
     # 檢查是否為 .m4a 格式
     is_m4a = file_path.lower().endswith(".m4a")
-    
+
     print(f"--- 執行環境: {'GPU 加速' if device == 0 else 'CPU 模式'} ---")
     print(f"正在辨識: {os.path.basename(file_path)}...")
 
     try:
         # 3. 執行辨識
         raw_result = pipe(
-            file_path, 
+            file_path,
             generate_kwargs={"language": "chinese", "task": "transcribe"}
         )
 
