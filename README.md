@@ -70,6 +70,7 @@ git clone https://github.com/4team-mma/money-api.git
 2026.04.02更新:
 - uv add cohere # 輕量級的二次排序 (Re-ranking)功能
 - uv add anthropic # 育育更新
+- uv add pre-commit --dev # key檢查機器人
 
 
 
