@@ -173,8 +173,17 @@ async def chat_with_meow(
     if current_intent in ["RECORD", "MULTI_RECORD"]:
         # 🚀 通道 A：精準記帳 (強制走 Groq 高階海關)
         try:
-            # 取得雙軌輸出的 JSON 字典
-            groq_result = FinanceAgentService.execute_record_chain(final_system_prompt, req.message)
+            # 🌟 [核心修復] 隔離歷史紀錄！
+            # 你的前端格式是 "... \n小主人：{最新問題}"，我們只要最後這一段
+            if "小主人：" in req.message:
+                latest_query = req.message.split("小主人：")[-1].strip()
+            else:
+                latest_query = req.message
+                
+            print(f"🕵️‍♂️ [隔離歷史] 僅傳送最新指令給 Groq：{latest_query}")
+
+            # 🌟 這裡要把 req.message 換成 latest_query
+            groq_result = FinanceAgentService.execute_record_chain(final_system_prompt, latest_query)
             
             is_json_command = True
             # 取出給前端的 Action Data
@@ -263,6 +272,32 @@ async def chat_with_meow(
     except Exception as game_err:
         logger.error(f"遊戲任務進度更新失敗: {str(game_err)}", exc_info=True)
     
+    # ==========================================
+    # 🌟 核心新增：自動將對話存入「意圖審核日誌」(資料飛輪)
+    # ==========================================
+    try:
+        # 這裡需要引入你的模型類別與 Decimal
+        from ..models import IntentReviewLog
+        from decimal import Decimal
+        
+        # 取得意圖識別時的信心度 (預設為 1.0 若抓不到)
+        conf_val = agent_response.get("confidence", 1.0)
+        
+        new_review_log = IntentReviewLog(
+            user_id=current_user.user_id,
+            user_message=req.message,          # 小主人的原始輸入
+            predicted_intent=current_intent,   # AI 猜測的意圖 (V2模型結果)
+            confidence_score=Decimal(str(conf_val)), # 轉成資料庫需要的 Decimal
+            llm_response=reply,                # 🌟 儲存 AI 實際回覆的文字內容
+            is_reviewed=0                      # 標記為「待處理」
+        )
+        db.add(new_review_log)
+        db.commit() # 這裡 commit 確保 log 存入
+    except Exception as log_err:
+        logger.error(f"❌ 寫入對話審核日誌失敗: {str(log_err)}")
+        db.rollback()
+    # ==========================================
+    
     provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" and current_intent != "RECORD" else actual_model_used
     
     return {
@@ -272,3 +307,5 @@ async def chat_with_meow(
         "is_command": is_json_command,
         "action_data": parsed_action
     }
+    
+

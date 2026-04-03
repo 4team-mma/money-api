@@ -631,8 +631,9 @@ class IntentReviewLog(Base):
     corrected_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0") # 0: 未審, 1: 已審
     
+    llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
+    
     # 關聯設定 (可選)
     user = relationship("Member")

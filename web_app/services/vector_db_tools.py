@@ -4,6 +4,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
+import cohere
 
 load_dotenv()
 
@@ -14,6 +15,7 @@ class VectorDBTools:
     _embeddings = None
     _intent_store = None
     _manual_store = None
+    _cohere_client = None # 🌟 新增 Cohere 客戶端
 
     @classmethod
     def _get_embeddings(cls):
@@ -55,20 +57,42 @@ class VectorDBTools:
         return cls._intent_store
 
     @staticmethod
-    def search_manual(query: str, k: int = 5) -> str:
-        """在 2 樓搜尋手冊知識"""
+    def search_manual(query: str, k: int = 3) -> str:
+        """在 2 樓搜尋手冊知識 (使用 Cohere 重排)"""
         try:
             vectorstore = VectorDBTools.get_manual_store()
-            docs = vectorstore.similarity_search(query, k=k)
+            
+            # 1. Chroma 粗撈 (抓 10 筆)
+            docs = vectorstore.similarity_search(query, k=10)
             
             if not docs:
                 return "喵喵在手冊裡找不到相關的說明喵..."
+
+            cohere_client = VectorDBTools._get_cohere_client()
+            
+            if cohere_client:
+                # 2. 抽出文字內容準備給 Cohere
+                doc_texts = [doc.page_content for doc in docs]
                 
-            context_text = "\n\n".join([f"【參考段落 {i+1}】\n{doc.page_content}" for i, doc in enumerate(docs)])
+                # 3. 呼叫 Cohere API 進行精密打分與重排
+                results = cohere_client.rerank(
+                    query=query,
+                    documents=doc_texts,
+                    top_n=k, # 只取前 k 名
+                    model='rerank-multilingual-v3.0' # 指定多語言模型
+                )
+                
+                # 4. 組裝重排後的結果
+                best_docs = [docs[res.index] for res in results.results]
+            else:
+                # 如果沒有設 API Key，就退回原本的 Chroma 排序
+                best_docs = docs[:k]
+                
+            context_text = "\n\n".join([f"【參考段落 {i+1}】\n{doc.page_content}" for i, doc in enumerate(best_docs)])
             return context_text
             
         except Exception as e:
-            print(f"ChromaDB 查詢錯誤: {e}")
+            print(f"查詢錯誤: {e}")
             return "喵喵的手冊資料庫連線中斷，請稍後再試喵！"
     
     @staticmethod
@@ -91,3 +115,15 @@ class VectorDBTools:
         except Exception as e:
             print(f"ChromaDB 意圖查詢錯誤: {e}")
             return None
+        
+    @classmethod
+    def _get_cohere_client(cls):
+        """共用的 Cohere Client (單例模式)"""
+        if cls._cohere_client is None:
+            cohere_key = os.getenv("COHERE_API_KEY")
+            if not cohere_key:
+                print("⚠️ 找不到 COHERE_API_KEY，將不使用重排功能。")
+                return None
+            print("⚖️ [系統] 首次初始化 Cohere Rerank 引擎...")
+            cls._cohere_client = cohere.Client(cohere_key)
+        return cls._cohere_client

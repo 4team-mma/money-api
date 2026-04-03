@@ -1,14 +1,12 @@
 # python ingest_knowledge.py
 import os
 import glob
-import shutil
 from dotenv import load_dotenv
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 import chromadb
-from chromadb.config import Settings
 
 load_dotenv()
 
@@ -31,10 +29,9 @@ def ingest_data():
             # 🔪 只把 system_manual 這個房間刪掉！其他房間 (如 user_memories) 完全不受影響
             client.delete_collection("system_manual")
             print("✅ 已清空舊的系統手冊！")
-        except ValueError:
-            # 如果房間本來就不存在，會跳 ValueError，我們直接忽略即可
-            pass
-        # shutil.rmtree(CHROMA_PERSIST_DIR)這是暴力清除清除舊的向量資料庫 
+        except (Exception, ValueError):
+            # 不管是找不到房間還是其他小事，都直接跳過
+            print("✨ 沒偵測到舊房間，準備直接建立新的...")
         
     # 📄 3. 自動掃描並讀取資料夾內所有的 .md 檔案
     all_documents = []

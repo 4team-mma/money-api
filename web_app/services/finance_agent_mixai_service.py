@@ -12,32 +12,38 @@ class FinanceAgentMixAIService:
     word_index: Optional[Dict[str, int]] = None
     label_list: Optional[List[str]] = None
     ort_session: Optional[ort.InferenceSession] = None
+    maxlen: int = 40
     
     MODEL_DIR = os.path.join(os.getcwd(), "web_app", "models", "checkpoints")
 
     @classmethod
     def _lazy_load(cls):
-        """確保模型與兩份 JSON 配置只會載入一次"""
+        """確保模型與配置只會載入一次，並自動適應 V1/V2"""
         if cls.word_index is None or cls.label_list is None or cls.ort_session is None:
             try:
+                # 🌟 [新增在這]：載入與模型同資料夾的強化詞庫
+                user_dict_path = os.path.join(cls.MODEL_DIR, "user_dict.txt")
+                if os.path.exists(user_dict_path):
+                    jieba.load_userdict(user_dict_path)
+                    print(f"📚 [Jieba] 外部強化詞庫載入成功：{user_dict_path}")
+                else:
+                    print(f"⚠️ [Jieba] 找不到詞庫檔 {user_dict_path}，斷詞精準度可能會下降喵！")
+
+                # 2. 載入模型與字典 (路徑對齊你截圖中的檔名)
                 dict_path = os.path.join(cls.MODEL_DIR, "tokenizer_dict.json")
                 label_path = os.path.join(cls.MODEL_DIR, "label_map.json")
                 onnx_path = os.path.join(cls.MODEL_DIR, "cupid_intent_model.onnx")
 
-                # 1. 載入文字字典 (Tokenizer)
                 with open(dict_path, 'r', encoding='utf-8') as f:
                     cls.word_index = json.load(f)
-                
-                # 2. 載入標籤對照表 (Label Encoder)
                 with open(label_path, 'r', encoding='utf-8') as f:
                     cls.label_list = json.load(f)
                 
-                # 3. 啟動 ONNX 推論引擎
                 cls.ort_session = ort.InferenceSession(onnx_path)
+                print("🚀 [MixAIService] 初始化成功！")
                 
-                print("🚀 [究極輕量版] ONNX引擎與雙核心JSON配置載入成功！(零環境依賴)")
             except Exception as e:
-                print(f"❌ [MixAIService] 載入資源失敗: {e}")
+                print(f"❌ 載入失敗: {e}")
                 raise e
 
     @classmethod
@@ -72,7 +78,7 @@ class FinanceAgentMixAIService:
         
         # 1. 預處理：斷詞 + 轉序列 + Padding
         cut_text = " ".join(jieba.cut(text_str))
-        padded_seq = cls._manual_texts_to_sequences(cut_text, maxlen=40)
+        padded_seq = cls._manual_texts_to_sequences(cut_text, maxlen=cls.maxlen)
         
         # 2. ONNX 模型推論
         input_name = cls.ort_session.get_inputs()[0].name
@@ -95,48 +101,40 @@ class FinanceAgentMixAIService:
 
     @classmethod
     def apply_v10_logic(cls, text_str, keras_intent):
-        """邱比特行為邏輯攔截器 V10 (ChromaDB 向量進化 + 絕對法則防護)"""
+        """邱比特行為邏輯攔截器 V10 (統一變數與關鍵字版本)"""
         
-        # 🛡️ 1. 啟動向量警衛室
+        # 🛡️ 1. 向量警衛室優先
         vector_intent = VectorDBTools.search_intent(text_str)
         if vector_intent is not None:
-            print(f"🛡️ [向量警衛室] 攔截成功！覆蓋模型直覺: {keras_intent} -> {vector_intent}")
             return vector_intent
 
-        print(f"🤖 [ONNX模型] 警衛室放行，使用模型直覺: {keras_intent}")
         final_intent = keras_intent
         
-        # ==========================================
-        # 🚀 這裡新增：[絕對法則 - 查詢攔截]
-        # 即使模型直覺是 CHAT，只要命中這些「有沒有、紀錄」關鍵字，強制變 QUERY
-        # ==========================================
+        # 🚀 2. [絕對法則 - 查詢攔截]
         query_hard_keywords = ['有沒有', '吃過', '買過', '紀錄', '查一下', '找一下', '過嗎']
         if any(k in text_str for k in query_hard_keywords):
-            print(f"🚨 [絕對法則] 偵測到事實查詢關鍵字！強制轉換為 QUERY")
             return 'QUERY'
         
-        # ==========================================
-        # 🚨 2. [絕對法則]：沒錢就不能記帳！(解決「買台積電爽啦」痛點)
-        # ==========================================
+        # 🚨 3. [絕對法則 - 記帳認定] 
+        # 統一關鍵字清單，不再變動
         if final_intent in ['RECORD', 'MULTI_RECORD']:
-            # 抓取句子裡的阿拉伯數字，或是「元、塊、萬」等明確單位
             digit_groups = re.findall(r'\d+', text_str)
             money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')
             
-            # 如果完全沒有數字，也沒有錢的單位，代表只是在講幹話或分享心情
-            if len(digit_groups) == 0 and money_unit_count == 0:
-                print("🚨 [絕對法則] 發現沒有具體金額！強制將 RECORD 降級為 CHAT")
+            # 🌟 統一使用 finance_keywords 名稱與清單
+            finance_keywords = ['存', '領', '花', '賺', '薪水', '中獎', '噴了', '飛了', '支出', '買了', '付', '收']
+            has_finance_word = any(k in text_str for k in finance_keywords)
+
+            # 只有當「沒數字」且「沒金額單位」且「沒理財動詞」時，才降級
+            if len(digit_groups) == 0 and money_unit_count == 0 and not has_finance_word:
                 return 'CHAT'
 
-        # ==========================================
-        # 📚 3. 純知識名詞保護
-        # ==========================================
+        # 📚 4. 純知識名詞保護
         knowledge_keywords = ['任務', '成就', '主題', '背景', '解鎖', '手冊', '規則', '簽到', '卡牌', 'CPI', '物價指數']
         if any(kw in text_str for kw in knowledge_keywords):
             if any(kw in text_str for kw in ['好簡單', '太難了', '真累', '開心', '好開心', '早上好', '嗚嗚']):
                 return 'CHAT'
-            multi_markers = ['順便', '又', '加上', '然後', '之外', '還有']
-            if any(m in text_str for m in multi_markers):
+            if any(m in text_str for m in ['順便', '又', '加上', '然後', '之外', '還有']):
                 return 'MULTI_KNOWLEDGE'
             return 'KNOWLEDGE'
 

@@ -1,299 +1,355 @@
 import os
 import shutil
-import pandas as pd
 import logging
 import asyncio
-from fastapi import APIRouter, Depends, Body, HTTPException, UploadFile, File
+import json
+import re  # 🌟 必備：理科保鑣需要它
+import numpy as np
+import jieba
+import onnxruntime as ort
+import openpyxl
+from decimal import Decimal
+from fastapi import APIRouter, Depends, Body, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
+
+# --- 內部模組引入 ---
 from ...database import get_db
-from ...models import Member, IntentReviewLog, AIConfig  # 🌟 新增 AIConfig
+from ...models import Member, IntentReviewLog, AIConfig
 from ...dependencies import get_current_user
-from ...schemas.ai import AICompareResponse
-
-# 引入雙 Service
 from ...services.finance_agent_service import FinanceAgentService
-from ...services.finance_agent_mixai_service import FinanceAgentMixAIService
-
-# 🌟 引入所有需要的 LLM 服務與加密工具
 from ...services.gemini_service import GeminiService
 from ...services.ollama_service import OllamaService
 from ...utils.ai_security import decrypt_api_key
-
-# 引入你的警衛室
 from web_app.utils.security_guard import is_malicious
 
+# 引入 ChromaDB 與 HuggingFace
+from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_core.documents import Document
+
+load_dotenv()
 router = APIRouter(tags=["AI 喵喵開發者工具"])
 logger = logging.getLogger(__name__)
 
-# --- 🎯 設定路徑 ---
+# --- 🎯 路徑定義 (修正 Pylance 紅線) ---
 TEMP_DIR = "web_app/temp/excel"
-DEFAULT_TEST_FILE = "web_app/temp/excel/golden_test.xlsx" 
+DEFAULT_TEST_FILE = os.path.join(TEMP_DIR, "hard_cases.xlsx") 
 CURRENT_BATCH_FILE = os.path.join(TEMP_DIR, "current_test_batch.xlsx")
+MODELS_DIR = "web_app/models/checkpoints"
+CHROMA_DIR = ".chromadb"
 
 def ensure_temp_dir():
-    """確保暫存目錄存在"""
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR, exist_ok=True)
 
-# 1. 【上傳測試檔】
 @router.post("/upload_test_file", summary="📤 上傳自定義測試 Excel")
-async def upload_test_file(
-    file: UploadFile = File(...),
-    current_user: Member = Depends(get_current_user)
-):
-    if current_user.role not in ["ai_test", "admin"]:
-        raise HTTPException(status_code=403, detail="權限不足")
-    
-    filename = file.filename or ""
-    if not filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="僅支援 .xlsx 格式喵！")
-
+async def upload_test_file(file: UploadFile = File(...), current_user: Member = Depends(get_current_user)):
+    if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
+    if not (file.filename or "").lower().endswith(".xlsx"): raise HTTPException(status_code=400, detail="僅支援 .xlsx 格式喵！")
     ensure_temp_dir()
-
-    # 🔄 自動替換邏輯：先清空舊的
     for f in os.listdir(TEMP_DIR):
-        file_path = os.path.join(TEMP_DIR, f)
-        try:
-            if os.path.isfile(file_path): os.unlink(file_path)
-        except Exception as e:
-            logger.error(f"清理舊檔失敗: {e}")
-
-    try:
-        with open(CURRENT_BATCH_FILE, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    finally:
-        file.file.close()
-
+        try: os.unlink(os.path.join(TEMP_DIR, f))
+        except: pass
+    with open(CURRENT_BATCH_FILE, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
     return {"success": True, "message": f"測試檔 {file.filename} 上傳成功！"}
 
-# 2. 【清理暫存紀錄】
 @router.delete("/clear_test_file", summary="🗑️ 清除暫存的測試檔")
 async def clear_test_file(current_user: Member = Depends(get_current_user)):
-    if current_user.role not in ["ai_test", "admin"]:
-        raise HTTPException(status_code=403, detail="權限不足")
-    
-    if os.path.exists(CURRENT_BATCH_FILE):
-        os.remove(CURRENT_BATCH_FILE)
-        return {"success": True, "message": "暫存測試檔已刪除喵！"}
-    return {"success": True, "message": "目前沒有暫存檔。"}
+    if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
+    if os.path.exists(CURRENT_BATCH_FILE): os.remove(CURRENT_BATCH_FILE); return {"success": True, "message": "已刪除喵！"}
+    return {"success": True, "message": "無暫存檔。"}
 
-# 3. 【執行批次測試】(阻絕重複寫入版)
-@router.post("/batch_run", summary="🏃 執行批次自動化測試")
-async def batch_test_ai(
-    db: Session = Depends(get_db), 
-    current_user: Member = Depends(get_current_user)
-):
-    if current_user.role not in ["ai_test", "admin"]:
-        raise HTTPException(status_code=403, detail="權限不足")
 
-    base_dir = os.getcwd()
-    file_path = os.path.join(base_dir, CURRENT_BATCH_FILE) if os.path.exists(CURRENT_BATCH_FILE) else os.path.join(base_dir, DEFAULT_TEST_FILE)
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"找不到測試集！請確認路徑 {DEFAULT_TEST_FILE} 存在喵！")
-
-    try:
-        df = pd.read_excel(file_path)
-        results = []
-        correct_count = 0
-
-        for _, row in df.iterrows():
-            msg = str(row['text'])
-            true_intent = str(row['intent'])
-            
-            legacy_intent = FinanceAgentService.analyze_intent(msg)
-            res = FinanceAgentMixAIService.analyze_intent(msg)
-            
-            is_correct = (res["final_intent"] == true_intent)
-            if is_correct: correct_count += 1
-            
-            # 🌟 阻絕重複資料：去資料庫查有沒有這句話
-            existing_log = db.query(IntentReviewLog).filter(IntentReviewLog.user_message == msg).first()
-            
-            if existing_log:
-                # 如果有，就只更新預測結果，不新增！
-                existing_log.predicted_intent = res["final_intent"]
-                existing_log.confidence_score = res["confidence"]
-                if not existing_log.is_reviewed and is_correct:
-                    existing_log.corrected_intent = true_intent
-                    existing_log.is_reviewed = 1
-                
-                review_id_to_use = existing_log.review_id
-            else:
-                # 如果沒有，才建立全新的資料
-                new_log = IntentReviewLog(
-                    user_id=current_user.user_id,
-                    user_message=msg,
-                    predicted_intent=res["final_intent"],
-                    confidence_score=res["confidence"],
-                    corrected_intent=true_intent if is_correct else None,
-                    is_reviewed=1 if is_correct else 0
-                )
-                db.add(new_log)
-                db.flush() 
-                review_id_to_use = new_log.review_id
-
-            results.append({
-                "review_id": review_id_to_use,
-                "text": msg,
-                "true": true_intent,
-                "legacy_pred": legacy_intent,
-                "pred": res["final_intent"],
-                "is_correct": is_correct,
-                "conf": res["confidence"],
-                "correction": true_intent
-            })
-
-        db.commit()
-        accuracy = correct_count / len(df) if len(df) > 0 else 0
+# ==========================================
+# 🧠 擂台專屬大腦管理器 (V2 終極同步版)
+# ==========================================
+class ArenaBrains:
+    def __init__(self):
+        # 初始預設值
+        self.MAX_LEN = 40
+        self.PADDING_TYPE = "post"
+        self.v1_session = None
+        self.v2_session = None
+        self.v1_vocab = {}
+        self.v2_vocab = {}
+        self.v1_labels = []
+        self.v2_labels = []
+        self.chroma_store = None
         
-        return {
-            "success": True,
-            "source": "自定義" if "current_test_batch" in file_path else "預設黃金集",
-            "accuracy": accuracy,
-            "total": len(df),
-            "details": results
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        # 載入順序：先讀設定，再載模型
+        self._load_config()
+        self._load_models()
 
-# 4. 【單句對比】(🌟 已完美整合動態讀取後台 AI 模型)
-@router.post("/compare", response_model=None, summary="🎙️ 手動單句對比")
-async def compare_ai_intent(
-    message: str = Body(..., embed=True),
+    def _load_config(self):
+        """讀取 Jupyter 產出的環境設定檔"""
+        config_path = os.path.join(MODELS_DIR, "brain_config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    self.MAX_LEN = cfg.get("MAX_LEN", 40)
+                    self.PADDING_TYPE = cfg.get("PADDING_TYPE", "post")
+                    self.v2_labels = cfg.get("CLASSES", [])
+                    logger.info(f"📡 已同步 Jupyter 環境：MAX_LEN={self.MAX_LEN}, PADDING={self.PADDING_TYPE}")
+            except Exception as e:
+                logger.error(f"❌ 讀取 brain_config 失敗: {e}")
+
+    def _load_models(self):
+        print(f"🔍 正在檢查模型目錄: {os.path.abspath(MODELS_DIR)}")
+        try:
+            # 1. 載入 V1 (舊版)
+            v1_path = os.path.join(MODELS_DIR, "cupid_intent_model_v1.onnx")
+            if os.path.exists(v1_path):
+                self.v1_session = ort.InferenceSession(v1_path)
+                with open(os.path.join(MODELS_DIR, "tokenizer_dict_v1.json"), "r", encoding="utf-8") as f:
+                    self.v1_vocab = json.load(f)
+                with open(os.path.join(MODELS_DIR, "label_map_v1.json"), "r", encoding="utf-8") as f:
+                    self.v1_labels = json.load(f)
+
+            # 2. 載入 V2 (邱比特重生版)
+            v2_path = os.path.join(MODELS_DIR, "cupid_intent_model.onnx")
+            if os.path.exists(v2_path):
+                self.v2_session = ort.InferenceSession(v2_path)
+                with open(os.path.join(MODELS_DIR, "tokenizer_dict.json"), "r", encoding="utf-8") as f:
+                    self.v2_vocab = json.load(f)
+                # 如果 config 沒抓到 labels，才讀取 label_map.json 補位
+                if not self.v2_labels:
+                    with open(os.path.join(MODELS_DIR, "label_map.json"), "r", encoding="utf-8") as f:
+                        self.v2_labels = json.load(f)
+            
+            # 3. 載入 ChromaDB
+            hf_token = os.getenv("HF_TOKEN")
+            if hf_token and os.path.exists(CHROMA_DIR):
+                embeddings = HuggingFaceEndpointEmbeddings(
+                    model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                    huggingfacehub_api_token=hf_token
+                )
+                self.chroma_store = Chroma(
+                    collection_name="intent_examples",
+                    embedding_function=embeddings,
+                    persist_directory=CHROMA_DIR
+                )
+            logger.info("✅ 擂台大腦 (V1, V2, Chroma) 載入完成！")
+        except Exception as e:
+            logger.error(f"❌ 載入過程出錯: {e}")
+
+    def _text_to_pad_seq(self, text, vocab):
+        """將文字轉換為模型預期的 (1, 40) float32 矩陣"""
+        words = jieba.lcut(text)
+        seq = [vocab.get(w, 0) for w in words]
+        input_array = np.zeros((1, self.MAX_LEN), dtype=np.float32)
+        
+        if self.PADDING_TYPE == "post":
+            for i, word_id in enumerate(seq):
+                if i >= self.MAX_LEN: break
+                input_array[0, i] = float(word_id)
+        else: # pre
+            start_idx = max(0, self.MAX_LEN - len(seq))
+            for i, word_id in enumerate(seq[-(self.MAX_LEN):]):
+                input_array[0, start_idx + i] = float(word_id)
+        return input_array
+
+    def predict_v1(self, text: str):
+        if not self.v1_session: return "UNKNOWN", 0.0
+        input_data = self._text_to_pad_seq(text, self.v1_vocab)
+        outputs = self.v1_session.run(None, {self.v1_session.get_inputs()[0].name: input_data})
+        probs = np.array(outputs[0])[0]
+        best_idx = int(np.argmax(probs))
+        return self.v1_labels[best_idx], float(probs[best_idx])
+
+    def predict_v2(self, text: str):
+        if not self.v2_session: return "UNKNOWN", 0.0, False
+        
+        # [階段 1]：語意攔截 (ChromaDB)
+        if self.chroma_store:
+            try:
+                docs = self.chroma_store.similarity_search_with_score(text, k=1)
+                if docs and docs[0][1] < 0.4:
+                    return docs[0][0].metadata["intent"], 1.0, True
+            except: pass
+        
+        # [階段 2]：模型推論 (ONNX)
+        input_data = self._text_to_pad_seq(text, self.v2_vocab)
+        outputs = self.v2_session.run(None, {self.v2_session.get_inputs()[0].name: input_data})
+        probs = np.array(outputs[0])[0]
+        keras_intent = self.v2_labels[int(np.argmax(probs))]
+        
+        # [階段 3]：🌟 理科保鑣 (Regex) 修正誤判
+        final_intent = keras_intent
+        digit_groups = re.findall(r'\d+', text)
+        money_strength = max(text.count('元') + text.count('塊'), len(digit_groups))
+
+        # 🛡️ 規則 A：多項式強制升級 (例如一次出現兩個數字)
+        if money_strength >= 2 and 'MULTI' not in final_intent:
+            final_intent = 'MULTI_QUERY' if 'QUERY' in final_intent else 'MULTI_RECORD'
+            return final_intent, 1.0, False
+
+        # 🛡️ 規則 B：CHAT 閒聊攔截 (有錢數字但沒有動作動詞)
+        action_keywords = ['買', '花', '吃', '喝', '付', '繳', '存', '記', '入', '支']
+        has_action_verb = any(kw in text for kw in action_keywords)
+
+        # 🌟 沒動作動詞，就算是天王老子(模型)說是 RECORD 也不准過
+        if keras_intent == 'RECORD' and not has_action_verb:
+            return "CHAT", 1.0, False
+
+        return final_intent, float(np.max(probs)), False
+
+arena_brains = ArenaBrains()
+
+# 🏅 裁判：加權計分邏輯
+def calculate_score(true_intent: str, pred_intent: str):
+    t_base = true_intent.replace("MULTI_", "")
+    p_base = pred_intent.replace("MULTI_", "")
+    if true_intent == pred_intent: return 1.0
+    if t_base == p_base: return 0.5
+    borderlines = [{"ADVISOR", "CHAT"}, {"RECORD", "CHAT"}, {"QUERY", "ADVISOR"}, {"QUERY", "KNOWLEDGE"}, {"CHAT", "KNOWLEDGE"}]
+    if {t_base, p_base} in borderlines: return 0.3
+    return 0.0
+
+
+async def get_reply(db: Session, user: Member, message: str, target_intent: str) -> str:
+    """解決 Pylance 紅線與 Gemini 回傳字典問題"""
+    try:
+        ctx = await FinanceAgentService.get_context(db=db, user=user, message=message, override_intent=target_intent)
+        system_prompt = ctx.get("system_prompt", "你是理財助手喵喵。")
+        
+        config = db.query(AIConfig).filter(AIConfig.user_id == user.user_id, AIConfig.is_active == True).first()
+        if not config: 
+            config = db.query(AIConfig).filter(AIConfig.user_id == 1, AIConfig.is_active == True).first()
+        
+        provider = config.provider if config else "gemini"
+        model_ver = config.model_version if config else "gemini-3-flash-preview"
+        base_url = config.base_url if config else "http://localhost:11434"
+
+        if provider == "ollama":
+            reply_text = await OllamaService.chat_async(
+                prompt=message, 
+                system_instruction=system_prompt,
+                base_url=base_url,
+                model_id=model_ver
+            )
+            return f"[Ollama - {model_ver}]\n{reply_text}"
+            
+        elif provider == "gemini":
+            env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            db_key = "none"
+            if config and config.api_key and config.api_key != "none":
+                try: db_key = decrypt_api_key(config.api_key)
+                except: pass
+            
+            # 🌟 [關鍵修正] 解決 Pylance 紅線：確保 final_key 絕對是 str
+            raw_key = db_key if (db_key and len(db_key) > 10) else env_key
+            if raw_key is None:
+                return "❌ 系統錯誤：找不到有效的 API Key"
+            
+            final_key: str = str(raw_key) # 強制轉型確保類型安全
+            
+            gemini_res = await GeminiService.chat_async(
+                api_key=final_key,
+                model_id=model_ver,
+                prompt=message,
+                system_instruction=system_prompt
+            )
+            # 🌟 [修正] GeminiService 回傳的是 dict，要取 ["text"]
+            return f"[Gemini - {model_ver}]\n{gemini_res.get('text', '無回覆內容')}"
+
+        return f"尚未支援 {provider} 的測試回覆喵~"
+
+    except Exception as e:
+        logger.error(f"❌ [get_reply] 出錯: {str(e)}")
+        return f"生成失敗: {str(e)}"
+
+
+# -------------------------------------------------------------------
+# API 路由區
+# -------------------------------------------------------------------
+
+@router.get("/admin_logs", summary="👑 管理員：獲審核清單")
+async def get_admin_review_logs(
+    is_reviewed: int = Query(0),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1),
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
-    if current_user.role not in ["ai_test", "admin"]:
-        raise HTTPException(status_code=403, detail="權限不足")
+    if current_user.role not in ["admin"]: raise HTTPException(status_code=403, detail="權限不足")
+    query = db.query(IntentReviewLog).filter(IntentReviewLog.is_reviewed == is_reviewed)
+    total = query.count()
+    logs = query.order_by(IntentReviewLog.created_at.desc()).offset((page-1)*size).limit(size).all()
+    details = []
+    for l in logs:
+        details.append({
+            "review_id": l.review_id,
+            "user_message": l.user_message,
+            "predicted_intent": l.predicted_intent,
+            "confidence_score": float(l.confidence_score),
+            "corrected_intent": l.corrected_intent or l.predicted_intent,
+            "created_at": l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else None
+        })
+    return {"total": total, "details": details}
 
-    # 🛡️ 【第一關：警衛室攔截】
-    if is_malicious(message):
-        return {
-            "review_id": None, 
-            "legacy": {
-                "intent": "BLOCKED",
-                "response": "🚨 喵喵聽不懂這個奇怪的指令喔！(已被警衛攔截)"
-            },
-            "mix_ai": {
-                "intent": "BLOCKED",
-                "confidence": 1.0,
-                "response": "🚨 喵喵聽不懂這個奇怪的指令喔！(已被警衛攔截)"
-            }
-        }
+@router.post("/batch_run", summary="🏃 執行三方批次測試")
+async def batch_test_ai(db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+    if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
+    file_path = CURRENT_BATCH_FILE if os.path.exists(CURRENT_BATCH_FILE) else DEFAULT_TEST_FILE
+    if not os.path.exists(file_path): raise HTTPException(status_code=404, detail="找不到測試集！")
+    try:
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        sheet = wb.active
+        if sheet is None: 
+            raise HTTPException(status_code=500, detail="Excel 檔案沒有有效的工作表喵！")
+        headers = [cell.value for cell in sheet[1]]
+        t_idx, i_idx = headers.index('text'), headers.index('intent')
+        results, v1_acc, v2_acc, count = [], 0.0, 0.0, 0
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            if not row[t_idx]: continue
+            msg, true_i = str(row[t_idx]).strip(), str(row[i_idx]).strip()
+            v1_p, _ = arena_brains.predict_v1(msg)
+            v2_p, v2_c, v2_i = arena_brains.predict_v2(msg)
+            v1_s, v2_s = calculate_score(true_i, v1_p), calculate_score(true_i, v2_p)
+            v1_acc += v1_s; v2_acc += v2_s; count += 1
+            results.append({"text": msg, "true_intent": true_i, "v1_pred": v1_p, "v2_pred": v2_p, "v2_score": v2_s})
+        db.commit()
+        return {"success": True, "v1_accuracy": v1_acc/count, "v2_accuracy": v2_acc/count, "details": results}
+    except Exception as e:
+        db.rollback(); raise HTTPException(status_code=500, detail=str(e))
 
-    # 🧠 【第二關：大腦意圖識別】
-    legacy_intent = FinanceAgentService.analyze_intent(message)
-    mix_ai_res = FinanceAgentMixAIService.analyze_intent(message)
-    final_mix_intent = mix_ai_res["final_intent"]
+@router.post("/compare", summary="🎙️ 手動三強單句對比")
+async def compare_ai_intent(message: str = Body(..., embed=True), db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+    if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
+    if is_malicious(message): return {"legacy": {"intent": "BLOCKED"}}
     
-    # 將正常預測寫入資料庫
-    new_log = IntentReviewLog(
-        user_id=current_user.user_id,
-        user_message=message,
-        predicted_intent=final_mix_intent,
-        confidence_score=mix_ai_res["confidence"]
-    )
-    db.add(new_log)
-    db.commit()
-    db.refresh(new_log)
-
-    # 🌟 動態讀取當前使用者的 AI 配置 (跟真實聊天室邏輯一致)
-    config = db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id, AIConfig.is_active == True).first()
-    if not config: # 找不到就借用 user 1 的預設設定
-        config = db.query(AIConfig).filter(AIConfig.user_id == 1, AIConfig.is_active == True).first()
-
-    # 防呆：如果連 user 1 都沒有，給個硬核預設值
-    provider = config.provider if config else "gemini"
-    model_version = config.model_version if config else "gemini-3-flash-preview"
-    base_url = config.base_url if config else "http://localhost:11434"
-
-    # 👄 【第三關：嘴巴產生實際回覆 (依據後台動態選擇模型)】
-    async def get_ai_reply_by_intent(target_intent: str, user_text: str) -> str:
-        context_data = await FinanceAgentService.get_context(
-            db=db, user=current_user, message=user_text, override_intent=target_intent
-        )
-        system_prompt = context_data["system_prompt"]
-        
-        try:
-            if provider == "ollama":
-                # 🦙 呼叫 Ollama
-                reply = await OllamaService.chat_async(
-                    base_url=base_url,
-                    model_id=model_version,
-                    prompt=user_text,
-                    system_instruction=system_prompt
-                )
-                return f"[Ollama - {model_version}]\n{reply}"
-                
-            elif provider == "gemini":
-                # ✨ 呼叫 Gemini
-                env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-                db_key = "none"
-                if config and config.api_key and config.api_key != "none":
-                    try:
-                        db_key = decrypt_api_key(config.api_key)
-                    except: pass
-                
-                final_key = db_key if (db_key and len(db_key) > 10) else env_key
-                if not final_key: 
-                    return "測試環境缺少 Gemini API Key"
-                
-                result = await GeminiService.chat_async(
-                    api_key=final_key,
-                    model_id=model_version,
-                    prompt=user_text,
-                    system_instruction=system_prompt
-                )
-                return f"[Gemini - {model_version}]\n{result['text']}"
-                
-            else:
-                return f"尚未支援 {provider} 的測試回覆喵~"
-
-        except Exception as e:
-            return f"[{provider} 生成失敗]: {str(e)}"
-
-    # 產生雙邊回覆 (同時並行處理，節省時間)
-    legacy_response, mix_ai_response = await asyncio.gather(
-        get_ai_reply_by_intent(legacy_intent, message),
-        get_ai_reply_by_intent(final_mix_intent, message)
+    legacy_i = FinanceAgentService.analyze_intent(message)
+    v1_i, v1_c = arena_brains.predict_v1(message)
+    v2_i, v2_c, v2_int = arena_brains.predict_v2(message)
+    
+    new_log = IntentReviewLog(user_id=current_user.user_id, user_message=message, predicted_intent=v2_i, confidence_score=Decimal(str(v2_c)))
+    db.add(new_log); db.commit(); db.refresh(new_log)
+    
+    # 🌟 這裡呼叫剛補回來的 get_reply
+    legacy_res, v2_res = await asyncio.gather(
+        get_reply(db, current_user, message, legacy_i),
+        get_reply(db, current_user, message, v2_i)
     )
 
     return {
         "review_id": new_log.review_id,
-        "legacy": {
-            "intent": legacy_intent,
-            "response": legacy_response
-        },
-        "mix_ai": {
-            "intent": final_mix_intent,
-            "raw_ai_guess": mix_ai_res["predicted_intent"],
-            "confidence": mix_ai_res["confidence"],
-            "response": mix_ai_response
-        }
+        "legacy": {"intent": legacy_i, "response": legacy_res},
+        "v1_ai": {"intent": v1_i, "confidence": v1_c},
+        "v2_ai": {"intent": v2_i, "confidence": v2_c, "is_intercepted": v2_int, "response": v2_res}
     }
 
-# 5. 【更新人工校正結果】
-@router.put("/logs/{review_id}", summary="🛠️ 更新人工校正意圖")
-async def update_intent_review(
-    review_id: int,
-    payload: dict = Body(...),
-    db: Session = Depends(get_db),
-    current_user: Member = Depends(get_current_user)
-):
-    if current_user.role not in ["ai_test", "admin"]:
-        raise HTTPException(status_code=403, detail="權限不足")
-
-    log_entry = db.query(IntentReviewLog).filter(IntentReviewLog.review_id == review_id).first()
-    if not log_entry:
-        raise HTTPException(status_code=404, detail="找不到該筆紀錄喵！")
-
-    corrected_intent = payload.get("corrected_intent")
-    if corrected_intent:
-        log_entry.corrected_intent = corrected_intent
-        log_entry.is_reviewed = 1
+@router.put("/logs/{review_id}", summary="🛠️ 更新修正結果")
+async def update_intent_review(review_id: int, payload: dict = Body(...), db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+    if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
+    log = db.query(IntentReviewLog).filter(IntentReviewLog.review_id == review_id).first()
+    if not log: raise HTTPException(status_code=404, detail="找不到紀錄")
+    corrected = payload.get("corrected_intent")
+    if corrected:
+        log.corrected_intent, log.is_reviewed = corrected, 1
+        if arena_brains.chroma_store:
+            arena_brains.chroma_store.add_documents([Document(page_content=log.user_message, metadata={"intent": corrected})])
         db.commit()
-        return {"success": True, "message": f"序號 {review_id} 已修正為 {corrected_intent} 喵！"}
-    
-    raise HTTPException(status_code=400, detail="請提供正確的意圖名稱")
+        return {"success": True}
+    raise HTTPException(status_code=400, detail="無效意圖")
