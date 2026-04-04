@@ -270,29 +270,30 @@ async def chat_with_meow(
         logger.error(f"遊戲任務進度更新失敗: {str(game_err)}", exc_info=True)
 
     # ==========================================
-    # 🌟 核心新增：自動將對話存入「意圖審核日誌」(資料飛輪)
+    # 🌟 核心新增：自動將對話存入「意圖審核日誌」(信心度 < 0.8 才存)
     # ==========================================
-    try:
-        # 這裡需要引入你的模型類別與 Decimal
-        from ..models import IntentReviewLog
-        from decimal import Decimal
+    conf_val = agent_response.get("confidence", 1.0)
+    
+    # 只有信心度低於 0.8 (代表 AI 不太確定) 才自動觸發紀錄
+    if conf_val < 0.8:
+        try:
+            from ..models import IntentReviewLog
+            from decimal import Decimal
 
-        # 取得意圖識別時的信心度 (預設為 1.0 若抓不到)
-        conf_val = agent_response.get("confidence", 1.0)
-
-        new_review_log = IntentReviewLog(
-            user_id=current_user.user_id,
-            user_message=req.message,          # 小主人的原始輸入
-            predicted_intent=current_intent,   # AI 猜測的意圖 (V2模型結果)
-            confidence_score=Decimal(str(conf_val)), # 轉成資料庫需要的 Decimal
-            llm_response=reply,                # 🌟 儲存 AI 實際回覆的文字內容
-            is_reviewed=0                      # 標記為「待處理」
-        )
-        db.add(new_review_log)
-        db.commit() # 這裡 commit 確保 log 存入
-    except Exception as log_err:
-        logger.error(f"❌ 寫入對話審核日誌失敗: {str(log_err)}")
-        db.rollback()
+            new_review_log = IntentReviewLog(
+                user_id=current_user.user_id,
+                user_message=req.message,
+                predicted_intent=current_intent,
+                confidence_score=Decimal(str(conf_val)),
+                llm_response=reply,
+                is_reviewed=0
+            )
+            db.add(new_review_log)
+            db.commit() 
+            print(f"⚠️ [觸發紀錄] 信心度 {conf_val} < 0.8，已寫入審核日誌！")
+        except Exception as log_err:
+            logger.error(f"❌ 寫入對話審核日誌失敗: {str(log_err)}")
+            db.rollback()
     # ==========================================
 
     provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" and current_intent != "RECORD" else actual_model_used
@@ -302,6 +303,8 @@ async def chat_with_meow(
         "duration": duration,
         "provider": provider_display,
         "is_command": is_json_command,
-        "action_data": parsed_action
+        "action_data": parsed_action,
+        "intent": current_intent,  # 🌟 新增：傳給前端
+        "confidence": conf_val     # 🌟 新增：傳給前端
     }
 

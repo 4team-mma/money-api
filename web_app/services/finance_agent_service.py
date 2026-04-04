@@ -12,7 +12,7 @@ import os
 from ..prompts.system_prompts import (
     PERSONAS, BASE_RULES, CHAT_TEMPLATE,
     ADVISOR_TEMPLATE, RECORD_TEMPLATE,
-    QUERY_TEMPLATE, KNOWLEDGE_TEMPLATE
+    KNOWLEDGE_TEMPLATE
 )
 
 # 🌟 引入 LangChain 與 Groq 需要的套件
@@ -52,7 +52,7 @@ class FinanceAgentService:
         query_trigger = [
             "多少", "剩", "總共", "統計", "分析", "餘額", "明細", "占比", "排行",
             "有沒有", "吃了沒", "買了沒", "過", "紀錄", "查詢", "找一下",
-            "答案", "結果", "多少錢", "算了沒"  # 🌟 加上這些，防止它跳回 CHAT
+            "答案", "結果", "多少錢", "算了沒" 
         ]
         if any(q in msg for q in query_trigger):
             return "QUERY"
@@ -151,7 +151,8 @@ class FinanceAgentService:
                 persona=current_persona,
                 rules=BASE_RULES
             )
-            return {"intent": "CHAT", "system_prompt": prompt}
+            # ✅ 補上 confidence
+            return {"intent": "CHAT", "system_prompt": prompt, "confidence": confidence}
 
         # ==========================================
         # 💡 意圖 B：理財顧問 (ADVISOR)
@@ -164,7 +165,8 @@ class FinanceAgentService:
                 persona=PERSONAS["professional"],
                 abnormal_report=abnormal_report
             )
-            return {"intent": intent, "system_prompt": prompt}
+            # ✅ 補上 confidence
+            return {"intent": "CHAT", "system_prompt": prompt, "confidence": confidence}
 
         # ==========================================
         # 💡 意圖 C：記帳並要求回傳 JSON (RECORD)
@@ -181,7 +183,8 @@ class FinanceAgentService:
                 default_acc_name=default_acc_name,
                 format_instructions=parser.get_format_instructions()
             )
-            return {"intent": intent, "system_prompt": prompt}
+            # ✅ 補上 confidence
+            return {"intent": "CHAT", "system_prompt": prompt, "confidence": confidence}
 
         # ==========================================
         # 💡 意圖 D：系統手冊 (KNOWLEDGE)
@@ -195,7 +198,8 @@ class FinanceAgentService:
                 rules=BASE_RULES,
                 retrieved_docs=retrieved_docs
             )
-            return {"intent": "KNOWLEDGE", "system_prompt": prompt}
+            # ✅ 補上 confidence
+            return {"intent": "KNOWLEDGE", "system_prompt": prompt, "confidence": confidence}
 
 
         # ==========================================
@@ -285,11 +289,13 @@ class FinanceAgentService:
             {instruction_rule}
             """
             
-            return {"intent": "QUERY", "system_prompt": prompt}
+            # ✅ 補上 confidence
+            return {"intent": "QUERY", "system_prompt": prompt, "confidence": confidence}
 
         else:
             # 補底防噴
-            return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES)}
+            # ✅ 補上 confidence
+            return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES), "confidence": confidence}
 
     @staticmethod
     def execute_record_chain(system_prompt: str, user_message: str) -> dict:

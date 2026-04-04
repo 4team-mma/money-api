@@ -65,7 +65,7 @@ class SQLGeneratorService:
     【⚠️ 執行準則 - 違者懲罰】
     1. 僅輸出 SQL，嚴禁任何解釋。
     2. 收支判定：支出 add_type = 0，收入 add_type = 1。
-    3. 項目查詢：具體物品請用 `add_note LIKE '%關鍵字%'`。
+    3. 項目查詢：如果小主人提到具體活動、物品或店家（例如：吃大餐、公車、星巴克），【絕對禁止】只用 add_class 查詢，必須強制加上 `add_note LIKE '%關鍵字%'` 來精準比對！
     4. 時間範圍：本月為 `add_date BETWEEN {this_month_range}`。
     5. 會員隔離：必須包含 `user_id = {user_id}`。
 
