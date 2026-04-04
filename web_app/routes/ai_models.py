@@ -282,7 +282,7 @@ async def chat_with_meow(
 
             new_review_log = IntentReviewLog(
                 user_id=current_user.user_id,
-                user_message=req.message,
+                user_message=latest_query,
                 predicted_intent=current_intent,
                 confidence_score=Decimal(str(conf_val)),
                 llm_response=reply,
