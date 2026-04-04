@@ -7,6 +7,7 @@ class AIProvider(str, Enum):
     gemini = "gemini"
     ollama = "ollama"
     anythingllm = "anythingllm"
+    groq = "groq"
 
 class AIConfigSave(BaseModel):
     provider: AIProvider = Field(..., description="模型供應商", examples=["gemini"])
@@ -23,6 +24,8 @@ class AIConfigSave(BaseModel):
         "你是一個親切的理財助手喵喵，說話結尾要帶喵~",
         description="系統提示詞 (人格設定)"
     )
+    brain_version: str = Field("v1", description="大腦版本邏輯 (v1: 關鍵字, v2: MixAI)")
+    
 
 class AIConfigResponse(BaseModel):
     provider: str = Field(..., examples=["gemini"])
@@ -30,8 +33,8 @@ class AIConfigResponse(BaseModel):
     model_version: str = Field(..., examples=["gemini-3-flash-preview"])
     system_prompt: Optional[str] = Field(None, description="目前生效的提示詞")
     is_active: bool = Field(..., examples=[True])
-    has_key: bool = Field(default=False, description="資料庫是否已存在此供應商的金鑰") # 👈 確保有 default
-
+    has_key: bool = Field(default=False, description="資料庫是否已存在此供應商的金鑰") 
+    brain_version: str = Field("v1", description="目前生效的大腦版本")
     model_config = ConfigDict(from_attributes=True)
 
 class ChatRequest(BaseModel):

@@ -73,6 +73,7 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add anthropic # 育育更新
 - uv add pre-commit --dev # key檢查機器人:需放在根目錄
 - uv add detect-secrets --dev # 檢查白名單
+- uv add groq
 
 
 ## 非共用套件:

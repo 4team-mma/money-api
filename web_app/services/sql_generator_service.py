@@ -1,54 +1,82 @@
+# web_app/services/sql_generator_service.py
 import os
 import re
-from datetime import datetime, timedelta, date
+from datetime import datetime
 from pydantic import SecretStr
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 
 class SQLGeneratorService:
-    # 🌟 完整資料庫 Schema，包含所有 18 個表格
-    SCHEMA_PROMPT = """
-    你是一個專業的 MySQL 專家。請根據以下完整的表結構生成正確的 SQL。
+    
+    @classmethod
+    def _load_schema_context(cls) -> str:
+        """從資料夾讀取資料庫地圖 (Schema Collection)"""
+        schema_path = "./web_app/data/manuals/schema_collection.md"
+        try:
+            with open(schema_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            return "Error: schema_collection.md not found."
+
+    @classmethod
+    def _self_correction(cls, sql: str, user_id: int) -> str:
+        """
+        反思機制 (Self-Correction)：以最嚴格的規則校查生成的 SQL。
+        如果發現致命錯誤，直接在此進行字符串修復。
+        """
+        sql = sql.strip()
+        
+        # 1. 強制檢查 WHERE user_id 隔離性
+        user_clause = f"user_id = {user_id}"
+        if user_clause not in sql:
+            if "WHERE" in sql.upper():
+                sql = re.sub(r"WHERE", f"WHERE {user_clause} AND", sql, flags=re.IGNORECASE)
+            else:
+                sql += f" WHERE {user_clause}"
+
+        # 2. 強制清理所有 Markdown 標籤與換行
+        sql = sql.replace("```sql", "").replace("```", "").replace("\n", " ")
+        sql = re.sub(r'\s+', ' ', sql).strip()
+
+        # 3. LIKE 語法精確化：拔除百分比符號內的異常空格
+        sql = re.sub(r"LIKE\s+'%\s+", "LIKE '%", sql, flags=re.IGNORECASE)
+        sql = re.sub(r"\s+%'", "%'", sql, flags=re.IGNORECASE)
+
+        return sql
+
+    SCHEMA_PROMPT_TEMPLATE = """
+    你是一個專業的 MySQL 專家。你唯一的工作是將使用者的問題轉化為精確的 SQL 語句。
     今天的日期是 {today}。
-    - 問：「上個月(3月)總收入？」
-    答：SELECT SUM(add_amount) FROM adds WHERE user_id = {user_id} AND add_type = 1 AND add_date BETWEEN '2026-03-01' AND '2026-03-31';
-    - 問：「上個月支出？」
-    答：SELECT SUM(add_amount) FROM adds WHERE user_id = {user_id} AND add_type = 0 AND add_date BETWEEN '2026-03-01' AND '2026-03-31';
 
-    1. 表 `members`: user_id, email, username, xp, level, points
-    2. 表 `accounts`: account_id, user_id, account_type, account_name, current_balance
-    3. 表 `notifications`: user_id, reminder_title, reminder_date_start, repeat_cycle
-    4. 表 `adds` (主要收支表): add_id, user_id, add_date, add_amount, add_type(1收, 0支), add_class, add_note, account_id, add_tag
-    5. 表 `transactions` (轉帳表): transaction_id, user_id, transaction_date, from_account_id, to_account_id, amount
-    6. 表 `password_resets`: user_id, otp_code, expires_at
-    7. 表 `feedbacks`: user_id, feedback_name, question_type, content
-    8. 表 `cpi_data`: category, period, val
-    9. 表 `salary_benchmarks`: industry, period, salary_val
-    10. 表 `settings`: user_id, budget_cycle, app_theme
-    11. 表 `ai_configs`: user_id, provider, model_version
-    12. 表 `checkin`: user_id, checkin_date, streak_count, total_checkins
-    13. 表 `misscards_library`: lib_id, type, title, difficulty, description
-    14. 表 `daily_missions`: user_id, lib_id, miss_status, current_val
-    15. 表 `ach_cards`: user_id, lib_id, is_unlocked
-    16. 表 `budgets`: user_id, amount, category, tag
-    17. 表 `savings_goals`: user_id, goal_name, target_amount, current_amount
-    18. 表 `login_activities`: user_id, ip_address, device_info, login_at
+    【重要時間指引】
+    - 現在是 2026 年 4 月。
+    - 如果問「上個月」，日期範圍是 2026-03-01 到 2026-03-31。
+    - 如果問「今年以來」，範圍是 2026-01-01 到今天。
+    - 你擁有查詢過去 6 個月所有帳務的權限。
+    
+    【🛡️ 絕對安全禁令】
+    1. 你只有「讀取」資料庫的權限！
+    2. 你的輸出必須永遠以 `SELECT` 開頭。
+    3. 絕對禁止生成 `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER` 等任何會修改資料庫的語法，違者將受嚴厲懲罰！
+    
 
-    【⚠️ 搜尋鐵律 - 絕對遵循】:
-    1. **收支判定**:
-       - 提到「花了、支出、消費、花費」，必須針對 `adds` 表加上 `add_type = 0`。
-       - 提到「賺了、收入、薪水、領錢」，必須針對 `adds` 表加上 `add_type = 1`。
-    2. **類別 vs 具體項目 (重要！)**:
-       - 提到「飲食、交通、居家、購物、娛樂、醫療、教育、投資、人情、其他」，請對準 `add_class` 欄位。
-       - 提到具體物品名稱（如：包子、捷運、漢堡、iPhone、房租），必須使用 `add_note LIKE '%名稱%'`。
-    3. **轉帳判定**:
-       - 若提到「轉帳、戶轉、從 A 帳戶搬到 B 帳戶」，請查詢 `transactions` 表。
-    4. **時間範圍 (使用動態日期)**:
-       - 「上個月」: 必須精準使用 `add_date BETWEEN {last_month_range}`。
-       - 「本月」: 必須精準使用 `add_date BETWEEN {this_month_range}`。
-       - 「這週」: 必須使用 `add_date >= {this_week_start}`。
-    5. **安全門禁**: 必須包含 `WHERE user_id = {user_id}`。
-    6. **輸出格式**: 僅輸出純 SQL 語句，禁止 Markdown 或解釋，禁止在欄位名稱（如 add_type）中間加空格。
+    【📚 第三層：資料庫架構地圖】
+    {dynamic_schema}
+    【⚠️ 執行準則 - 違者懲罰】
+    1. 僅輸出 SQL，嚴禁任何解釋。
+    2. 收支判定：支出 add_type = 0，收入 add_type = 1。
+    3. 項目查詢：如果小主人提到具體活動、物品或店家（例如：吃大餐、公車、星巴克），【絕對禁止】只用 add_class 查詢，必須強制加上 `add_note LIKE '%關鍵字%'` 來精準比對！
+    4. 時間範圍：本月為 `add_date BETWEEN {this_month_range}`。
+    5. 會員隔離：必須包含 `user_id = {user_id}`。
+
+    【🚨 轉帳查詢特別規定】
+    - 如果使用者問的是「轉帳」，請務必檢查 {dynamic_schema} 中轉帳資料表的正確名稱與欄位！
+    - 嚴禁把記帳表的 `add_date` 拿到轉帳表去用！(請使用轉帳表正確的日期與金額欄位)
+
+    【⚠️ 搜尋鐵律】
+    1. 必須包含 `WHERE user_id = {user_id}`。
+    2. 收入 add_type=1, 支出 add_type=0。
+    3. 日期篩選必須精確到天（BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'）。
     """
 
     @classmethod
@@ -56,51 +84,39 @@ class SQLGeneratorService:
         api_key_str = os.getenv("GROQ_API_KEY")
         if not api_key_str: return ""
 
-        # --- 🚀 動態日期計算 ---
         now = datetime.now()
         this_month_start = now.replace(day=1).strftime('%Y-%m-%d')
         this_month_range = f"'{this_month_start}' AND '{now.strftime('%Y-%m-%d')}'"
-
-        last_day_prev_month = now.replace(day=1) - timedelta(days=1)
-        first_day_prev_month = last_day_prev_month.replace(day=1).strftime('%Y-%m-%d')
-        last_month_range = f"'{first_day_prev_month}' AND '{last_day_prev_month.strftime('%Y-%m-%d')}'"
-
-        this_week_start = (now - timedelta(days=now.weekday())).strftime('%Y-%m-%d')
+        
+        # 讀取地圖
+        schema_context = cls._load_schema_context() # 變數名稱統一：schema_context
 
         secure_key = SecretStr(api_key_str)
-        # 使用 70B 模型生成 SQL，精準度最高
+        # 使用 70B 模型確保邏輯嚴密性
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_key)
 
         prompt = ChatPromptTemplate.from_messages([
-            ("system", cls.SCHEMA_PROMPT),
-            ("human", "小主人問：{query}")
+            ("system", cls.SCHEMA_PROMPT_TEMPLATE),
+            ("human", "問題：{query}")
         ])
 
         chain = prompt | llm
         try:
+            # 傳入所有模板所需變數，名稱嚴格對齊
             response = await chain.ainvoke({
-                "user_id": user_id,
                 "today": now.strftime("%Y-%m-%d"),
-                "last_month_range": last_month_range,
+                "dynamic_schema": schema_context,
                 "this_month_range": this_month_range,
-                "this_week_start": f"'{this_week_start}'",
+                "user_id": user_id,
                 "query": user_query
             })
 
-            # 🚀 核心修正：使用正則表達式清理換行與多餘空格，防止語句破碎
-            sql_text = re.sub(r'\s+', ' ', str(response.content)).strip()
-            sql_text = sql_text.replace("```sql", "").replace("```", "").strip()
-
-            # 🛡️ 二次防呆：修正常見的欄位名稱空格錯誤
-            sql_text = sql_text.replace("add_ _", "add_").replace("add_ _type", "add_type").replace("add_ _class", "add_class")
-
-            # 安全強制檢查 user_id 隔離
-            if f"user_id = {user_id}" not in sql_text and f"user_id={user_id}" not in sql_text.replace(" ", ""):
-                if "WHERE" in sql_text.upper():
-                    sql_text = sql_text.replace("WHERE", f"WHERE user_id = {user_id} AND")
-                else:
-                    sql_text += f" WHERE user_id = {user_id}"
-
-            return sql_text
-        except Exception:
+            raw_sql = str(response.content)
+            
+            # 執行「反思機制」進行二次校正
+            final_sql = cls._self_correction(raw_sql, user_id)
+            
+            return final_sql
+        except Exception as e:
+            print(f"❌ SQL Generator 致命錯誤: {e}")
             return ""

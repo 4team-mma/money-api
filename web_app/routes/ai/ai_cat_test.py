@@ -3,7 +3,7 @@ import shutil
 import logging
 import asyncio
 import json
-import re  # 🌟 必備：理科保鑣需要它
+import re  
 import numpy as np
 import jieba
 import onnxruntime as ort
@@ -11,7 +11,7 @@ import openpyxl
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Body, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
-
+from datetime import datetime, timedelta
 # --- 內部模組引入 ---
 from ...database import get_db
 from ...models import Member, IntentReviewLog, AIConfig
@@ -289,6 +289,51 @@ async def get_admin_review_logs(
         })
     return {"total": total, "details": details}
 
+
+
+@router.post("/feedback", summary="👤 用戶主動回饋 (倒讚)")
+async def user_feedback(
+    payload: dict = Body(...), 
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
+    """接收來自前端 Vue 的 👎 倒讚回饋"""
+    user_msg = payload.get("user_message", "未知問題")
+    llm_res = payload.get("llm_response", "")
+    pred_intent = payload.get("predicted_intent", "UNKNOWN")
+    conf_score = payload.get("confidence_score", 0.0)
+
+    new_log = IntentReviewLog(
+        user_id=current_user.user_id,
+        user_message=user_msg,
+        predicted_intent=pred_intent,
+        confidence_score=Decimal(str(conf_score)),
+        llm_response=llm_res,
+        is_reviewed=0 # 標記為未審核，讓它出現在你的 pending 列表
+    )
+    db.add(new_log)
+    db.commit()
+    return {"success": True, "message": "反饋已記錄喵！"}
+
+@router.delete("/logs/cleanup", summary="🧹 清理過期審核紀錄")
+async def cleanup_old_logs(db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+    """一鍵清理超過 30 天且未審核的無效紀錄，避免資料庫爆炸"""
+    if current_user.role not in ["admin"]: 
+        raise HTTPException(status_code=403, detail="權限不足")
+        
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    
+    # 刪除條件：未審核 (0) 且 建立時間大於 30 天
+    deleted_count = db.query(IntentReviewLog).filter(
+        IntentReviewLog.is_reviewed == 0,
+        IntentReviewLog.created_at < thirty_days_ago
+    ).delete()
+    
+    db.commit()
+    return {"success": True, "message": f"成功清理 {deleted_count} 筆過期紀錄喵！"}
+
+
+
 @router.post("/batch_run", summary="🏃 執行三方批次測試")
 async def batch_test_ai(db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
     if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
@@ -341,15 +386,34 @@ async def compare_ai_intent(message: str = Body(..., embed=True), db: Session = 
     }
 
 @router.put("/logs/{review_id}", summary="🛠️ 更新修正結果")
-async def update_intent_review(review_id: int, payload: dict = Body(...), db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
-    if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
+async def update_intent_review(
+    review_id: int, 
+    payload: dict = Body(...), 
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
+    if current_user.role not in ["ai_test", "admin"]: 
+        raise HTTPException(status_code=403, detail="權限不足")
+        
     log = db.query(IntentReviewLog).filter(IntentReviewLog.review_id == review_id).first()
-    if not log: raise HTTPException(status_code=404, detail="找不到紀錄")
+    if not log: 
+        raise HTTPException(status_code=404, detail="找不到紀錄")
+        
     corrected = payload.get("corrected_intent")
+    
     if corrected:
-        log.corrected_intent, log.is_reviewed = corrected, 1
-        if arena_brains.chroma_store:
-            arena_brains.chroma_store.add_documents([Document(page_content=log.user_message, metadata={"intent": corrected})])
+        log.corrected_intent = corrected
+        log.is_reviewed = 1
+        
+        # 🌟 判斷：如果是「真正需要糾正」的錯誤，才寫入 ChromaDB 進行學習
+        if corrected != log.predicted_intent:
+            if arena_brains.chroma_store:
+                arena_brains.chroma_store.add_documents([
+                    Document(page_content=log.user_message, metadata={"intent": corrected})
+                ])
+                logger.info(f"🧠 已將糾正語句寫入 ChromaDB: {log.user_message} -> {corrected}")
+        
         db.commit()
         return {"success": True}
+        
     raise HTTPException(status_code=400, detail="無效意圖")
