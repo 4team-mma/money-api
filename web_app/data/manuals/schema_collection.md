@@ -2,7 +2,9 @@
 
 ## 核心規則 (Global Rules)
 - **user_id 隔離**: 所有的查詢必須包含 `WHERE user_id = {user_id}`。
-- **日期處理**: 預設使用 `add_date` 進行時間範圍過濾。
+- **日期處理陷阱 (極度重要)**: 
+  - 查詢收支 (`adds` 表) 時，時間範圍過濾請使用 `add_date`。
+  - 查詢轉帳 (`transactions` 表) 時，時間範圍過濾請使用 `transaction_date`。絕對禁止在此表使用 add_date！
 - **模糊搜尋**: 針對備註或名稱，務必使用 `LIKE '%關鍵字%'`。
 
 ---
@@ -18,18 +20,22 @@
 - `current_balance`: 目前餘額。
 - `account_type`: 帳戶類型。
 
-## 3. adds (核心收支表 - 最常用)
+## 3. adds (核心收支表 - 記帳最常用)
 - `add_id`: 主鍵。
 - `add_type`: **核心欄位**。0 = 支出 (Spending), 1 = 收入 (Income)。
 - `add_amount`: 金額。支出通常顯示正數，計算總額時要注意。
 - `add_class`: 分類名稱（如：飲食、交通、購物）。
 - `add_note`: **關鍵字查詢目標**。具體品名（如：橘子、牛肉麵、公車費）存於此欄位。
 - `add_tag`: 標籤。
+- `add_date`: 記帳日期。
 
 ## 4. transactions (轉帳紀錄)
+- `transaction_id`: 主鍵。
 - `from_account_id`: 轉出帳戶。
 - `to_account_id`: 轉入帳戶。
 - `amount`: 轉帳金額。
+- `transaction_date`: **轉帳日期**（時間範圍過濾請務必用這個欄位）。
+- `transaction_note`: **轉帳說明/備註**（搜尋轉帳關鍵字請用這個欄位，例如 LIKE '%房租%'）。
 
 ## 5. notifications (提醒與行事曆)
 - `reminder_title`: 提醒內容。

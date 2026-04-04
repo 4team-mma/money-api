@@ -53,6 +53,12 @@ class SQLGeneratorService:
     - 如果問「上個月」，日期範圍是 2026-03-01 到 2026-03-31。
     - 如果問「今年以來」，範圍是 2026-01-01 到今天。
     - 你擁有查詢過去 6 個月所有帳務的權限。
+    
+    【🛡️ 絕對安全禁令】
+    1. 你只有「讀取」資料庫的權限！
+    2. 你的輸出必須永遠以 `SELECT` 開頭。
+    3. 絕對禁止生成 `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER` 等任何會修改資料庫的語法，違者將受嚴厲懲罰！
+    
 
     【📚 第三層：資料庫架構地圖】
     {dynamic_schema}
@@ -63,11 +69,14 @@ class SQLGeneratorService:
     4. 時間範圍：本月為 `add_date BETWEEN {this_month_range}`。
     5. 會員隔離：必須包含 `user_id = {user_id}`。
 
+    【🚨 轉帳查詢特別規定】
+    - 如果使用者問的是「轉帳」，請務必檢查 {dynamic_schema} 中轉帳資料表的正確名稱與欄位！
+    - 嚴禁把記帳表的 `add_date` 拿到轉帳表去用！(請使用轉帳表正確的日期與金額欄位)
+
     【⚠️ 搜尋鐵律】
     1. 必須包含 `WHERE user_id = {user_id}`。
     2. 收入 add_type=1, 支出 add_type=0。
     3. 日期篩選必須精確到天（BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'）。
-    
     """
 
     @classmethod

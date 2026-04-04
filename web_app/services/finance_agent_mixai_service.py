@@ -109,24 +109,36 @@ class FinanceAgentMixAIService:
             return vector_intent
 
         final_intent = keras_intent
+        
+        # 提前把這幾個常用變數算好，後面大家一起用
+        digit_groups = re.findall(r'\d+', text_str)
+        money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')
+        record_trigger_words = ['存', '領', '花', '賺', '薪水', '支出', '買', '付', '收', '匯', '轉帳', '轉給', '轉到', '轉出', '轉入', '轉']
+        
 
         # 🚀 2. [絕對法則 - 查詢攔截]
         query_hard_keywords = ['有沒有', '吃過', '買過', '紀錄', '查一下', '找一下', '過嗎']
         if any(k in text_str for k in query_hard_keywords):
-            return 'QUERY'
+            final_intent = 'QUERY'
 
-        # 🚨 3. [絕對法則 - 記帳認定]
-        # 統一關鍵字清單，不再變動
+        # 🔥 3. 強制升級為 RECORD (攔截 ONNX 的 CHAT 誤判)
+        if final_intent == 'CHAT' and len(digit_groups) > 0 and any(k in text_str for k in record_trigger_words):
+            final_intent = 'RECORD'
+            print("🛡️ [V10 攔截] 偵測到數字與交易動詞，強制將 CHAT 升級為 RECORD")
+
+        # 🚨 4. [絕對法則 - RECORD 降級認定]
         if final_intent in ['RECORD', 'MULTI_RECORD']:
-            digit_groups = re.findall(r'\d+', text_str)
-            money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')
+            # 💡 修正點：只要「完全沒有數字」且「沒有金額單位」，不管有沒有提到存/花，通通降級為 CHAT！
+            # (完美防禦：「我存好多錢，好開心」 -> 降級為 CHAT)
+            if len(digit_groups) == 0 and money_unit_count == 0:
+                return 'CHAT'
 
-            # 🌟 統一使用 finance_keywords 名稱與清單
-            finance_keywords = ['存', '領', '花', '賺', '薪水', '中獎', '噴了', '飛了', '支出', '買了', '付', '收']
-            has_finance_word = any(k in text_str for k in finance_keywords)
-
-            # 只有當「沒數字」且「沒金額單位」且「沒理財動詞」時，才降級
-            if len(digit_groups) == 0 and money_unit_count == 0 and not has_finance_word:
+        # 🛡️ 5. [絕對法則 - QUERY 降級認定 (新增)]
+        if final_intent in ['QUERY', 'MULTI_QUERY']:
+            query_verify_words = ['多少', '錢', '查', '總共', '剩', '明細', '算', '嗎', '？', '?']
+            # 💡 修正點：如果是 QUERY，但一句話裡面「沒有數字」且「沒有疑問詞或錢的關鍵字」
+            # (完美防禦：「你要上班嗎」被 ONNX 誤判成 QUERY -> 降級為 CHAT)
+            if len(digit_groups) == 0 and not any(q in text_str for q in query_verify_words):
                 return 'CHAT'
 
         # 📚 4. 純知識名詞保護
