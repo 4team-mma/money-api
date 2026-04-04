@@ -405,6 +405,8 @@ class AIConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now()
     )
+    brain_version: Mapped[str] = mapped_column(String(10), server_default="v1")
+    
 # ==========================================
 # 新增的遊戲化與成就系統 (Gamification)
 # ==========================================
@@ -630,6 +632,9 @@ class IntentReviewLog(Base):
     # 人類審核區塊
     corrected_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0") # 0: 未審, 1: 已審
+
+    #  is_blocked
+    is_blocked: Mapped[int] = mapped_column(Integer, server_default="0", comment="是否被安全機制攔截")
 
     llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

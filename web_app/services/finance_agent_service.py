@@ -1,8 +1,8 @@
 # web_app/services/finance_agent_service.py
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, text
+from sqlalchemy import text
 from .finance_tools import FinanceTools
-from ..models import CpiData, Member
+from ..models import Member
 import re
 from datetime import datetime
 import pytz
@@ -20,7 +20,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from ..schemas.bot_schema import RecordResponseSchema
-
+from .finance_agent_mixai_service import FinanceAgentMixAIService
 
 class FinanceAgentService:
 
@@ -51,7 +51,8 @@ class FinanceAgentService:
         # 只要是問事實、問歷史、問有沒有，通通送去 QUERY
         query_trigger = [
             "多少", "剩", "總共", "統計", "分析", "餘額", "明細", "占比", "排行",
-            "有沒有", "吃了沒", "買了沒", "過", "紀錄", "查詢", "找一下"
+            "有沒有", "吃了沒", "買了沒", "過", "紀錄", "查詢", "找一下",
+            "答案", "結果", "多少錢", "算了沒"  # 🌟 加上這些，防止它跳回 CHAT
         ]
         if any(q in msg for q in query_trigger):
             return "QUERY"
@@ -81,21 +82,58 @@ class FinanceAgentService:
 
         return "CHAT"
 
+    
+
+
     @staticmethod
-    async def get_context(db: Session, user: Member, message: str, persona_key: str | None = "cute", override_intent: str | None = None) -> dict:
+    async def get_context(
+        db: Session, 
+        user: Member, 
+        message: str, 
+        persona_key: str | None = "cute", 
+        override_intent: str | None = None,
+        version: str = "v1"  # 加上這一個開關，預設是 v1
+        ) -> dict:
 
         user_id = user.user_id
 
-        # 🛡️ 核心修正：定義 clean_query，解決 UndefinedVariable 並過濾雜訊
+        # 🛡️ 1. 定義 clean_query
         clean_query = message
         if "小主人說：" in message:
             clean_query = message.split("小主人說：")[-1]
         elif "]" in message:
             clean_query = message.split("]")[-1]
         clean_query = re.sub(r'\[系統指令.*?\]', '', clean_query).strip()
+        
+        # 🧠 2. 確定大腦版本並取得意圖 (變數 intent 在此正式定義)
+        if override_intent:
+            intent = override_intent
+            confidence = 1.0
+        elif version == "v2":
+            mix_res = FinanceAgentMixAIService.analyze_intent(message)
+            intent = mix_res["final_intent"]
+            confidence = mix_res["confidence"]
+            print(f"🧠 [V2 大腦啟動] 偵測意圖為: {intent} (信心度: {confidence})")
+        else:
+            intent = FinanceAgentService.analyze_intent(message)
+            confidence = 1.0
 
-        # 分析意圖
-        intent = override_intent if override_intent else FinanceAgentService.analyze_intent(message)
+        # 🛡️ 3. [新增且修正] 攔截邏輯：解決「閒聊帶錢」與「感性發言」的區隔
+        # 理由：只有當意圖是 CHAT，且包含錢的關鍵字，且具有「詢問語氣」時才轉 QUERY
+        money_keywords = ["收入", "支出", "多少", "剩", "花費", "總額", "答案"]
+        question_marks = ["？", "?", "多少", "幾", "算", "查詢"]
+        
+        if intent == "CHAT" and any(k in message for k in money_keywords):
+            if any(q in message for q in question_marks):
+                intent = "QUERY"
+                print(f"🛡️ [強制轉換] 偵測到詢問財務問題，轉為 QUERY")
+            # 💡 補充：如果只是說「收入好多好開心」，沒有詢問語氣，就會維持 CHAT
+
+        # 🛡️ 4. 質疑攔截
+        doubt_keywords = ["為什麼", "怎算的", "算錯", "不對", "為啥", "不是吧"]
+        if intent in ["RECORD", "MULTI_RECORD"] and any(k in message for k in doubt_keywords):
+            intent = "QUERY"
+            print(f"🛡️ [攔截] 偵測到質疑語氣，將 {intent} 強制轉為 QUERY")
 
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
@@ -161,22 +199,24 @@ class FinanceAgentService:
 
 
         # ==========================================
-        # 💡 意圖 E：智能數據查詢 (混合 Text-to-SQL 模式)
+        # 💡 意圖 E：智能數據查詢 (Text-to-SQL SOP 模式)
         # ==========================================
         elif intent in ["QUERY", "MULTI_QUERY"]:
-            # 🚀 權限覺醒：告訴 AI 它看得到所有歷史紀錄
+            # 🚀 1. 初始化權限資訊與背景 (保留原有邏輯)
             db_info = "【📁 帳本權限資訊】: 你擁有從 2026-01-01 至今的所有歷史明細權限。"
             context_parts = [f"[系統時間]: {today}", db_info]
 
             from .sql_generator_service import SQLGeneratorService
             from ..database import SessionLocal
             sql_data_found = False
+            precise_val = 0
 
             try:
-                # 🛡️ 擷取乾淨訊，避免標籤干擾
+                # 🛡️ 2. 擷取乾淨訊息
                 clean_query = message.split("小主人說：")[-1] if "小主人說：" in message else message
                 clean_query = re.sub(r'\[系統指令.*?\]', '', clean_query).strip()
 
+                # 🚀 3. 呼叫重構後的 SQL 引擎
                 generated_sql = await SQLGeneratorService.generate_sql(clean_query, user_id)
                 print(f"🕵️‍♂️ [SQL 引擎啟動]：{generated_sql}")
 
@@ -185,52 +225,64 @@ class FinanceAgentService:
                         result = db_session.execute(text(generated_sql))
                         sql_result = result.fetchall()
 
-                        # 🛡️ 核心修復：強制轉成整數，並處理查無紀錄(None)的情況
+                        # 🛡️ 4. 數據處理：強制轉整數並處理 None
                         if sql_result:
-                            # 如果 SUM 回傳 None (代表查無此類別支出)，我們強制給 0
                             raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
                             precise_val = int(round(float(raw_val)))
 
-                            # 🔥 隔離機制：只要有 SQL 結果，就覆蓋掉原本的 context
-                            context_parts = [
-                                f"【🚨 資料庫唯一正確數據】: 經過系統查詢，該項目的總金額結果為「{precise_val}」元。",
-                                "🛑 重要：請絕對無視歷史對話中的任何數字，以此數據為唯一標準回答小主人。"
-                            ]
+                            # 🔥 修正：把小主人的問題 (clean_query) 塞進去，不讓 AI 猜測「該項目」是什麼
+                            context_parts.append(
+                                f"【📊 資料庫精確查詢結果】：\n"
+                                f"針對小主人的提問「{clean_query}」，系統查出的精準總金額為：「{precise_val}」元。"
+                            )
                             sql_data_found = True
                         else:
                             context_parts.append(f"【⚠️ 查詢結果】: 資料庫搜尋回報，找不到關於「{clean_query}」的紀錄。")
-                            sql_data_found = True # 設為 True 避免觸發「只有一個月」的錯誤保底
+                            sql_data_found = True 
             except Exception as e:
                 print(f"❌ SQL 執行報警: {e}")
                 context_parts.append(f"【⚠️ 系統異常】: 資料庫連線失敗，請小主人稍後再試。")
 
-            # 🚀 隔離邏輯：只有 SQL 失敗時，才提供補底參考
+            # 🚀 6. 補底參考邏輯 (保留不變)
             if not sql_data_found:
                 context_parts.append("【📊 當前帳戶餘額概況】")
                 context_parts.append(FinanceTools.get_account_summary(db, user_id))
                 context_parts.append("【📅 本月收支參考數據(4月)】")
                 context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
-
+            
+            # 🌟 組合上下文
             full_context = "\n\n".join(context_parts)
 
-            # 🧠 強化人性化指令，並強迫它使用整數回答
-            if sql_data_found and "【🚨 資料庫唯一正確數據】" in full_context:
+            # 🧠 7. 強化版指令規則 (精準打擊歷史干擾)
+            if sql_data_found and "【📊 資料庫精確查詢結果】" in full_context:
                 instruction_rule = (
-                    "你現在是專業會計喵。請遵循以下指令：\n"
-                    "1. 必須且只能依照 [資料庫唯一正確數據] 裡的整數回答小主人。\n"
-                    "2. 禁止在金額中使用小數點。新台幣沒有小數點喵！\n"
-                    "3. 如果數據是 0，請溫柔地說：『喵嗚...喵喵翻遍帳本都沒看到這筆紀錄，小主人這段時間應該沒買過這個喔！』\n"
-                    "4. 禁止說自己只有一個月權限，因為你已經查過資料庫了。"
+                    "【最高回答準則 - 嚴格遵守】\n"
+                    "1. 答案就在上方的【資料庫精確查詢結果】中，請直接使用該數字回答。\n"
+                    "2. 【強烈禁止】：絕對不准重複或主動提及之前對話中查過的其他數字（例如上一題的收入），只專注回答當前這句話的問題！\n"
+                    "3. 嚴禁輸出「[答案]」這種標籤。請用符合角色的口吻，直接、自然且簡短地報出本次查詢的金額即可。\n"
+                    "4. 嚴禁向小主人索要數據！禁止唸出系統規則或提到「資料庫」、「權限」等工程字眼。\n"
+                    "5. 請全程使用「正體中文」回答，禁止使用簡體字。\n"
                 )
+            elif not sql_data_found:
+                instruction_rule = "【最高回答準則】：請直接參考上方的『當前帳戶餘額概況』與『本月收支參考數據』來回答。嚴禁向小主人要數據！"
             else:
-                instruction_rule = "請溫柔提示找不到資料，並建議小主人檢查日期或類別（如：三月、上個月）喵。"
+                instruction_rule = "請老實告訴小主人系統查不到這筆資料，不准向小主人索要數據。"
+                
+                
+                
+            # 最終 Prompt 組合：直接組裝字串，徹底刪除多餘的 final_prompt 解決 Pylance 黃線！
+            prompt = f"""
+            [角色設定]
+            {current_persona}
 
-            prompt = QUERY_TEMPLATE.format(
-                full_context=full_context,
-                persona=current_persona,
-                rules=BASE_RULES,
-                instruction_rule=instruction_rule
-            )
+            [🚨 數據查詢結果 - 最高優先權]
+            {full_context}
+
+            [執行準則]
+            {BASE_RULES}
+            {instruction_rule}
+            """
+            
             return {"intent": "QUERY", "system_prompt": prompt}
 
         else:
