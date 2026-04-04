@@ -166,7 +166,7 @@ class FinanceAgentService:
                 abnormal_report=abnormal_report
             )
             # ✅ 補上 confidence
-            return {"intent": "CHAT", "system_prompt": prompt, "confidence": confidence}
+            return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
         # ==========================================
         # 💡 意圖 C：記帳並要求回傳 JSON (RECORD)
@@ -184,7 +184,7 @@ class FinanceAgentService:
                 format_instructions=parser.get_format_instructions()
             )
             # ✅ 補上 confidence
-            return {"intent": "CHAT", "system_prompt": prompt, "confidence": confidence}
+            return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
         # ==========================================
         # 💡 意圖 D：系統手冊 (KNOWLEDGE)
@@ -199,7 +199,7 @@ class FinanceAgentService:
                 retrieved_docs=retrieved_docs
             )
             # ✅ 補上 confidence
-            return {"intent": "KNOWLEDGE", "system_prompt": prompt, "confidence": confidence}
+            return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
 
         # ==========================================
@@ -290,7 +290,7 @@ class FinanceAgentService:
             """
             
             # ✅ 補上 confidence
-            return {"intent": "QUERY", "system_prompt": prompt, "confidence": confidence}
+            return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
         else:
             # 補底防噴

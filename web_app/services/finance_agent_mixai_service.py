@@ -128,9 +128,11 @@ class FinanceAgentMixAIService:
 
         # 🚨 4. [絕對法則 - RECORD 降級認定]
         if final_intent in ['RECORD', 'MULTI_RECORD']:
-            # 💡 修正點：只要「完全沒有數字」且「沒有金額單位」，不管有沒有提到存/花，通通降級為 CHAT！
-            # (完美防禦：「我存好多錢，好開心」 -> 降級為 CHAT)
-            if len(digit_groups) == 0 and money_unit_count == 0:
+            has_finance_word = any(k in text_str for k in record_trigger_words)
+
+            # 💡 終極進化：只要「沒有金額單位 (元/塊)」且「沒有交易動詞 (買/花)」，
+            # 就算裡面有數字 (例如 10000 步、3 隻小豬)，也通通降級成 CHAT！
+            if money_unit_count == 0 and not has_finance_word:
                 return 'CHAT'
 
         # 🛡️ 5. [絕對法則 - QUERY 降級認定 (新增)]

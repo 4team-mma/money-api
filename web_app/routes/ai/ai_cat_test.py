@@ -276,18 +276,25 @@ async def get_admin_review_logs(
     if current_user.role not in ["admin"]: raise HTTPException(status_code=403, detail="權限不足")
     query = db.query(IntentReviewLog).filter(IntentReviewLog.is_reviewed == is_reviewed)
     total = query.count()
+    
+    # 🌟 新增：抓取最舊的一筆紀錄時間
+    oldest_log = query.order_by(IntentReviewLog.created_at.asc()).first()
+    oldest_date = oldest_log.created_at.strftime("%Y-%m-%d %H:%M:%S") if oldest_log and oldest_log.created_at else None
+    
     logs = query.order_by(IntentReviewLog.created_at.desc()).offset((page-1)*size).limit(size).all()
     details = []
     for l in logs:
         details.append({
             "review_id": l.review_id,
             "user_message": l.user_message,
+            "llm_response": l.llm_response,
             "predicted_intent": l.predicted_intent,
             "confidence_score": float(l.confidence_score),
             "corrected_intent": l.corrected_intent or l.predicted_intent,
             "created_at": l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else None
         })
-    return {"total": total, "details": details}
+    # 🌟 把 oldest_date 一起丟給前端
+    return {"total": total, "details": details, "oldest_date": oldest_date}
 
 
 
@@ -332,6 +339,17 @@ async def cleanup_old_logs(db: Session = Depends(get_db), current_user: Member =
     db.commit()
     return {"success": True, "message": f"成功清理 {deleted_count} 筆過期紀錄喵！"}
 
+@router.delete("/logs/clear_all_pending", summary="💣 一鍵清空所有未審核紀錄")
+async def clear_all_pending_logs(db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
+    """大掃除專用：無條件刪除所有 is_reviewed == 0 的紀錄"""
+    if current_user.role not in ["admin"]: 
+        raise HTTPException(status_code=403, detail="權限不足")
+        
+    # 刪除條件：只要是未審核 (0) 的通通殺掉
+    deleted_count = db.query(IntentReviewLog).filter(IntentReviewLog.is_reviewed == 0).delete()
+    db.commit()
+    
+    return {"success": True, "message": f"太爽了！已成功清空 {deleted_count} 筆歷史髒資料喵！"}
 
 
 @router.post("/batch_run", summary="🏃 執行三方批次測試")
@@ -417,3 +435,22 @@ async def update_intent_review(
         return {"success": True}
         
     raise HTTPException(status_code=400, detail="無效意圖")
+
+
+@router.delete("/logs/{review_id}", summary="🗑️ 刪除單筆審核紀錄")
+async def delete_intent_review(
+    review_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: Member = Depends(get_current_user)
+):
+    if current_user.role not in ["ai_test", "admin"]: 
+        raise HTTPException(status_code=403, detail="權限不足")
+        
+    log = db.query(IntentReviewLog).filter(IntentReviewLog.review_id == review_id).first()
+    if not log: 
+        raise HTTPException(status_code=404, detail="找不到紀錄")
+        
+    db.delete(log)
+    db.commit()
+    return {"success": True, "message": "紀錄已成功刪除喵！"}
+
