@@ -8,6 +8,7 @@ import numpy as np
 import jieba
 import onnxruntime as ort
 import openpyxl
+import csv
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Body, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 # --- 🎯 路徑定義 (修正 Pylance 紅線) ---
 TEMP_DIR = "web_app/temp/excel"
 DEFAULT_TEST_FILE = os.path.join(TEMP_DIR, "hard_cases.xlsx")
-CURRENT_BATCH_FILE = os.path.join(TEMP_DIR, "current_test_batch.xlsx")
+CURRENT_BATCH_FILE_BASE = os.path.join(TEMP_DIR, "current_test_batch") 
 MODELS_DIR = "web_app/models/checkpoints"
 CHROMA_DIR = ".chromadb"
 
@@ -45,19 +46,41 @@ def ensure_temp_dir():
 
 @router.post("/upload_test_file", summary="📤 上傳自定義測試 Excel")
 async def upload_test_file(file: UploadFile = File(...), current_user: Member = Depends(get_current_user)):
+    
     if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
-    if not (file.filename or "").lower().endswith(".xlsx"): raise HTTPException(status_code=400, detail="僅支援 .xlsx 格式喵！")
+    
+    # 🌟 1. 取得副檔名並判斷
+    ext = os.path.splitext((file.filename or "").lower())[1]
+    if ext not in [".xlsx", ".csv"]: 
+        raise HTTPException(status_code=400, detail="僅支援 .xlsx 與 .csv 格式喵！")
+    
     ensure_temp_dir()
+    
+    # 清空舊檔 (不要刪到 hard_cases.xlsx)
     for f in os.listdir(TEMP_DIR):
-        try: os.unlink(os.path.join(TEMP_DIR, f))
-        except: pass
-    with open(CURRENT_BATCH_FILE, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
+        if f.startswith("current_test_batch"):
+            try: os.unlink(os.path.join(TEMP_DIR, f))
+            except: pass
+            
+    # 🌟 2. 儲存時動態加上正確的副檔名
+    save_path = CURRENT_BATCH_FILE_BASE + ext
+    with open(save_path, "wb") as buffer: 
+        shutil.copyfileobj(file.file, buffer)
+        
     return {"success": True, "message": f"測試檔 {file.filename} 上傳成功！"}
 
 @router.delete("/clear_test_file", summary="🗑️ 清除暫存的測試檔")
 async def clear_test_file(current_user: Member = Depends(get_current_user)):
     if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
-    if os.path.exists(CURRENT_BATCH_FILE): os.remove(CURRENT_BATCH_FILE); return {"success": True, "message": "已刪除喵！"}
+    
+    # 🌟 兩種副檔名都巡邏一遍，有就刪除
+    for ext in [".xlsx", ".csv"]:
+        path = CURRENT_BATCH_FILE_BASE + ext
+        if os.path.exists(path): 
+            os.remove(path)
+            deleted = True
+            
+    if deleted: return {"success": True, "message": "已刪除喵！"}
     return {"success": True, "message": "無暫存檔。"}
 
 
@@ -355,29 +378,90 @@ async def clear_all_pending_logs(db: Session = Depends(get_db), current_user: Me
 @router.post("/batch_run", summary="🏃 執行三方批次測試")
 async def batch_test_ai(db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
     if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
-    file_path = CURRENT_BATCH_FILE if os.path.exists(CURRENT_BATCH_FILE) else DEFAULT_TEST_FILE
-    if not os.path.exists(file_path): raise HTTPException(status_code=404, detail="找不到測試集！")
-    try:
-        wb = openpyxl.load_workbook(file_path, data_only=True)
-        sheet = wb.active
-        if sheet is None:
-            raise HTTPException(status_code=500, detail="Excel 檔案沒有有效的工作表喵！")
-        headers = [cell.value for cell in sheet[1]]
-        t_idx, i_idx = headers.index('text'), headers.index('intent')
-        results, v1_acc, v2_acc, count = [], 0.0, 0.0, 0
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            if not row[t_idx]: continue
-            msg, true_i = str(row[t_idx]).strip(), str(row[i_idx]).strip()
-            v1_p, _ = arena_brains.predict_v1(msg)
-            v2_p, v2_c, v2_i = arena_brains.predict_v2(msg)
-            v1_s, v2_s = calculate_score(true_i, v1_p), calculate_score(true_i, v2_p)
-            v1_acc += v1_s; v2_acc += v2_s; count += 1
-            results.append({"text": msg, "true_intent": true_i, "v1_pred": v1_p, "v2_pred": v2_p, "v2_score": v2_s})
-        db.commit()
-        return {"success": True, "v1_accuracy": v1_acc/count, "v2_accuracy": v2_acc/count, "details": results}
-    except Exception as e:
-        db.rollback(); raise HTTPException(status_code=500, detail=str(e))
+    
+    # 自動尋找目前上傳的是哪種格式的檔案
+    file_path = None
+    if os.path.exists(CURRENT_BATCH_FILE_BASE + ".xlsx"): file_path = CURRENT_BATCH_FILE_BASE + ".xlsx"
+    elif os.path.exists(CURRENT_BATCH_FILE_BASE + ".csv"): file_path = CURRENT_BATCH_FILE_BASE + ".csv"
+    else: file_path = DEFAULT_TEST_FILE
 
+    if not os.path.exists(file_path): raise HTTPException(status_code=404, detail="找不到測試集！")
+    
+    try:
+        results, v1_acc, v2_acc, count = [], 0.0, 0.0, 0
+        
+        if file_path.endswith('.csv'):
+            # 🌟 防呆 1：解決台灣 Excel 匯出 CSV 變成 Big5 編碼導致崩潰的問題
+            encoding_to_use = 'utf-8-sig'
+            try:
+                with open(file_path, 'r', encoding='utf-8-sig') as f:
+                    f.read()
+            except UnicodeDecodeError:
+                encoding_to_use = 'big5' # 若 UTF-8 解析失敗，自動切換為 Big5
+
+            with open(file_path, newline='', encoding=encoding_to_use) as f:
+                reader = csv.DictReader(f)
+                
+                # 🌟 防呆 2：清理標題列的空白或不可見字元 (BOM)
+                fieldnames = [str(col).strip() for col in (reader.fieldnames or [])]
+                
+                if 'text' not in fieldnames or 'intent' not in fieldnames:
+                    raise HTTPException(status_code=400, detail=f"CSV 必須包含 'text' 和 'intent' 標題列喵！目前抓到的是: {fieldnames}")
+                
+                for row in reader:
+                    # 字典取值時也確保欄位名稱對齊
+                    row_cleaned = {str(k).strip(): v for k, v in row.items()}
+                    msg = str(row_cleaned.get('text', '')).strip()
+                    true_i = str(row_cleaned.get('intent', '')).strip()
+                    if not msg: continue
+                    
+                    v1_p, _ = arena_brains.predict_v1(msg)
+                    v2_p, _, v2_int = arena_brains.predict_v2(msg)
+                    
+                    v1_s, v2_s = calculate_score(true_i, v1_p), calculate_score(true_i, v2_p)
+                    v1_acc += v1_s; v2_acc += v2_s; count += 1
+                    
+                    results.append({"text": msg, "true_intent": true_i, "v1_pred": v1_p, "v2_pred": v2_p, "v2_score": v2_s, "v2_is_intercepted": v2_int})
+
+        else:
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            sheet = wb.active
+            if sheet is None:
+                raise HTTPException(status_code=500, detail="Excel 檔案沒有有效的工作表喵！")
+                
+            # 🌟 防呆 3：Excel 標題列同樣清理乾淨
+            headers = [str(cell.value).strip() if cell.value else "" for cell in sheet[1]]
+            if 'text' not in headers or 'intent' not in headers:
+                raise HTTPException(status_code=400, detail="Excel 必須包含 'text' 和 'intent' 標題列喵！")
+                
+            t_idx, i_idx = headers.index('text'), headers.index('intent')
+            for row in sheet.iter_rows(min_row=2, values_only=True):
+                if not row[t_idx]: continue
+                msg, true_i = str(row[t_idx]).strip(), str(row[i_idx]).strip()
+                
+                v1_p, _ = arena_brains.predict_v1(msg)
+                v2_p, _, v2_int = arena_brains.predict_v2(msg)
+                
+                v1_s, v2_s = calculate_score(true_i, v1_p), calculate_score(true_i, v2_p)
+                v1_acc += v1_s; v2_acc += v2_s; count += 1
+                
+                results.append({"text": msg, "true_intent": true_i, "v1_pred": v1_p, "v2_pred": v2_p, "v2_score": v2_s, "v2_is_intercepted": v2_int})
+                
+        db.commit()
+        if count == 0: count = 1 # 防呆避免除以 0
+        return {"success": True, "v1_accuracy": v1_acc/count, "v2_accuracy": v2_acc/count, "details": results, "total": count}
+        
+    except HTTPException:
+        # 🌟 關鍵修復：如果已經是我們自己拋出的 400 錯誤，就讓它正常通過，不要被包裝成 500
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"解析失敗喵：{str(e)}")
+    
+    
+    
+    
 @router.post("/compare", summary="🎙️ 手動三強單句對比")
 async def compare_ai_intent(message: str = Body(..., embed=True), db: Session = Depends(get_db), current_user: Member = Depends(get_current_user)):
     if current_user.role not in ["ai_test", "admin"]: raise HTTPException(status_code=403, detail="權限不足")
@@ -454,3 +538,42 @@ async def delete_intent_review(
     db.commit()
     return {"success": True, "message": "紀錄已成功刪除喵！"}
 
+
+# 新增「工程師直通車」API (ai_cat_test.py)
+from pydantic import BaseModel
+class EngineerCorrection(BaseModel):
+    user_message: str
+    predicted_intent: str
+    corrected_intent: str
+    confidence_score: float = 1.0
+@router.post("/logs/engineer_fix", summary="🛠️ 工程師專用：直接修正並雙重入庫")
+async def engineer_direct_fix(
+    payload: EngineerCorrection,
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    """供 QA 測試頁面批次除錯使用，一次完成 MySQL 留底 + ChromaDB 訓練"""
+    if current_user.role not in ["ai_test", "admin"]: 
+        raise HTTPException(status_code=403, detail="權限不足")
+        
+    # 1. 寫入 MySQL 留底 (直接標記為 is_reviewed=1 已解決)
+    new_log = IntentReviewLog(
+        user_id=current_user.user_id,
+        user_message=payload.user_message,
+        predicted_intent=payload.predicted_intent,
+        corrected_intent=payload.corrected_intent,
+        confidence_score=Decimal(str(payload.confidence_score)),
+        llm_response="[工程師測試台批次快速修正]", # 標記來源
+        is_reviewed=1 
+    )
+    db.add(new_log)
+    
+    # 2. 寫入 ChromaDB 大腦
+    if arena_brains.chroma_store:
+        arena_brains.chroma_store.add_documents([
+            Document(page_content=payload.user_message, metadata={"intent": payload.corrected_intent})
+        ])
+        logger.info(f"🧠 [工程師手動注入] ChromaDB: {payload.user_message} -> {payload.corrected_intent}")
+        
+    db.commit()
+    return {"success": True, "message": "雙重入庫成功！"}
