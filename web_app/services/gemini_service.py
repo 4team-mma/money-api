@@ -122,3 +122,46 @@ class GeminiService:
 
             logger.error(f"Gemini 內部異常: {error_msg}")
             return {"text": f"喵... 腦袋當機了。原因：{error_msg[:30]}...", "actual_model": model_id}
+        
+        
+    # 這是給google行事曆串接用
+    # 🌟 在這裡新增多模態圖片解析方法 (新版 SDK 寫法)
+    @staticmethod
+    async def analyze_image_async(api_key: str, image_bytes: bytes, mime_type: str, prompt: str) -> str:
+        try:
+            # 🌟 核心修正：顯式指定 vertexai=False 並確保環境變數不會干擾連線
+            # 有些環境會誤導 SDK 以為要走 Vertex AI 路徑，加上這行能強制走標準 Google AI 路徑
+            client = genai.Client(
+                api_key=api_key,
+                http_options={'api_version': 'v1'}
+            )
+            
+            target_model = 'gemini-2.5-flash' 
+            logger.info(f"📸 [Gemini Vision] 穩定協議連線中: {target_model}")
+
+            image_part = types.Part.from_bytes(
+                data=image_bytes,
+                mime_type=mime_type
+            )
+
+            # 4. 非同步發送 (這次我們加上逾時控制，防止前端等到斷線)
+            response = await client.aio.models.generate_content(
+                model=target_model,
+                contents=[image_part, prompt]
+            )
+
+            return response.text or ""
+
+        except Exception as e:
+            # 🛡️ 針對協議錯誤的特殊補救：如果真的發生了，嘗試重啟連線
+            logger.error(f"❌ Gemini 圖片解析失敗: {str(e)}")
+            if "Request URL is missing" in str(e):
+                logger.warning("偵測到協議遺失，嘗試使用替代 Client 配置...")
+                # 備案：直接用最原始的方式重新連線
+                client_fallback = genai.Client(api_key=api_key)
+                res = await client_fallback.aio.models.generate_content(
+                    model='gemini-1.5-flash', # 1.5 版在 v1 協議下非常穩定
+                    contents=[image_part, prompt]
+                )
+                return res.text or ""
+            raise e

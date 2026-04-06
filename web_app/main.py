@@ -22,7 +22,8 @@ from web_app.routes import (
     ai_models,
     gamification,
     ai,
-    ws
+    ws,
+    integrations
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -393,7 +394,7 @@ app.include_router(ai.router,
     prefix="/api/v1/ai",
     tags=["AI 擴充功能"]
 )
-
+app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():
