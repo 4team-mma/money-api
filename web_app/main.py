@@ -22,7 +22,8 @@ from web_app.routes import (
     ai_models,
     gamification,
     ai,
-    ws
+    ws,
+    integrations
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -217,7 +218,19 @@ app = FastAPI(
     openapi_url="/openapi.json" if DEBUG else None,
 )
 
+# 1. 讀取 .env
+cors_raw = os.getenv("CORS_ORIGINS", "")
+origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
+
+# --- 中間件設定 (Middleware) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ----------------------------------------------------------------
 # 🔥slowapi：相關設定02
@@ -319,7 +332,7 @@ async def universal_handler(request: Request, exc: Exception):
 @app.exception_handler(SQLAlchemyError)
 async def db_exception_handler(request: Request, exc: SQLAlchemyError):
     background_tasks = BackgroundTasks()
-     # 使用 getattr 並給予預設值 "訪客"，安全性最高
+    # 使用 getattr 並給予預設值 "訪客"，安全性最高
     u_id = getattr(request.state, "user_id_str", "訪客")
     u_name = getattr(request.state, "username_str", "")
 
@@ -348,18 +361,7 @@ async def db_exception_handler(request: Request, exc: SQLAlchemyError):
     )
 
 
-# 1. 讀取 .env 的字串的5173,5174
-cors_raw = os.getenv("CORS_ORIGINS", "")
-origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
-# --- 中間件設定 (Middleware) ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # --- 路由註冊 (Routers) ---
 # 基礎路由
@@ -392,7 +394,7 @@ app.include_router(ai.router,
     prefix="/api/v1/ai",
     tags=["AI 擴充功能"]
 )
-
+app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():
