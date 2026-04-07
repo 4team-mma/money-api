@@ -9,6 +9,12 @@ class FinanceRecordSchema(BaseModel):
     # 共用欄位
     add_amount: float = Field(description="提取純數字金額，例如 100")
     add_note: str = Field(description="具體項目名稱(如: 拉麵)。若為轉帳且未提理由，預設為'一般轉帳'")
+    
+    # 🌟 日期欄位！讓 AI 有地方填寫推算出來的日期
+    record_date: Optional[str] = Field(
+        default=None, 
+        description="格式為 YYYY-MM-DD。請嚴格根據系統時間與小主人的對話（如昨天、前天）推算實際消費日期。若未提及則預設為系統當天日期。"
+    )
 
     # 支出/收入專用欄位
     add_class: Optional[str] = Field(default="其他", description="支出填'飲食/交通/居家/娛樂'等；收入填'薪資/投資/其他收入'")
