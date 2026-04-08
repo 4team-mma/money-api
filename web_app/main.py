@@ -3,6 +3,7 @@ import os
 import httpx
 import re
 import traceback
+import asyncio
 from fastapi import FastAPI, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -44,6 +45,10 @@ from slowapi.errors import RateLimitExceeded
 import logging
 from datetime import datetime,timedelta
 from typing import AsyncGenerator
+
+from web_app.middlewares.security_logger import SecurityAuditMiddleware
+from web_app.utils.ai_security_analyst import run_daily_security_audit
+from web_app.utils.ai_warmup import warmup_ai_systems
 
 # 圖片加載
 
@@ -90,6 +95,9 @@ logging.basicConfig(
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- 啟動時執行 ---
     scheduler = BackgroundScheduler()
+    
+    # 🌟 新增：啟動背景 AI 預熱任務 (不阻塞開機)
+    asyncio.create_task(warmup_ai_systems())
 
     # ==========================
     # 任務 1: CPI 爬蟲
@@ -159,6 +167,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="login_activity_startup_cleanup",
         replace_existing=True
     )
+    
+        # ==========================
+    # 任務 5: AI 資安日誌分析 (每天凌晨 04:00 執行)
+    # ==========================
+    scheduler.add_job(
+        run_daily_security_audit,
+        "cron",
+        hour=4,
+        minute=0,
+        id="daily_ai_security_audit",
+        replace_existing=True
+    )
+    
 
     # B. 定期排程 (每天凌晨 03:30 執行)
     # 這是給伺服器 24 小時運作時使用的正常維護邏輯。
@@ -222,6 +243,8 @@ app = FastAPI(
 cors_raw = os.getenv("CORS_ORIGINS", "")
 origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
+# 掛載安檢門！
+app.add_middleware(SecurityAuditMiddleware)
 
 # --- 中間件設定 (Middleware) ---
 app.add_middleware(
