@@ -1,7 +1,6 @@
 # web_app/services/ollama_service.py
 import httpx
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
