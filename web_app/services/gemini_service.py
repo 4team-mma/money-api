@@ -79,3 +79,62 @@ class GeminiService:
 
             logger.error(f"Gemini 內部異常: {error_msg}")
             return {"text": f"喵... 腦袋當機了。原因：{error_msg[:30]}...", "actual_model": target_id}
+    @staticmethod
+    async def vision_async(api_key: str, model_id: str, image_b64: str, prompt: str, system_instruction: str):
+        """
+        專門處理圖片辨識的方法，把 base64 圖片正確傳給 Gemini Vision
+        """
+        try:
+            client = genai.Client(api_key=api_key)
+            target_id = model_id.replace("models/", "") if model_id.startswith("models/") else model_id
+
+            # Gemini Vision 正確的圖片格式：用 types.Part 包裝
+            image_part = types.Part.from_bytes(
+                data=__import__('base64').b64decode(image_b64),
+                mime_type="image/jpeg"
+            )
+            text_part = types.Part.from_text(text=prompt)
+
+            response = await client.aio.models.generate_content(
+                model=target_id,
+                contents=[image_part, text_part],
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.1,
+                    top_p=0.1
+                )
+            )
+
+            reply_text = response.text or ""
+            return {"text": reply_text, "actual_model": target_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                import re
+                seconds_match = re.search(r"retry in ([\d\.]+)s", error_msg)
+                if seconds_match:
+                    sec = round(float(seconds_match.group(1)), 1)
+                    wait = f"{round(sec/60, 1)} 分鐘" if sec > 60 else f"{sec} 秒"
+                    return {"text": f"喵... 額度用完了，請等約 {wait} 再試喵！🍵", "actual_model": target_id}
+                return {"text": "喵... API 配額超限，請稍後再試喵！", "actual_model": target_id}
+            # 404 自動降級到 flash
+            if "404" in error_msg or "not found" in error_msg.lower():
+                fallback_id = "gemini-2.5-flash"
+                client = genai.Client(api_key=api_key)
+                image_part = types.Part.from_bytes(
+                    data=__import__('base64').b64decode(image_b64),
+                    mime_type="image/jpeg"
+                )
+                response = await client.aio.models.generate_content(
+                    model=fallback_id,
+                    contents=[image_part, types.Part.from_text(text=prompt)],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.1,
+                    )
+                )
+                return {"text": response.text or "", "actual_model": fallback_id}
+
+            logger.error(f"Gemini Vision 異常: {error_msg}")
+            raise Exception(f"Gemini Vision 呼叫失敗：{error_msg}")

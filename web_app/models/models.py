@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import date, datetime, time
 
-from typing import Optional
+from typing import Optional,List
 from ..database import Base
 
 # 核心組件 (Core)處理資料庫的「基本型別」與「結構」
@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Time,
+    Float,
 )
 
 # 物件關係映射 (ORM)負責將「Python 物件」與「資料表」串接。
@@ -608,3 +609,51 @@ class LoginActivity(Base):
     location: Mapped[str] = mapped_column(String(100), server_default="Unknown")
     login_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    
+#19. 發票
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    invoice_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
+
+    invoice_number: Mapped[str] = mapped_column(String(12), unique=True, index=True, nullable=False)
+    invoice_period: Mapped[str] = mapped_column(String(20), nullable=False)
+    invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # 建議新增：賣方名稱（AI 辨識出來的店名）
+    seller_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    seller_ban: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    buyer_ban: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+
+    # 關鍵：建立與明細表的關聯
+    # 當發票被刪除時，對應的明細也會跟著刪除 (cascade)
+    items: Mapped[List["InvoiceItem"]] = relationship(
+        "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"
+    )
+
+    is_verified: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# --- 20. 發票商品明細表 (新增這個) ---
+class InvoiceItem(Base):
+    __tablename__ = "invoice_items"
+
+    item_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 關聯到發票主表
+    invoice_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("invoices.invoice_id", ondelete="CASCADE"), nullable=False
+    )
+
+    name: Mapped[str] = mapped_column(String(200), nullable=False)  # 商品名稱
+    quantity: Mapped[Optional[float]] = mapped_column(Float, nullable=True) # 數量
+    unit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True) # 單價
+    subtotal: Mapped[Optional[float]] = mapped_column(Float, nullable=True) # 小計
+
+    # 反向關聯回發票
+    invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="items")
