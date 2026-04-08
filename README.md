@@ -94,3 +94,47 @@ git clone https://github.com/4team-mma/money-api.git
 - 開發 API：請去 routes/ 找對應自己的檔案，不要動 models.py，請在裡面實現 CRUD 功能。
 - 測試：打開 http://127.0.0.1:8000/docs 確認 API 能動。
 - API 測試：請確保在 /docs 測試成功後再進行 git commit。
+
+-------------------------------------------------------------------------
+# 補充說明:
+- 因為雲端render是免費版,有限制,所以為了不衝突,第一次請在requirements.txt新增該內容:
+```bash
+# --- 基礎網路、網頁與模板 ---
+fastapi>=0.115.0
+uvicorn[standard]
+python-multipart>=0.0.7
+email-validator>=2.0.0
+jinja2>=3.1.0
+
+# --- 資料庫 & 安全 ---
+sqlalchemy>=2.0.45
+pymysql>=1.1.2
+python-dotenv>=1.2.1
+python-jose[cryptography]>=3.3.0
+bcrypt>=5.0.0
+line-bot-sdk>=3.22.0
+
+# --- AI 與 資料處理 ---
+google-genai>=1.62.0
+langchain-groq>=1.1.2
+langchain-community>=0.4.1
+pandas>=2.2.0
+openpyxl>=3.1.5
+
+# --- 暫時註解重型套件 (保持 Render 512MB 穩定) ---
+# torch
+# torchaudio
+# transformers
+
+# --- 其他必要工具 ---
+apscheduler>=3.11.2
+requests>=2.32.5
+pytz>=2025.1
+reportlab>=4.4.9
+slowapi>=0.1.9
+soundfile>=0.13.1
+user-agents>=2.2.0
+xmltodict>=1.0.2
+
+```
+
