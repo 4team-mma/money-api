@@ -44,5 +44,5 @@ soundfile>=0.13.1
 user-agents>=2.2.0
 xmltodict>=1.0.2
 
-# 補增加：
+# 補增加套件：
 cohere>=5.21.1
