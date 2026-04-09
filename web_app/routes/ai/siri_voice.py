@@ -6,25 +6,25 @@ from web_app.models import Member
 from web_app.schemas.ai import ChatRequest
 from web_app.routes.ai_models import chat_with_meow
 from web_app.services.records_service import RecordsService
-from web_app.utils.jwt import verify_token 
+from web_app.utils.jwt import verify_token
 from web_app.utils.ws_manager import manager
 
 router = APIRouter()
 
 # 暫存區與通知標記 (全域)
-pending_cache = {} 
+pending_cache = {}
 voice_notif_flag = {}
 
 @router.post("/siri_chat", summary="Siri 專用語音接口")
 async def siri_chat_endpoint(
-    req: ChatRequest, 
+    req: ChatRequest,
     db: Session = Depends(get_db),
-    authorization: Optional[str] = Header(None) 
+    authorization: Optional[str] = Header(None)
 ):
     msg = req.message.strip()
-    
+
     # 🕵️‍♂️ 身分識別邏輯：優先解 Token，失敗就用 ID 6
-    uid = 6 
+    uid = 6
     if authorization and "Bearer " in authorization:
         try:
             token = authorization.split(" ")[1]
@@ -60,7 +60,7 @@ async def siri_chat_endpoint(
                 success = RecordsService.create_transfer(db, uid, data)
             else:
                 success = RecordsService.create_add_record(db, uid, data)
-            
+
             if success:
                 del pending_cache[uid]
                 voice_notif_flag[uid] = True # 🚩 標記前端領取通知(保留舊機制以防萬一)
@@ -74,7 +74,7 @@ async def siri_chat_endpoint(
     else:
         result = await chat_with_meow(req, db, current_user)
         duration = result.get("duration", 0)
-        
+
         if result.get("is_command") and result.get("action_data"):
             pending_cache[uid] = result["action_data"]
             reply_text = f"{result['reply']} 小主人要確認嗎？喵？"

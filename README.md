@@ -2,7 +2,7 @@
 
   mma-app
 <img src="./web_app/static/favicon.ico" alt="mma-app" width="30">
-</h1> 
+</h1>
 
 [團隊開發流程](docs/git-workflow.md) |
 [專案結構說明](docs/architecture.md) |
@@ -12,7 +12,8 @@
 [API撰寫說明文檔](docs/api_guide.md) |
 [爬蟲自動化說明文檔](docs/crawler.md) |
 [AI機器人說明文檔](docs/ai_models.md) |
-[新手開發注意事項](docs/beginner.md)
+[新手開發注意事項](docs/beginner.md)  |
+[開發維護key手冊](docs/DEVELOPER_SECURITY.md)  |
 
 
 
@@ -41,7 +42,7 @@ git clone https://github.com/4team-mma/money-api.git
 ## 啟動與安裝依賴流程
 - 複製環境變數env.example 改成 .env (並填入自己的資料庫資訊)。(直接貼上你剛複製的.env程式碼)
 
-## 安裝套件:
+## 安裝共用套件:
 - 範例: uv add <package-name>
 - 原本: pip install apscheduler
 - uv add apscheduler  (定時自動執行任務的套件)
@@ -53,13 +54,38 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add google-genai (Google 的 AI 套件)
 - uv add user-agents  (「自動辨識裝置」的功能_例如win11)
 - uv add pytz (是一個專門處理全球時區的資料庫，它能確保不論妳的伺服器是在 Google 雲端（通常在美國或日本）還是在地端，都能準確轉換成 台北時間 (Asia/Taipei)。)
-- uv add line-bot-sdk python-dotenv
+- uv add line-bot-sdk python-dotenv #負責 LINE Bot 官方 API 串接，以及讀取 .env 檔案中的機密環境變數（金鑰）。
+2026.03.20更新：
+- uv add transformers soundfile # 處理音訊檔案或語音辨識,transformers 是處理機器學習模型的基礎套件。
+- uv add torch torchaudio # 運算矩陣提取音訊特徵
+- uv add pydantic langchain-core # AI系統的核心。pydantic 負責嚴格檢驗資料格式
+- uv add langchain-community tiktoken # 社群擴充工具箱。我們用它來讀取 Markdown 格式的系統手冊 (TextLoader)。
+- uv add langchain-chroma chromadb # 負責當「系統手冊的圖書館管理員」。chromadb 是存放向量數字的資料庫本體，langchain-chroma 是讓 AI 能去圖書館借書的溝通套件。
+- uv add langchain-huggingface # 連接 Hugging Face 雲端算力。負責將我們寫的人類手冊文字，轉換成電腦看得懂的「向量數字 (Embedding)」，是 RAG (檢索增強生成) 的關鍵引擎。
+- uv add langchain-groq #負責極速且精準的記帳 JSON 轉換
+- uv add langchain-chroma langchain-community langchain-text-splitters
+- uv add jieba # 詞彙級切割
+2026.03.30更新：
+- uv add customtkinter
+- uv add pyinstaller
+2026.04.02更新:
+- uv add cohere # 輕量級的二次排序 (Re-ranking)功能
+- uv add anthropic # 育育更新
+- uv add pre-commit --dev # key檢查機器人:需放在根目錄
+- uv add detect-secrets --dev # 檢查白名單
+- uv add groq
+
+
+## 非共用套件:
+- uv pip install customtkinter requests pandas openpyxl
+
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
+- uv remove spacy
 
 # 安裝依賴:
-- 執行：uv sync 
+- 執行：uv sync
 - macOS電腦如果執行./dev.sh不允許  請先使用：chmod +x dev.sh
 - 如有更新套件,更新完git記得執行 uv sync 就可以自動補齊缺少的套件
 

@@ -1,7 +1,6 @@
 # web_app/services/ollama_service.py
 import httpx
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +22,15 @@ class OllamaService:
                         "num_ctx": 4096      # 確保上下文夠長
                     }
                 }
-                
+
                 logger.info(f"Ollama Request: {base_url} | Model: {model_id}")
-                
+
                 res = await client.post(
-                    f"{base_url}/api/chat", 
-                    json=payload, 
+                    f"{base_url}/api/chat",
+                    json=payload,
                     timeout=120.0
                 )
-                
+
                 if res.status_code == 200:
                     return res.json()["message"]["content"]
                 else:

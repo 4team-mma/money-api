@@ -17,7 +17,7 @@ api裡面有需多名詞不太理解，會記錄在這邊供參考。
 2.有些會使用`uid = current_user.user_id` 就不用寫這麼長。
 ```bash
         #意思相同
-        Checkin.user_id == current_user.user_id, 
+        Checkin.user_id == current_user.user_id,
         Checkin.user_id == uid, # 不過這個前面要先定義uid = current_user.user_id
 ```
 **比較**:`dependencies`和 `Depends` 差異。
@@ -69,7 +69,7 @@ from ..schemas.accounts import AccountCreate
 ```bash
 # 通常都會有user
 # 當user被當成物件時(我們是用這種寫法):
-def get_dashboard_summary(current_user: Member=Depend(get_current_user), db: Session = Depends(get_db)): 
+def get_dashboard_summary(current_user: Member=Depend(get_current_user), db: Session = Depends(get_db)):
 
 # 當user不是物件:
 def get_dashboard_summary(user_id: int, db: Session = Depends(get_db)):

@@ -71,12 +71,12 @@ from sqlalchemy import text
 # ... 確保引入了上面的 NetWorthHistoryResponse
 
 @router.get(
-    "/net-worth-history", 
+    "/net-worth-history",
     response_model=NetWorthHistoryResponse,
     summary="取得淨資產歷史走勢",
     description="""
     計算並回傳使用者在日、月、年三個維度的淨資產變化趨勢。
-    
+
     **運作邏輯：**
     1. 抓取所有帳戶的當前總餘額作為基準點。
     2. 從 `adds` 表中抓取收支記錄，利用「當前總額」配合「收支變動」進行倒推計算（Running Balance）。
@@ -85,7 +85,7 @@ from sqlalchemy import text
     response_description="回傳包含 daily, monthly, yearly 三個維度的歷史淨資產物件"
 )
 def get_net_worth_history(
-    db: Session = Depends(get_db), 
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     user_id = current_user.user_id
@@ -95,14 +95,14 @@ def get_net_worth_history(
         text("SELECT SUM(current_balance) FROM accounts WHERE user_id = :uid"),
         {"uid": user_id},
     ).fetchone()
-    
+
     current_total = (
         float(res_total[0]) if res_total and res_total[0] is not None else 0.0
     )
 
     # --- 2. 處理每日資料 (Daily) ---
     query_daily = text("""
-        SELECT 
+        SELECT
             DATE(add_date) as day_key,
             SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
         FROM adds
@@ -128,7 +128,7 @@ def get_net_worth_history(
 
     # --- 3. 處理月資料 (Monthly) ---
     query_monthly = text("""
-        SELECT 
+        SELECT
             CONCAT(YEAR(add_date), '-', LPAD(MONTH(add_date), 2, '0')) as month_key,
             SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
         FROM adds
@@ -154,7 +154,7 @@ def get_net_worth_history(
 
     # --- 4. 處理年資料 (Yearly) ---
     query_yearly = text("""
-        SELECT 
+        SELECT
             YEAR(add_date) as year_key,
             SUM(CASE WHEN add_type = 1 THEN add_amount ELSE -add_amount END) as net_change
         FROM adds

@@ -8,18 +8,15 @@ from ..dependencies import get_current_user
 from ..utils.ai_security import decrypt_api_key, encrypt_api_key
 
 # 引入服務層 (Services)
-from ..services.gemini_service import GeminiService 
-from ..services.ollama_service import OllamaService     # 本地模型
-from ..services.finance_agent_service import FinanceAgentService # 🆕 引入新大腦
+from ..services.gemini_service import GeminiService
+from ..services.ollama_service import OllamaService
+from ..services.finance_agent_service import FinanceAgentService
+from ..services.groq_service import GroqService
 
 from typing import Optional
 import os
 import time
-import traceback
-import httpx
 from dotenv import load_dotenv
-import json
-import re
 import logging
 
 load_dotenv()
@@ -29,87 +26,79 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # 讀取 .env 作為系統全局預設值 (System Defaults)
 # ==========================================
-SYS_DEFAULT_PROVIDER = os.getenv("CURRENT_AI_MODEL", "gemini") 
+SYS_DEFAULT_PROVIDER = os.getenv("CURRENT_AI_MODEL", "gemini")
 SYS_OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma3:1b")
-SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-1.5-flash")
+SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma4:e4b")
+SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
+AI_BRAIN_VERSION = os.getenv("AI_BRAIN_VERSION", "v1")
+
 
 def get_sys_default_model(provider: str) -> str:
     """根據 Provider 決定預設模型名稱"""
     return SYS_OLLAMA_MODEL if provider == "ollama" else SYS_GEMINI_MODEL
 
-
-# --- 1. 獲取配置 (保留完整的 API 文件說明) ---
+# --- 1. 獲取配置 ---
 @router.get(
-    "/config", 
+    "/config",
     response_model=Optional[AIConfigResponse],
-    summary="取得 AI 模型配置",
-    description="根據 provider 參數取得對應的設定；若未指定，則回傳目前生效 (is_active=True) 的設定。"
+    summary="取得 AI 模型配置"
 )
 def get_ai_robot_config(
-    provider: Optional[str] = Query(None, description="指定查詢的模型供應商 (gemini, ollama, anythingllm)"), 
-    db: Session = Depends(get_db), 
+    provider: Optional[str] = Query(None, description="指定查詢的模型供應商"),
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     query = db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id)
-    
+
     target_config = None
     if provider:
-        # 查特定大腦的最新一筆
         target_config = query.filter(AIConfig.provider == provider).order_by(AIConfig.created_at.desc()).first()
     else:
-        # 預設查目前生效中的
         target_config = query.filter(AIConfig.is_active == True).first()
-        # 防呆：如果完全沒設定過，至少回傳一個預設值，避免前端壞掉
         if not target_config:
-            # 嘗試找任一筆，或直接回傳 None 讓下方處理預設值
             target_config = query.first()
 
     if target_config:
-        # 🚀 修正：先轉字典，再用解包方式建立，Pylance 絕對不會報錯
         data_dict = {
             "provider": str(target_config.provider),
             "base_url": target_config.base_url,
-            "model_version": target_config.model_version, # 這裡就是解決選單空白的關鍵
+            "model_version": target_config.model_version,
             "system_prompt": target_config.system_prompt,
             "is_active": bool(target_config.is_active),
-            "has_key": target_config.api_key is not None and target_config.api_key != "none"
+            "has_key": target_config.api_key is not None and target_config.api_key != "none",
+            "brain_version": target_config.brain_version
         }
         return AIConfigResponse(**data_dict)
-    
-    # 若資料庫完全無資料，回傳預設結構
+
     return AIConfigResponse(
         provider=SYS_DEFAULT_PROVIDER,
         base_url=SYS_OLLAMA_URL if SYS_DEFAULT_PROVIDER == "ollama" else "",
         model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER),
         system_prompt="你是理財小助手喵喵...",
         is_active=False,
-        has_key=False
+        has_key=False,
+        brain_version="v1" # 🌟 確保這裡有保底值
     )
 
-# --- 2. 儲存配置 (保留完整邏輯與錯誤處理) ---
+# --- 2. 儲存配置 ---
 @router.post(
-    "/save", 
-    summary="儲存或更新 AI 配置",
-    description="儲存 API Key (自動加密)、切換生效模型，並更新 System Prompt。"
+    "/save",
+    summary="儲存或更新 AI 配置"
 )
 def save_ai_config(
-    payload: AIConfigSave, 
-    db: Session = Depends(get_db), 
+    payload: AIConfigSave,
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     try:
-        # 先將該使用者所有設定設為不生效 (單選邏輯)
         db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id).update({"is_active": False})
-        
-        # 決定金鑰：如果有傳入新 Key 就加密，否則嘗試抓取該 provider 舊有的 Key
+
         new_key = payload.api_key
         secured_key = "none"
 
         if new_key and new_key != "none" and new_key.strip():
             secured_key = encrypt_api_key(new_key)
         else:
-            # 嘗試找舊的 Key 繼承使用
             old = db.query(AIConfig).filter(
                 AIConfig.user_id == current_user.user_id,
                 AIConfig.provider == payload.provider
@@ -124,7 +113,9 @@ def save_ai_config(
             base_url=payload.base_url.rstrip('/') if payload.base_url else "",
             model_version=payload.model_version,
             system_prompt=payload.system_prompt,
-            is_active=True
+            is_active=True,
+            # 🌟 新增這一行，才能把 v1/v2 存進資料庫
+            brain_version=payload.brain_version 
         )
         db.add(new_config)
         db.commit()
@@ -134,196 +125,186 @@ def save_ai_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- 3. AI 對話接口 (整合智能篩選器) ---
-@router.post(
-    "/chat",
-    summary="與 AI 喵喵對話",
-    description="接收使用者訊息，透過智能篩選器判斷意圖，若為記帳則回傳 JSON 指令。"
-)
+@router.post("/chat", summary="與 AI 喵喵對話")
 async def chat_with_meow(
-    req: ChatRequest, 
-    db: Session = Depends(get_db), 
+    req: ChatRequest,
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     start_time = time.time()
-    db.expire_all() 
+    db.expire_all()
 
-    # 1. 取得目前生效配置 (先看使用者自己有沒有特別設定)
-    config = db.query(AIConfig).filter(
-        AIConfig.user_id == current_user.user_id, 
-        AIConfig.is_active == True
-    ).first()
-
-    # 🌟 核心新增：如果使用者沒設定，強制套用「管理員 (user_id=1)」的設定！
-    if not config:
-        config = db.query(AIConfig).filter(
-            AIConfig.user_id == 1, 
-            AIConfig.is_active == True
-        ).first()
-
-    # 防呆預設 (如果連管理員都沒設定)
-    if not config:
-        config = AIConfig(
-            provider=SYS_DEFAULT_PROVIDER, 
-            base_url=SYS_OLLAMA_URL,
-            model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER), 
-            system_prompt="你是理財小助手喵喵喵"
-        )
-        
-# ==========================================
-    # 🌟 雲端安全網 (Render Safety Net)
-    # ==========================================
-    # 自動偵測是否在 Render 雲端環境運行
-    is_on_render = os.getenv("RENDER") == "true"
+    # 1. 取得設定：使用絕對保險機制，確保 config 絕對不是 None
+    db_config = db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id, AIConfig.is_active == True).first()
     
-    # 如果資料庫(前端)設定為 ollama，但目前跑在雲端，就強制切換回 Gemini 防止崩潰
-    if config.provider == "ollama" and is_on_render:
-        print("⚠️ [安全網攔截] 雲端環境無法連線小主人的本地 Ollama，自動降級為 Gemini 喵！")
-        config.provider = "gemini"
-        config.model_version = "gemini-1.5-flash" # 給一個穩定的預設值
-    # ==========================================
+    # 如果抓不到當前使用者的，抓系統預設的 (user_id=1)
+    if not db_config:
+        db_config = db.query(AIConfig).filter(AIConfig.user_id == 1, AIConfig.is_active == True).first()
 
-    # 2. 🧠 呼叫大腦：獲取智能篩選後的財務上下文與意圖
+    # 🌟 徹底消除紅線的核心：如果連預設都沒有，手動建立一個記憶體物件
+    if db_config:
+        config = db_config
+    else:
+        config = AIConfig(
+            provider=SYS_DEFAULT_PROVIDER,
+            base_url=SYS_OLLAMA_URL,
+            model_version=get_sys_default_model(SYS_DEFAULT_PROVIDER),
+            system_prompt="你是一個親切的理財助手喵喵，說話結尾要帶喵~"
+        )
+    
+    # 到這一步，Pylance 就知道 config 絕對有屬性了！
+    
+    # 2. 環境判斷
+    is_on_render = os.getenv("RENDER") == "true"
+
+    # 3. 提取指令：只拿最後一句話
+    latest_query = req.message.split("小主人：")[-1].strip() if "小主人：" in req.message else req.message
+
+    # 4. 判斷意圖
     try:
-        # 接收 dict 格式
-        agent_response = FinanceAgentService.get_context(db, current_user.user_id, req.message)
+        agent_response = await FinanceAgentService.get_context(
+            db, current_user, latest_query, req.persona, version=config.brain_version
+        )
         current_intent = agent_response["intent"]
         financial_context_instruction = agent_response["system_prompt"]
         print(f"🎯 [意圖偵測]: {current_intent}")
     except Exception as e:
-        # 🛡️ 內部詳細記錄錯誤 (隊友最愛)
-        logger.error(f"FinanceAgent 讀取失敗 (User ID: {current_user.user_id}): {str(e)}", exc_info=True)
-        # 🛡️ 外部優雅降級，不讓系統崩潰
+        logger.error(f"FinanceAgent Error: {str(e)}")
         current_intent = "CHAT"
-        financial_context_instruction = "【系統訊息】暫時無法讀取財務資料，請依一般常識回答。"
+        agent_response = {"intent": "CHAT", "confidence": 0.0}
+        financial_context_instruction = "【系統訊息】暫時無法讀取財務資料。"
 
-    # 3. 組合最終指令 (使用者自訂 Prompt + 財務數據)
     final_system_prompt = f"{config.system_prompt}\n\n{financial_context_instruction}"
 
-    # 4. 根據 Provider 分流呼叫
-    try:
-        reply = "喵喵不知道該說什麼..."
-        actual_model_used = config.model_version  # 先給一個預設值
-        
-        if config.provider == "gemini":
-            # 處理 Key 解密
-            env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            db_key = "none"
-            if config.api_key and config.api_key != "none":
-                try:
-                    db_key = decrypt_api_key(config.api_key)
-                except: pass
-            
-            final_key = db_key if (db_key and len(db_key) > 10) else env_key
-            if not final_key: raise Exception("找不到有效 API Key 喵！")
+    # 初始化回傳變數
+    is_json_command = False
+    parsed_action = None
+    reply = "喵喵不知道該說什麼..."
+    actual_model_used = config.model_version
 
-            # 🚀 接收字典格式的回傳值
-            result = await GeminiService.chat_async(
-                api_key=final_key,
-                model_id=config.model_version,
-                prompt=req.message,
-                system_instruction=final_system_prompt
-            )
-            reply = result["text"]
-            actual_model_used = result["actual_model"]
-
-        elif config.provider == "ollama":
-            reply = await OllamaService.chat_async(
-                base_url=config.base_url,
-                model_id=config.model_version,
-                prompt=req.message,
-                system_instruction=final_system_prompt
-            )
-
-        elif config.provider == "anythingllm":
-            any_key = decrypt_api_key(config.api_key) if (config.api_key and config.api_key != "none") else os.getenv("ANYTHINGLLM_KEY")
-            any_ws = os.getenv("ANYTHINGLLM_WORKSPACE", "finance-al-agent")
-            api_url = f"{config.base_url.rstrip('/')}/api/v1/workspace/{any_ws}/chat"
-            
-            async with httpx.AsyncClient() as client:
-                res = await client.post(
-                    api_url, 
-                    json={
-                        "message": f"{final_system_prompt}\n問題：{req.message}", 
-                        "mode": "chat"
-                    }, 
-                    headers={"Authorization": f"Bearer {any_key}"}, 
-                    timeout=120.0
-                )
-                reply = res.json().get("textResponse", "喵... AnyThingLLM 沒回應。")
-        else:
-            reply = "喵喵目前不知道該用哪個大腦。"
-
-        # ==========================================
-        # 🌟 核心新增：JSON 指令解析防呆機制 (防彈增強版)
-        # ==========================================
-        is_json_command = False
-        parsed_action = None
-        
-        if current_intent == "RECORD":
-            try:
-                # 1. 強制抓取 { } 之間的內容
-                match = re.search(r'\{.*\}', reply.strip(), re.DOTALL)
-                if match:
-                    clean_json_str = match.group(0)
-                    parsed_data = json.loads(clean_json_str)
-                    
-                    if parsed_data.get("action") == "confirm_record":
-                        is_json_command = True
-                        parsed_action = parsed_data
-                        
-                        r_type = parsed_data.get('record_type', 'expense')
-                        amt_word = parsed_data.get('add_amount', 0)
-                        
-                        if r_type == 'transfer':
-                            reply = f"收到喵！小主人要將 {amt_word} 元從「{parsed_data.get('from_account', '未知')}」轉到「{parsed_data.get('to_account', '未知')}」，請確認卡片喵！"
-                        else:
-                            action_word = "收入" if r_type == 'income' else "花費"
-                            item_word = parsed_data.get('add_note', '未知項目')
-                            reply = f"收到喵！小主人剛才{action_word}了：{item_word} {amt_word} 元，請確認卡片喵！"
-                else:
-                    raise ValueError("找不到 JSON")
-
-            except Exception as parse_err:
-                # 🛡️ 內部紀錄解析失敗原因
-                logger.warning(f"AI 回應 JSON 解析失敗: {str(parse_err)}", exc_info=True)
-                is_json_command = False
-
-        duration = round(time.time() - start_time, 2)
-        print(f"✨ [AI DEBUG] 回應成功！耗時: {duration}s")
-        
-        # 🌟 核心保留：任務進度掃描
-        from web_app.services.game_service import GameService
+    # ==========================================
+    # 5. 意圖分流處理
+    # ==========================================
+    if current_intent in ["RECORD", "MULTI_RECORD"]:
+        # 🚀 通道 A：記帳 (強制走 Groq)
         try:
-            GameService.update_mission_progress(
-                db=db,
-                user_id=current_user.user_id,
-                category='AI_聊天',
-                note=req.message,
-                increment=1
-            )
-        except Exception as game_err:
-            # 🛡️ 內部紀錄任務更新失敗原因
-            logger.error(f"遊戲任務進度更新失敗: {str(game_err)}", exc_info=True)
-        
-        provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" else f"{config.provider} ({config.model_version})"
-        
-        # 回傳給前端
-        return {
-            "reply": reply, 
-            "duration": duration, 
-            "provider": provider_display,
-            "is_command": is_json_command,    # 告訴前端是否要彈出卡片
-            "action_data": parsed_action      # 前端卡片需要的變數
-        }
+            groq_result = FinanceAgentService.execute_record_chain(final_system_prompt, latest_query)
+            is_json_command = True
+            parsed_action = groq_result.get("action_data", {})
+            reply = groq_result.get("reply_text", "已記好囉喵！")
+            actual_model_used = "Groq (Llama-Record)"
+        except Exception as e:
+            logger.error(f"Groq 解析 JSON 失敗: {str(e)}")
+            reply = "喵喵聽不懂這筆帳，請換個方式說喵！"
 
-    except Exception as e:
-        # 🛡️ 內部紀錄最詳細的崩潰軌跡
-        logger.error("AI 模組發生未預期崩潰", exc_info=True)
-        
-        # 🛡️ 外部只回傳安全的罐頭訊息，絕不洩漏 str(e)
-        return {
-            "reply": "喵... 系統大腦暫時有點打結，請稍後再試喵！", 
-            "duration": 0, 
-            "provider": config.provider if config else "unknown",
-            "is_command": False
-        }
+    else:
+        # 💡 通道 B：其他意圖
+        try:
+            # 🌟 邏輯：如果在 Render 且是 QUERY 意圖，自動導向 Groq 70B
+            active_provider = config.provider
+            active_model = config.model_version
+
+            if current_intent == "QUERY" and is_on_render:
+                active_provider = "groq"
+                active_model = "llama-3.3-70b-versatile"
+                print(f"🚀 [雲端優化] QUERY 自動切換至 Groq 70B")
+
+            # A. Gemini 處理
+            if active_provider == "gemini":
+                env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
+                f_key = db_key or env_key
+                if not f_key: raise Exception("Missing Key")
+
+                from ..services.finance_tools import get_budget_tool, search_manual_tool
+                res = await GeminiService.chat_async(
+                    api_key=str(f_key), model_id=active_model,
+                    prompt=f"【機密 user_id: {current_user.user_id}】\n問題：{req.message}",
+                    system_instruction=final_system_prompt,
+                    tools=[get_budget_tool, search_manual_tool]
+                )
+                reply, actual_model_used = res["text"], res["actual_model"]
+
+            # B. Groq 處理
+            elif active_provider == "groq":
+                env_key = os.getenv("GROQ_API_KEY")
+                db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
+                f_key = db_key or env_key
+                if not f_key: raise Exception("Missing Key")
+
+                reply = await GroqService.chat_async(
+                    api_key=str(f_key), model_id=active_model,
+                    prompt=req.message, system_instruction=final_system_prompt
+                )
+                actual_model_used = active_model
+
+            # C. Ollama 處理
+            elif active_provider == "ollama":
+                if is_on_render:
+                    reply = "雲端環境暫不支援 Ollama，請手動切換至 Gemini 或 Groq 喵。"
+                else:
+                    # 這裡加上 str() 包裝 config.base_url 消除紅線
+                    reply = await OllamaService.chat_async(
+                        base_url=str(config.base_url or "http://localhost:11434"),
+                        model_id=active_model,
+                        prompt=req.message,
+                        system_instruction=final_system_prompt
+                    )
+
+        except Exception as e:
+            logger.error(f"AI Chat Error: {str(e)}", exc_info=True)
+            reply = f"連線失敗喵... ({str(e)})"
+
+    # ==========================================
+    # 5. 收尾工作：更新任務與回傳
+    # ==========================================
+    duration = round(time.time() - start_time, 2)
+    print(f"✨ [AI DEBUG] 回應成功！耗時: {duration}s")
+
+    from web_app.services.game_service import GameService
+    try:
+        GameService.update_mission_progress(
+            db=db, user_id=current_user.user_id, category='AI_聊天', note=req.message, increment=1
+        )
+    except Exception as game_err:
+        logger.error(f"遊戲任務進度更新失敗: {str(game_err)}", exc_info=True)
+
+    # ==========================================
+    # 🌟 核心新增：自動將對話存入「意圖審核日誌」(信心度 < 0.8 才存)
+    # ==========================================
+    conf_val = agent_response.get("confidence", 1.0)
+    
+    # 只有信心度低於 0.8 (代表 AI 不太確定) 才自動觸發紀錄
+    if conf_val < 0.8:
+        try:
+            from ..models import IntentReviewLog
+            from decimal import Decimal
+
+            new_review_log = IntentReviewLog(
+                user_id=current_user.user_id,
+                user_message=latest_query,
+                predicted_intent=current_intent,
+                confidence_score=Decimal(str(conf_val)),
+                llm_response=reply,
+                is_reviewed=0
+            )
+            db.add(new_review_log)
+            db.commit() 
+            print(f"⚠️ [觸發紀錄] 信心度 {conf_val} < 0.8，已寫入審核日誌！")
+        except Exception as log_err:
+            logger.error(f"❌ 寫入對話審核日誌失敗: {str(log_err)}")
+            db.rollback()
+    # ==========================================
+
+    provider_display = f"gemini ({actual_model_used})" if config.provider == "gemini" and current_intent != "RECORD" else actual_model_used
+
+    return {
+        "reply": reply,
+        "duration": duration,
+        "provider": provider_display,
+        "is_command": is_json_command,
+        "action_data": parsed_action,
+        "intent": current_intent,  # 🌟 新增：傳給前端
+        "confidence": conf_val     # 🌟 新增：傳給前端
+    }
+

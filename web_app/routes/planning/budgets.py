@@ -17,7 +17,7 @@ def get_monthly_actual_stats(db: Session = Depends(get_db), current_user: Member
     - **tags**: 各標籤的總支出
     """
     now = datetime.now()
-    
+
     # 取得當月各類別支出總額
     class_stats = db.query(
         AddRecord.add_class,
@@ -47,11 +47,11 @@ def get_monthly_actual_stats(db: Session = Depends(get_db), current_user: Member
 
     return {
         "categories": [
-            {"name": s.add_class, "icon": s.add_class_icon or "💰", "spent": float(s.spent or 0)} 
+            {"name": s.add_class, "icon": s.add_class_icon or "💰", "spent": float(s.spent or 0)}
             for s in class_stats
         ],
         "tags": [
-            {"name": s.add_tag or "未分類", "spent": float(s.spent or 0)} 
+            {"name": s.add_tag or "未分類", "spent": float(s.spent or 0)}
             for s in tag_stats
         ]
     }
@@ -59,7 +59,7 @@ def get_monthly_actual_stats(db: Session = Depends(get_db), current_user: Member
 # --- 2. 取得所有預算設定 (總額/類別/標籤) ---
 @router.get("/all", summary="取得所有預算設定", description="回傳目前登入使用者設定的所有預算清單（含類別預算與標籤預算）。")
 def get_all_budgets(
-    db: Session = Depends(get_db), 
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     budgets = db.query(Budget).filter(Budget.user_id == current_user.user_id).all()
@@ -68,8 +68,8 @@ def get_all_budgets(
 # --- 3. 更新或新增預算 ---
 @router.post("/batch", summary="批量更新或新增預算", description="接收一個清單，若該類別/標籤預算已存在則更新金額，不存在則新建。")
 def batch_update_budgets(
-    data_list: list[BudgetUpdate], 
-    db: Session = Depends(get_db), 
+    data_list: list[BudgetUpdate],
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     """
@@ -83,7 +83,7 @@ def batch_update_budgets(
             Budget.category == data.category,
             Budget.tag == data.tag
         )
-            
+
         existing_budget = query.first()
 
         if existing_budget:
@@ -101,7 +101,7 @@ def batch_update_budgets(
                 tag_color=data.tag_color
             )
             db.add(new_budget)
-    
+
     db.commit()
     return {"status": "success", "message": f"成功同步 {len(data_list)} 筆預算設定"}
 
@@ -138,5 +138,5 @@ def delete_tag_budget(
         db.delete(budget)
         db.commit()
         return {"status": "success", "message": f"已刪除標籤 {tag}"}
-    
+
     return {"status": "not_found", "message": "找不到該預算紀錄"}

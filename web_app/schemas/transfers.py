@@ -21,7 +21,7 @@ class TransferDetail(BaseModel):
     to_account: AccountInfo
     created_at: Optional[datetime] = Field(None, description="建立時間")
     updated_at: Optional[datetime] = Field(None, description="更新時間")
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class MonthlyTransferResponse(BaseModel):

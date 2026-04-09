@@ -16,11 +16,11 @@ router = APIRouter()
     description="從資料庫提取目前登入使用者的儲蓄計畫，並自動根據關聯帳戶的最新餘額更新進度與狀態。"
 )
 def get_savings_goals(
-    db: Session = Depends(get_db), 
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     goals = db.query(SavingsGoal).filter(SavingsGoal.user_id == current_user.user_id).all()
-    
+
     for goal in goals:
         if goal.account_id:
             # 如果有指定帳戶，抓取該帳戶餘額
@@ -28,11 +28,11 @@ def get_savings_goals(
             goal.current_amount = target_acc.current_balance if target_acc else Decimal("0.0")
         else:
             pass
-            
+
         # 自動判定狀態
         if goal.current_amount >= goal.target_amount:
             goal.status = "completed"
-    
+
     return goals
 
 @router.post(
@@ -46,7 +46,7 @@ def get_savings_goals(
 1. **新增 (Create)**: 若傳入物件不含 `goal_id`，系統將視為新目標自動建立。
 2. **更新 (Update)**: 若傳入物件含 `goal_id` 且存在於資料庫，將更新現有屬性（名稱、金額、截止日等）。
 3. **刪除 (Delete)**: **重要！** 若資料庫現有 ID **未包含**在本次傳入清單中，系統將判定使用者已刪除該筆資料並從 DB 移除。
-4. **帳戶連動 (Account Sync)**: 
+4. **帳戶連動 (Account Sync)**:
     - 若傳入 `account_id`，系統將**強制忽略**傳入的 `current_amount`，改採該帳戶的最新餘額。
     - 若 `account_id` 為 `null`，則使用傳入的 `current_amount` 值。
 
@@ -67,8 +67,8 @@ def get_savings_goals(
     }
 )
 def batch_sync_savings(
-    goals: list[SavingsUpdate], 
-    db: Session = Depends(get_db), 
+    goals: list[SavingsUpdate],
+    db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user)
 ):
     """
@@ -87,7 +87,7 @@ def batch_sync_savings(
     ).all()
     db_goal_map = {g.goal_id: g for g in db_goals}
     db_goal_ids = set(db_goal_map.keys())
-    
+
     # 2. 獲取前端傳入的有效 ID 集合
     incoming_ids = {g.goal_id for g in goals if g.goal_id is not None}
 
@@ -96,18 +96,18 @@ def batch_sync_savings(
     if ids_to_delete:
         db.query(SavingsGoal).filter(
             and_(
-                SavingsGoal.user_id == current_user.user_id, 
+                SavingsGoal.user_id == current_user.user_id,
                 SavingsGoal.goal_id.in_(ids_to_delete)
             )
         ).delete(synchronize_session=False)
 
     # 4. 執行新增或更新 (UPSERT)
     today = date.today()
-    
+
     for g_data in goals:
         # A. 基礎金額處理
-        current_amt = Decimal(str(g_data.current_amount or "0.0")) 
-        
+        current_amt = Decimal(str(g_data.current_amount or "0.0"))
+
         # B. 帳戶連動：若有綁定帳戶，以帳戶餘額為準
         if g_data.account_id:
             acc = db.query(Account).filter(
@@ -152,7 +152,7 @@ def batch_sync_savings(
                     category="savings",
                     description=f"太棒了！您已成功存下 {current_amt:,.0f} 元，正式完成了「{g_data.goal_name}」計畫。",
                     reminder_date_start=today,
-                    reminder_time=datetime.now().time(), 
+                    reminder_time=datetime.now().time(),
                     is_active=True,
                     is_read=False
                 )
@@ -194,6 +194,6 @@ def batch_sync_savings(
     # 5. 提交事務
     db.commit()
     return {
-        "status": "success", 
+        "status": "success",
         "message": f"成功同步 {len(goals)} 個儲蓄目標，刪除 {len(ids_to_delete)} 個"
     }

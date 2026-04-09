@@ -1,15 +1,15 @@
 'Backend (API 後端)':
-  - any: 
+  - any:
       - 'web_app/**/*'
       - 'main.py'
       - 'pyproject.toml'
       - 'uv.lock'
 
 'Database':
-  - any: 
+  - any:
       - 'web_app/models/**/*'
       - 'web_app/database.py'
 
 'API/Routes':
-  - any: 
+  - any:
       - 'web_app/routes/**/*'

@@ -32,7 +32,7 @@ class FeedbackResponse(BaseModel):
     question_type: str
     use_page: str
     content: str
-    
+
     # 新增這三個欄位，讓前端能顯示回覆狀態
     admin_answer: Optional[str] = None
     is_replied: int = 0
