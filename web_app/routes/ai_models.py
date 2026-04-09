@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ==========================================
 SYS_DEFAULT_PROVIDER = os.getenv("CURRENT_AI_MODEL", "gemini")
 SYS_OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma3:1b")
+SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma4:e4b")
 SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
 AI_BRAIN_VERSION = os.getenv("AI_BRAIN_VERSION", "v1")
 
