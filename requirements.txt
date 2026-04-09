@@ -31,7 +31,7 @@ protobuf<=4.25.3
 # torchaudio
 # transformers
 langchain-chroma
-# langchain-huggingface
+langchain-huggingface
 onnxruntime
 
 # --- 其他必要工具 ---
