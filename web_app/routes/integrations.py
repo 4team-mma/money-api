@@ -46,7 +46,7 @@ async def analyze_schedule(
 時間預設：上午 09:00-12:00，下午 13:30-16:30。
 """
 
-        env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        env_key = os.getenv("GEMINI_API_KEY") 
         api_key: str = str(env_key) if env_key else ""
 
         ai_response = await GeminiService.analyze_image_async(

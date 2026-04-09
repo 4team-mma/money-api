@@ -211,7 +211,7 @@ async def chat_with_meow(
 
             # A. Gemini 處理
             if active_provider == "gemini":
-                env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                env_key = os.getenv("GEMINI_API_KEY") 
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
                 f_key = db_key or env_key
                 if not f_key: raise Exception("Missing Key")

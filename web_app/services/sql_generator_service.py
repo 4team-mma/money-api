@@ -11,7 +11,7 @@ class SQLGeneratorService:
     @classmethod
     def _load_schema_context(cls) -> str:
         """從資料夾讀取資料庫地圖 (Schema Collection)"""
-        schema_path = "./web_app/data/manuals/schema_collection.md"
+        schema_path = "./web_app/data/secret/schema_collection.md"
         try:
             with open(schema_path, "r", encoding="utf-8") as f:
                 return f.read()

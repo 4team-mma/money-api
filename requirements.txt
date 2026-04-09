@@ -31,7 +31,7 @@ protobuf<=4.25.3
 # torchaudio
 # transformers
 langchain-chroma
-# langchain-huggingface
+langchain-huggingface
 onnxruntime
 
 # --- 其他必要工具 ---
@@ -43,3 +43,6 @@ slowapi>=0.1.9
 soundfile>=0.13.1
 user-agents>=2.2.0
 xmltodict>=1.0.2
+
+# 補增加套件：
+cohere>=5.21.1
