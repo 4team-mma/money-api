@@ -33,6 +33,8 @@ dependencies = [
     "sqlalchemy>=2.0.45",
     # 2. 這是唯一需要跨平台分流的地方：
     # 鎖定 numpy 避免舊版 PyTorch 運算報錯
+    # 🌟 新增這裡：強制規定 protobuf 不准亂跑，鎖定在穩定的 4.x 版本以下
+    "protobuf<=4.25.3",
     "numpy<2.0.0",
     # 🌟 新增：解決 ChromaDB 底層依賴的 onnxruntime 也放棄 Intel Mac 的問題
     "onnxruntime>=1.14.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
