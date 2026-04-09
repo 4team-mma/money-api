@@ -15,11 +15,11 @@ from dotenv import load_dotenv
 load_dotenv(override=True) 
 
 # 測試看看是否讀到正確的 Key (啟動時會印在終端機)
-api_key_check = os.getenv('GOOGLE_API_KEY')
+api_key_check = os.getenv('GEMINI_API_KEY')
 if api_key_check:
     print(f"DEBUG: 目前使用的 Key 前五碼是 {api_key_check[:5]}")
 else:
-    print("DEBUG: 警告！完全沒讀到 GOOGLE_API_KEY，請檢查 .env 檔案內容與位置")
+    print("DEBUG: 警告！完全沒讀到 GEMINI_API_KEY，請檢查 .env 檔案內容與位置")
     
 class AIAnalysisError(Exception):
     """AI 辨識失敗時拋出，附帶原始回覆供 debug"""
@@ -67,7 +67,7 @@ class InvoiceService:
         """
         把 base64 圖片送給 Gemini Vision 辨識發票
         """
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", "")
+        api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise AIAnalysisError("缺少 GEMINI_API_KEY 環境變數", "")
 
@@ -159,7 +159,7 @@ class InvoiceService:
 #         """
 #         import json
 
-#         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", "")
+#         api_key = os.getenv("GEMINI_API_KEY") 
 #         if not api_key:
 #             raise AIAnalysisError("缺少 GEMINI_API_KEY 環境變數", "")
 

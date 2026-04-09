@@ -255,8 +255,8 @@ async def get_reply(db: Session, user: Member, message: str, target_intent: str)
             return f"[Ollama - {model_ver}]\n{reply_text}"
 
         elif provider == "gemini":
-            env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            db_key = "none"
+            env_key = os.getenv("GEMINI_API_KEY") 
+            db_key = "None"
             if config and config.api_key and config.api_key != "none":
                 try: db_key = decrypt_api_key(config.api_key)
                 except: pass
@@ -264,7 +264,7 @@ async def get_reply(db: Session, user: Member, message: str, target_intent: str)
             # 🌟 [關鍵修正] 解決 Pylance 紅線：確保 final_key 絕對是 str
             raw_key = db_key if (db_key and len(db_key) > 10) else env_key
             if raw_key is None:
-                return "❌ 系統錯誤：找不到有效的 API Key"
+                return "❌ 系統錯誤：找不到有效的 Gemini API Key"
 
             final_key: str = str(raw_key) # 強制轉型確保類型安全
 
