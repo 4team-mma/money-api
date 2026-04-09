@@ -20,6 +20,8 @@ from .models import (
     SavingsGoal,
     LoginActivity,
     Budget,
+    Invoice,
+    InvoiceItem,
     IntentReviewLog
 
 )
