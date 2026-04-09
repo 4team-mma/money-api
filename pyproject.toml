@@ -35,8 +35,6 @@ dependencies = [
     "protobuf<=4.25.3",
     # 2. 這是唯一需要跨平台分流的地方：
     # 鎖定 numpy 避免舊版 PyTorch 運算報錯
-    # 🌟 新增這裡：強制規定 protobuf 不准亂跑，鎖定在穩定的 4.x 版本以下
-    "protobuf<=4.25.3",
     "numpy<2.0.0",
     # 🌟 新增：解決 ChromaDB 底層依賴, 1.20.0 版本之後，官方決定不再為 macOS 的 Intel 晶片（x86_64）提供預先編譯好的安裝包 (Wheel)
     "onnxruntime>=1.14.1 ; sys_platform != 'darwin' or platform_machine == 'arm64'",
