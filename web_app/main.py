@@ -49,38 +49,39 @@ from typing import AsyncGenerator
 from web_app.middlewares.security_logger import SecurityAuditMiddleware
 from web_app.utils.ai_security_analyst import run_daily_security_audit
 from web_app.utils.ai_warmup import warmup_ai_systems
+from ingest_knowledge import ingest_data as ingest_knowledge_data
+from ingest_intents import ingest_intents as ingest_intents_data
 
-# 圖片加載
+
 
 # ----------------------------------------------------------------
-# 靜態檔案路徑設定 (僅修正此處)
+# 初始化設定：環境變數與目錄
 # ----------------------------------------------------------------
-# 1. 取得 main.py 當前所在的絕對目錄路徑 (web_app 資料夾)
+# 1. 先載入環境變數
+load_dotenv()
+
+# 取得 main.py 當前所在的絕對目錄路徑 (web_app 資料夾)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# 2. 拼接出 static 的絕對路徑 (指向同層級的 static 資料夾)
+# 拼接出 static 的絕對路徑 (指向同層級的 static 資料夾)
 static_dir = os.path.join(current_dir, "static")
 
-# 3. 檢查是否存在 (除錯用)
+# 檢查是否存在 (除錯用)
 if os.path.exists(static_dir):
     print(f"✅ 靜態目錄確認: {static_dir}")
 else:
     print(f"⚠️ 警告: 找不到目錄 {static_dir}")
 
-
-# 1. 先載入環境變數
-load_dotenv()
-
 # Jinja當測試?
 templates = Jinja2Templates(directory="web_app/templates")
 
-# 2. 建立資料夾 (必須在日誌設定之前)
+# 建立日誌資料夾 (增加防呆檢查) (必須在日誌設定之前)
 log_file_path = os.getenv("LOG_FILE", "logs/app.log")
 log_dir = os.path.dirname(log_file_path)
-if log_dir:
+if log_dir and not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 
-# 3. 設定基礎日誌格式 (全域設定一次就好)
+# 設定基礎日誌格式 (全域設定一次就好)
 logging.basicConfig(
     filename=log_file_path,
     level=logging.INFO,
@@ -88,16 +89,38 @@ logging.basicConfig(
     encoding="utf-8",
 )
 
-# --------------------------------------
-# 定義生命週期管理器 (Lifespan)
+# 建立一個專門給 main 使用的 logger
+logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------
+# 🔥 新增：背景重建 AI 語意資料庫任務
+# ----------------------------------------------------------------
+async def init_vector_db():
+    """在背景執行緒重建語意資料庫，避免阻塞 FastAPI 主執行緒導致伺服器啟動超時"""
+    logging.info("🧠 啟動背景任務：開始重建 AI 語意資料庫 (1樓警衛室 與 2樓圖書館)...")
+    try:
+        # 使用 asyncio.to_thread 讓耗時的 I/O 與向量運算在背景執行，不卡死 FastAPI
+        await asyncio.to_thread(ingest_knowledge_data)
+        await asyncio.to_thread(ingest_intents_data)
+        logging.info("✅ AI 語意資料庫重建完成！AI 大腦已更新至最新狀態。")
+    except Exception as e:
+        logging.error(f"❌ AI 語意資料庫重建失敗，請檢查日誌: {e}", exc_info=True)
+
+
+# ----------------------------------------------------------------
+# 生命週期管理器 (Lifespan)
+# ----------------------------------------------------------------
 # 這裡負責在伺服器啟動時開啟排程，關閉時停止排程
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    # --- 啟動時執行 ---
-    scheduler = BackgroundScheduler()
     
-    # 🌟 新增：啟動背景 AI 預熱任務 (不阻塞開機)
+    
+    # 🌟 啟動背景 AI 預熱與大腦重建任務 (不阻塞開機)
     asyncio.create_task(warmup_ai_systems())
+    asyncio.create_task(init_vector_db())  # <--- 將大腦更新掛載到背景執行
+
+    # 🌟--- 啟動排程器 ---
+    scheduler = BackgroundScheduler()
 
     # ==========================
     # 任務 1: CPI 爬蟲
@@ -168,7 +191,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         replace_existing=True
     )
     
-        # ==========================
+    # ==========================
     # 任務 5: AI 資安日誌分析 (每天凌晨 04:00 執行)
     # ==========================
     scheduler.add_job(
@@ -192,9 +215,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         replace_existing=True
     )
 
-
+    #  CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄
     scheduler.start()
-    logging.info("🚀 APScheduler 已啟動 - CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄")
+    logging.info("🚀 APScheduler 已啟動 - 各項爬蟲與清理任務自動更新中")
 
     yield  # 伺服器運作中...
 
@@ -233,13 +256,13 @@ app = FastAPI(
     title="FastAPI MoneyMMA",
     description=f"這是 MoneyMMA 的後端 API 文件。 \n \n{cat_logo}",
     version="1.0.0",
-    lifespan=lifespan,  # <--- 加上這一行，排程才會動！
+    lifespan=lifespan,  # <--- 排程
     docs_url="/docs" if DEBUG else None,
     redoc_url="/redoc" if DEBUG else None,
     openapi_url="/openapi.json" if DEBUG else None,
 )
 
-# 1. 讀取 .env
+# 1. 讀取 .env  / CORS 與 中間件設定
 cors_raw = os.getenv("CORS_ORIGINS", "")
 origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
@@ -256,13 +279,11 @@ app.add_middleware(
 )
 
 # ----------------------------------------------------------------
-# 🔥slowapi：相關設定02
+# 🔥slowapi：相關設定
 # ----------------------------------------------------------------
-
 # 將 limiter 掛載到 app 狀態，並註冊報錯處理器
 app.state.limiter = limiter
 # 異常處理區塊: 當使用者點擊太快時，自動回傳 429 Too Many Requests。
-
 
 # 修改原因:Pylance跳出紅線警告
 # 這個報錯是因為 FastAPI 的 add_exception_handler 預設預期處理函數的第二個參數要是通用的 Exception，但 slowapi 的內建處理器限定了必須是 RateLimitExceeded。
@@ -274,10 +295,6 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 # ----------------------------------------------------------------
 # 🔥 新增：全域異常處理器 (Global Exception Handlers)
 # ----------------------------------------------------------------
-
-# 建立一個專門給 main 使用的 logger
-logger = logging.getLogger(__name__)
-
 # 敏感資訊遮罩工具 (保護隱私)
 def mask_sensitive(text: str) -> str:
     if not text: return ""  # 防呆：確保 text 不是 None
@@ -382,9 +399,6 @@ async def db_exception_handler(request: Request, exc: SQLAlchemyError):
         content={"success": False, "detail": msg},
         background=background_tasks # 將任務掛載到 Response
     )
-
-
-
 
 # --- 路由註冊 (Routers) ---
 # 基礎路由
