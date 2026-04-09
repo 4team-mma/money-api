@@ -30,9 +30,9 @@ protobuf<=4.25.3
 # torch
 # torchaudio
 # transformers
-# langchain-chroma
+langchain-chroma
 # langchain-huggingface
-# onnxruntime
+onnxruntime
 
 # --- 其他必要工具 ---
 apscheduler>=3.11.2
