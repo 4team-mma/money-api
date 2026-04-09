@@ -54,10 +54,10 @@ async def mark_as_read(
         Notification.reminder_id == reminder_id,
         Notification.user_id == current_user.user_id # 安全檢查：只能改自己的
     ).first()
-    
+
     if not notification:
         raise HTTPException(status_code=404, detail="找不到此通知")
-    
+
     notification.is_read = True
     db.commit()
     return {"msg": "已標記為已讀"}
@@ -80,7 +80,7 @@ async def mark_all_as_read(
     # 批次更新狀態
     for note in unread_notifications:
         note.is_read = True
-    
+
     db.commit()
     return {"msg": f"已將 {len(unread_notifications)} 則通知標記為已讀"}
 
@@ -111,7 +111,7 @@ async def delete_all_notifications(
     current_user: Member = Depends(get_current_user)
 ):
     now = datetime.now()
-    
+
     # 只刪除「已經到達時間」的通知
     # 邏輯：(日期 < 今天) OR (日期 == 今天 且 時間 <= 現在)
     db.query(Notification).filter(
@@ -124,7 +124,7 @@ async def delete_all_notifications(
             )
         )
     ).delete(synchronize_session=False)
-    
+
     db.commit()
     return None
 

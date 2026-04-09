@@ -24,11 +24,11 @@ jobs:
       run: |
         uv python install 3.12
         # 這行會自動讀取 [dependency-groups] 裡的所有套件
-        uv sync --all-groups 
+        uv sync --all-groups
 
     - name: 4. 執行檢查與測試
       # 加上 continue-on-error，就算排版或檢查沒過，CI 依然會算你通過！
-      continue-on-error: true 
+      continue-on-error: true
       run: |
         uv run black --check .
         uv run ruff check .

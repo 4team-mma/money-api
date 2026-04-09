@@ -5,7 +5,7 @@ async def test_anything_llm():
     # 1. 基礎設定
     base_url = "http://127.0.0.1:3001/v1/chat/completions" # 使用 IP 避免 localhost 解析問題
     api_key = os.getenv("ANYTHINGLLM_KEY") # ⚠️ 請在此處貼上你從 AnythingLLM 產生的 Key
-    
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -37,8 +37,8 @@ async def test_anything_llm():
         try:
             # 修改端點為 OpenAI 相容路徑
             res = await client.post(
-                "http://127.0.0.1:3001/v1/chat/completions", 
-                json=payload, 
+                "http://127.0.0.1:3001/v1/chat/completions",
+                json=payload,
                 headers=headers,
                 timeout=30.0
             )

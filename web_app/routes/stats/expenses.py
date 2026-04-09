@@ -37,7 +37,7 @@ async def get_expense_category_stats(
         - **account**: 按支付帳戶（如：我的錢包、某銀行）。
         - **member**: 按消費者。
         - **tag**: 按標籤（支援「一筆紀錄多個標籤」的拆分計算）。
-    
+
     - **標籤特殊處理**:
         - 若一筆 100 元紀錄含標籤 "A, B"，則 A 與 B 分類下都會計入 100 元，比例會重新依總額計算。
     """
@@ -56,7 +56,7 @@ async def get_expense_category_stats(
         for r in records:
             amount = float(r.add_amount or 0)
             grand_total += amount # 這是原始總額
-            
+
             # 拆分標籤並去除前後空格
             tags = [t.strip() for t in (r.add_tag or "未分類標籤").split(",") if t.strip()]
             for t in tags:

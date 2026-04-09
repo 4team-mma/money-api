@@ -12,7 +12,7 @@ async def test_anything_llm_v2():
     # 先抓環境變數，如果抓不到就設為 "none" (對齊您的 save_ai_config 邏輯)
     raw_key = os.getenv("ANYTHINGLLM_KEY")
     any_key = raw_key if raw_key else "none"
-    
+
     if any_key == "none":
         print("❌ 警告：API Key 目前是空的或 none，這會導致 401 錯誤喵！")
         return
@@ -42,9 +42,9 @@ async def test_anything_llm_v2():
         try:
             print("🚀 正在發送請求...")
             res = await client.post(
-                api_url, 
-                json=payload, 
-                headers=headers, 
+                api_url,
+                json=payload,
+                headers=headers,
                 timeout=120.0 # 對齊您程式碼中的 120 秒超時
             )
 

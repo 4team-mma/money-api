@@ -1,6 +1,9 @@
 from dotenv import load_dotenv
 import os
-from fastapi import FastAPI, Request, Depends
+import httpx
+import re
+import traceback
+from fastapi import FastAPI, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,7 +22,8 @@ from web_app.routes import (
     ai_models,
     gamification,
     ai,
-    ws
+    ws,
+    integrations
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -33,7 +37,7 @@ from web_app.utils.login_cleanup import cleanup_old_login_activities
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -115,7 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="salary_startup_check",
         replace_existing=True
     )
-    
+
     # B. 定期排程 (每月 20 號 - 薪資資料通常比較慢出來)
     scheduler.add_job(
         run_all_salary_tasks, "cron", day=20, hour=10, minute=0,
@@ -133,14 +137,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="notification_startup_cleanup",
         replace_existing=True
     )
-    
+
     # B. 定期排程 (每天凌晨 03:00 執行)
     scheduler.add_job(
-        cleanup_old_notifications, 
-        "cron", 
-        hour=3, 
+        cleanup_old_notifications,
+        "cron",
+        hour=3,
         minute=0,
-        id="daily_notification_cleanup", 
+        id="daily_notification_cleanup",
         replace_existing=True
     )
     # ==========================
@@ -155,18 +159,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="login_activity_startup_cleanup",
         replace_existing=True
     )
-    
+
     # B. 定期排程 (每天凌晨 03:30 執行)
     # 這是給伺服器 24 小時運作時使用的正常維護邏輯。
     scheduler.add_job(
-        cleanup_old_login_activities, 
-        "cron", 
-        hour=3, 
+        cleanup_old_login_activities,
+        "cron",
+        hour=3,
         minute=30,
-        id="daily_login_activity_cleanup", 
+        id="daily_login_activity_cleanup",
         replace_existing=True
     )
-    
+
 
     scheduler.start()
     logging.info("🚀 APScheduler 已啟動 - CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄")
@@ -197,10 +201,10 @@ cat_logo = r"""
    )         (    1
   (           )  號
  ( (  )   (  ) )
-(__(__)___(__)__).   
+(__(__)___(__)__).
                                 Welcome to MoneyMMA API!
-                                            Meow~ 
-    
+                                            Meow~
+
 """
 
 
@@ -214,7 +218,19 @@ app = FastAPI(
     openapi_url="/openapi.json" if DEBUG else None,
 )
 
+# 1. 讀取 .env
+cors_raw = os.getenv("CORS_ORIGINS", "")
+origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
+
+# --- 中間件設定 (Middleware) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ----------------------------------------------------------------
 # 🔥slowapi：相關設定02
@@ -239,50 +255,113 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 # 建立一個專門給 main 使用的 logger
 logger = logging.getLogger(__name__)
 
+# 敏感資訊遮罩工具 (保護隱私)
+def mask_sensitive(text: str) -> str:
+    if not text: return ""  # 防呆：確保 text 不是 None
 
-# 處理所有未預期的崩潰 (Exception)
+    # 遮蓋 SQL 語法或 Token 等敏感關鍵字
+    sensitive_patterns = ["password", "token", "secret", "key", "authorization"]
+    for word in sensitive_patterns:
+        # 使用正則表達式尋找類似 "password": "123" 的結構並遮蓋
+        text = re.sub(rf"{word}['\"]?\s*[:=]\s*['\"].*?['\"]", f"{word}: '********'", text, flags=re.IGNORECASE)
+    return text
+
+# Discord 錯誤自動通報小工具(非同步背景告警)
+def send_discord_alert(message: str, background_tasks: BackgroundTasks, level: str = "ERROR"):
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return
+
+    # 定義內部的發送邏輯
+    async def _async_send():
+        emoji = "🚨" if level == "CRITICAL" else "⚠️"
+        # 傳出去前先過濾敏感資訊
+        safe_message = mask_sensitive(message)
+        payload = {"content": f"{emoji} **[Money MMA 報警系統]**\n{safe_message}"}
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(webhook_url, json=payload, timeout=5.0)
+                if response.status_code == 401:
+                    logger.critical("🚨 Discord Webhook URL 已失效 (401)！請更換金鑰。")
+                elif response.status_code == 429:
+                    retry_after = response.json().get("retry_after", 0)
+                    logger.warning(f"Discord 限制中！請等待 {retry_after/1000} 秒。")
+                elif response.status_code >= 400:
+                    logger.error(f"Discord Webhook 失敗: {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.error(f"Discord 告警失敗: {e}")
+
+    background_tasks.add_task(_async_send)
+
+# 全域通用異常處理器 (萬用防護網)
 @app.exception_handler(Exception)
-async def universal_exception_handler(request: Request, exc: Exception):
-    # 紀錄詳細錯誤到 logs/app.log
-    # exc_info=True 會自動抓取 Traceback (哪一行的程式碼出錯)
-    logger.error(
-        f"非預期錯誤 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True
-    )
+async def universal_handler(request: Request, exc: Exception):
+    background_tasks = BackgroundTasks()
+    # WebSocket 不回傳 JSON
+    if request.scope.get("type") == "websocket":
+        logger.warning("WebSocket 異常已攔截")
+        return
 
-    # 回傳給前端安全、格式統一的訊息
+    # 使用 getattr 並給予預設值 "訪客"，安全性最高
+    u_id = getattr(request.state, "user_id_str", "訪客")
+    u_name = getattr(request.state, "username_str", "")
+
+    u_info = f"User ID: {u_id} ({u_name})" if u_name else f"User ID: {u_id}"
+
+    logger.error(f"非預期錯誤 User:{u_info} Path:{request.url.path}", exc_info=True)
+
+    error_stack = traceback.format_exc()
+    alert = (
+        f"❌ **[程式發生崩潰]**\n"
+        f"👤 用戶: `{u_info}`\n"
+        f"📍 路徑: `{request.method} {request.url.path}`\n"
+        f"⚠️ 錯誤: `{str(exc)}`\n"
+        f"🔍 Traceback:\n```python\n{error_stack[:800]}\n```"
+    )
+    send_discord_alert(alert, background_tasks, level="CRITICAL")
+
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "detail": "系統發生非預期錯誤，請聯繫管理員或稍後再試。",
-        },
+        content={"success": False, "detail": "系統發生錯誤，維修人員已收到通知。"},
+        background=background_tasks # 將任務掛載到 Response
     )
 
 
-# 針對資料庫錯誤做更細緻的 Log
+# 資料庫異常處理器
 @app.exception_handler(SQLAlchemyError)
-async def database_exception_handler(request: Request, exc: SQLAlchemyError):
-    logger.error(
-        f"資料庫異常 - 路徑: {request.url.path} - 錯誤內容: {str(exc)}", exc_info=True
+async def db_exception_handler(request: Request, exc: SQLAlchemyError):
+    background_tasks = BackgroundTasks()
+    # 使用 getattr 並給予預設值 "訪客"，安全性最高
+    u_id = getattr(request.state, "user_id_str", "訪客")
+    u_name = getattr(request.state, "username_str", "")
+
+    u_info = f"User ID: {u_id} ({u_name})" if u_name else f"User ID: {u_id}"
+
+    prefix, msg = "[DB 一般錯誤]", "資料庫處理異常"
+    if isinstance(exc, OperationalError):
+        prefix, msg = "🚨 [DB 連線崩潰]", "系統忙碌中，請稍後再試"
+    elif isinstance(exc, IntegrityError):
+        prefix, msg = "ℹ️ [DB 資料衝突]", "資料重複或格式不符"
+
+    logger.error(f"{prefix} User:{u_info} Path:{request.url.path} Err:{str(exc)}", exc_info=True)
+
+    alert = (
+        f"**{prefix}**\n"
+        f"👤 用戶: `{u_info}`\n"
+        f"📍 路徑: `{request.method} {request.url.path}`\n"
+        f"🔍 錯誤: `{str(exc)[:500]}`"
     )
+    send_discord_alert(alert, background_tasks, level="CRITICAL") # 背景發送
+
     return JSONResponse(
         status_code=500,
-        content={"success": False, "detail": "資料庫連線或處理異常，請稍後再試。"},
+        content={"success": False, "detail": msg},
+        background=background_tasks # 將任務掛載到 Response
     )
 
 
-# 1. 讀取 .env 的字串的5173,5174
-cors_raw = os.getenv("CORS_ORIGINS", "")
-origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
-# --- 中間件設定 (Middleware) ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # --- 路由註冊 (Routers) ---
 # 基礎路由
@@ -300,7 +379,7 @@ app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事�
 app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
 app.include_router(ai_models.router, prefix="/api/ai_models", tags=["AI模型設定"])
 app.include_router(ws.router, prefix="/api/ws", tags=["WebSocket"])
-app.include_router(gamification.router, prefix="/api/game", 
+app.include_router(gamification.router, prefix="/api/game",
     tags=["成就系統:每日簽到(checkin)每日任務(missions)成就卡牌(cards)Header摘要(summary)"])
 app.include_router(
     admin.router,
@@ -311,11 +390,11 @@ app.include_router(
 app.include_router(analysis.router, prefix="/api/analysis", tags=["消費趨勢分析"])
 app.include_router(stats_router, prefix="/api/stats", tags=["圖表分析"])
 app.include_router(planning_router, prefix="/api/planning", tags=["理財規劃"])
-app.include_router(ai.router, 
-    prefix="/api/v1/ai", 
+app.include_router(ai.router,
+    prefix="/api/v1/ai",
     tags=["AI 擴充功能"]
 )
-
+app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():

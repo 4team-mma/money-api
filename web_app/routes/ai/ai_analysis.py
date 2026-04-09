@@ -1,31 +1,39 @@
 import os
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from web_app.dependencies import get_db
+from web_app.dependencies import get_db, get_current_user
 from web_app.services.gemini_service import GeminiService
-from fastapi.responses import JSONResponse
+from web_app.services.advisor_tools import FinancialAdvisorService
+from web_app.prompts.ai_analysis_prompts import get_financial_analysis_prompt, SYSTEM_INSTRUCTION
 
 router = APIRouter()
 
-@router.get("/cash-flow-summary")
-async def get_cash_flow_summary(db: Session = Depends(get_db)):
-    # 抓取妳 .env 裡的變數
+@router.get("/financial-insight")
+async def get_financial_insight(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    # 1. 抓取包含 Z-score 異常偵測的數據
+    # 這裡 financial_data 已經包含了 anomaly_analysis 欄位
+    financial_data = await FinancialAdvisorService.get_ai_context(db, current_user)
+    
+    # 2. 生成 Prompt 
+    # 💡 關鍵：妳的 get_financial_analysis_prompt 函式需要能處理新的資料結構
+    prompt = get_financial_analysis_prompt(financial_data)
+    
+    # 3. 呼叫 Gemini
     api_key = os.getenv("GOOGLE_API_KEY")
-    
-    # 模擬數據 (等週一討論完再寫 SQL)
-    mock_data = "本月收入 55,000 元，支出 42,000 元，其中餐飲支出佔比 35% 最多。"
-    
-    system_instruction = "你是一位親切的理財顧問，請針對數據給出 50 字內的繁體中文建議。"
-    
-    # 呼叫同學寫好的 Service (這裡要用 await 因為他是非同步)
     result = await GeminiService.chat_async(
         api_key=api_key,
         model_id="gemini-1.5-flash",
-        prompt=f"請分析這段數據：{mock_data}",
-        system_instruction=system_instruction
+        prompt=prompt,
+        system_instruction=SYSTEM_INSTRUCTION
     )
     
-    return JSONResponse(
-    content={"summary": result["text"]},
-    headers={"Content-Type": "application/json; charset=utf-8"}
-)
+    # 4. 回傳給前端
+    # 建議把結構理清楚，方便前端 Vue 渲染
+    return {
+        "ai_insight": result["text"],        # AI 產生的建議文字
+        "metrics": financial_data["metrics"], # 包含 total_expense, anomaly_analysis 等
+        "top_categories": financial_data["top_categories"] # 讓前端也能顯示圓餅圖或列表
+    }

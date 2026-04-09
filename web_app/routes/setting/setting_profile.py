@@ -43,7 +43,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # =========================
 @router.post("/upload-avatar/{username}")
 async def upload_avatar(
-    username: str, 
+    username: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -54,7 +54,7 @@ async def upload_avatar(
         return {"success": False, "message": "檔案太大了！請上傳小於 2MB 的照片"}
 
     await file.seek(0)
-    
+
     # 1️⃣ 抓取使用者
     member = db.query(models.Member).filter(models.Member.username == username).first()
     if not member:
@@ -186,8 +186,8 @@ async def get_profile(username: str, db: Session = Depends(get_db)):
         models.Setting.about,
         models.Setting.avatar_url
     ).join(
-        models.Setting, 
-        models.Member.user_id == models.Setting.user_id, 
+        models.Setting,
+        models.Member.user_id == models.Setting.user_id,
         isouter=True  # 使用 Left Join，避免使用者還沒有 setting 資料時抓不到人
     ).filter(models.Member.username == username).first()
 
