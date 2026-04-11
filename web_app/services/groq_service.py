@@ -33,16 +33,20 @@ class GroqService:
         try:
             client = AsyncGroq(api_key=api_key)
             
-            # 打開音檔並上傳給 Groq
             with open(file_path, "rb") as file:
-                # 使用 Whisper large v3 turbo，速度最快、支援多國語言
                 transcription = await client.audio.transcriptions.create(
-                    file=(os.path.basename(file_path), file.read()), # 必須給檔名和二進位內容
+                    file=(os.path.basename(file_path), file.read()),
                     model="whisper-large-v3-turbo", 
-                    language="zh", # 指定中文，辨識會更精準
-                    response_format="text"
+                    language="zh",
+                    response_format="text" # 🌟 確保它直接給我們純文字
                 )
-            return transcription.text
+            
+            # 🌟 終極防呆：不管 SDK 給字串還是物件，我們都處理！
+            if isinstance(transcription, str):
+                return transcription # 如果已經是字串，直接回傳
+            else:
+                return transcription.text # 如果是物件，才抽出 text 屬性
+
         except Exception as e:
             logger.error(f"❌ Groq Whisper API Error: {str(e)}")
             raise e
