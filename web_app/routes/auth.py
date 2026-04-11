@@ -190,9 +190,12 @@ async def register(data: MemberRegister, db: Session = Depends(get_db)):
     return {"msg": "註冊成功"}
 
 @router.post("/auth/login", summary="🔐 會員登入")
-async def login(data: MemberLogin,
-                request: Request,
-                db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # 🌟 加上這行，同 IP 每分鐘只能敲 5 次門
+async def login(
+    data: MemberLogin,
+    request: Request,
+    db: Session = Depends(get_db)):
+    
     """
     一般會員登入接口。
 

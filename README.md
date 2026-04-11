@@ -78,11 +78,13 @@ git clone https://github.com/4team-mma/money-api.git
 
 ## 非共用套件:
 - uv pip install customtkinter requests pandas openpyxl
-
+- uv pip install -U langchain-ollama(你要用後端AI輔助需要安裝)
+- uv pip install locust (你要用模仿攻擊需要安裝)
 
 ## 移除套件:
 - 執行:uv remove google-generativeai
 - uv remove spacy
+- 移除非共用的套件:uv pip uninstall locust
 
 # 安裝依賴:
 - 執行：uv sync

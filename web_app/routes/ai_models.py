@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import AIConfig, Member
 from ..schemas.ai import AIConfigSave, AIConfigResponse, ChatRequest
-from ..dependencies import get_current_user
+from ..dependencies import get_current_user,admin_required
 from ..utils.ai_security import decrypt_api_key, encrypt_api_key
 
 # 引入服務層 (Services)
@@ -46,9 +46,9 @@ def get_sys_default_model(provider: str) -> str:
 def get_ai_robot_config(
     provider: Optional[str] = Query(None, description="指定查詢的模型供應商"),
     db: Session = Depends(get_db),
-    current_user: Member = Depends(get_current_user)
+    current_admin: Member = Depends(admin_required)
 ):
-    query = db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id)
+    query = db.query(AIConfig).filter(AIConfig.user_id == current_admin.user_id)
 
     target_config = None
     if provider:
@@ -88,10 +88,10 @@ def get_ai_robot_config(
 def save_ai_config(
     payload: AIConfigSave,
     db: Session = Depends(get_db),
-    current_user: Member = Depends(get_current_user)
+    current_admin: Member = Depends(admin_required)
 ):
     try:
-        db.query(AIConfig).filter(AIConfig.user_id == current_user.user_id).update({"is_active": False})
+        db.query(AIConfig).filter(AIConfig.user_id == current_admin.user_id).update({"is_active": False})
 
         new_key = payload.api_key
         secured_key = "none"
@@ -100,14 +100,14 @@ def save_ai_config(
             secured_key = encrypt_api_key(new_key)
         else:
             old = db.query(AIConfig).filter(
-                AIConfig.user_id == current_user.user_id,
+                AIConfig.user_id == current_admin.user_id,
                 AIConfig.provider == payload.provider
             ).order_by(AIConfig.created_at.desc()).first()
             if old and old.api_key:
                 secured_key = old.api_key
 
         new_config = AIConfig(
-            user_id=current_user.user_id,
+            user_id=current_admin.user_id,
             provider=payload.provider,
             api_key=secured_key,
             base_url=payload.base_url.rstrip('/') if payload.base_url else "",

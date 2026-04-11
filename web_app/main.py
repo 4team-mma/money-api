@@ -24,7 +24,8 @@ from web_app.routes import (
     gamification,
     ai,
     ws,
-    integrations
+    integrations,
+    admin_ai_helper
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -414,7 +415,7 @@ app.include_router(transfers.router, prefix="/api/transfers", tags=["轉帳紀�
 app.include_router(feedback.router, prefix="/api/feedback", tags=["問題回饋"])
 app.include_router(reminders.router, prefix="/api/reminders", tags=["提醒事項"])
 app.include_router(setting_router, prefix="/api/setting", tags=["設定項目"])
-app.include_router(ai_models.router, prefix="/api/ai_models", tags=["AI模型設定"])
+
 app.include_router(ws.router, prefix="/api/ws", tags=["WebSocket"])
 app.include_router(gamification.router, prefix="/api/game",
     tags=["成就系統:每日簽到(checkin)每日任務(missions)成就卡牌(cards)Header摘要(summary)"])
@@ -424,6 +425,20 @@ app.include_router(
     tags=["系統管理後台"],
     dependencies=[Depends(admin_required)],  #  admin/ 底下的所有網址都限管理員
 )
+app.include_router(ai_models.router, 
+                prefix="/api/ai_models", 
+                tags=["AI模型設定"],
+                # 這個不設限管理員,因為裡面包含前端會用到。
+                # 在該路由有區分管理員跟使用者部分了。
+                )
+
+app.include_router(admin_ai_helper.router, 
+                prefix="/api/admin_helper", 
+                tags=["AI開發輔助"],
+                dependencies=[Depends(admin_required)],
+                )
+
+
 app.include_router(analysis.router, prefix="/api/analysis", tags=["消費趨勢分析"])
 app.include_router(stats_router, prefix="/api/stats", tags=["圖表分析"])
 app.include_router(planning_router, prefix="/api/planning", tags=["理財規劃"])
