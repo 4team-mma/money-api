@@ -2,16 +2,24 @@
 import logging
 import smtplib
 import os
+import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 import requests
 
 
+
+# --- 🚀 修正 Render IPv6 連線阻擋的 Bug (加上這段) ---
+old_getaddrinfo = socket.getaddrinfo
+def ipv4_getaddrinfo(*args, **kwargs):
+    responses = old_getaddrinfo(*args, **kwargs)
+    return [response for response in responses if response[0] == socket.AF_INET]
+socket.getaddrinfo = ipv4_getaddrinfo
+# --------------------------------------------------
+
 load_dotenv()
 
-
-#
 RECAPTCHA_SECRET = os.getenv("RECAPTCHA_SECRET_KEY")
 
 
