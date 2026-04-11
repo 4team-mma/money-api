@@ -65,3 +65,11 @@ class AICompareResponse(BaseModel):
     legacy: AICompareResultDetail = Field(..., description="舊喵喵(關鍵字)結果")
     v2_ai: AICompareResultDetail = Field(..., description="新喵喵(混合)結果")
     review_id: int = Field(..., description="生成的 Log ID，供後續修正用")
+
+
+# -----------------------------
+# 後台 AI 開發輔助專用 Schemas
+# -----------------------------
+class DevRequest(BaseModel):
+    mode: str = Field(..., description="模式: 'test_script', 'bug_fix', 'sql_gen'")
+    context: str = Field(..., description="使用者輸入的需求內容")

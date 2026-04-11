@@ -11,9 +11,9 @@ from web_app.services.game_service import GameService
 from ..database import get_db
 from ..dependencies import admin_required, get_current_user
 from ..models import (Account, AchCard, AddRecord, AIConfig, Budget, Checkin,
-                      DailyMission, Feedback, LoginActivity, Member,
-                      Notification, PasswordReset, SavingsGoal, Setting,
-                      Transaction)
+                    DailyMission, Feedback, LoginActivity, Member,
+                    Notification, PasswordReset, SavingsGoal, Setting,
+                    Transaction)
 from ..utils.password import get_password_hash
 
 router = APIRouter(dependencies=[Depends(admin_required)])

@@ -25,7 +25,7 @@ class FinanceAgentMixAIService:
                 user_dict_path = os.path.join(cls.MODEL_DIR, "user_dict.txt")
                 if os.path.exists(user_dict_path):
                     jieba.load_userdict(user_dict_path)
-                    print(f"📚 [Jieba] 外部強化詞庫載入成功：{user_dict_path}")
+                    print(f"📚 [Jieba] ：{user_dict_path}")
                 else:
                     print(f"⚠️ [Jieba] 找不到詞庫檔 {user_dict_path}，斷詞精準度可能會下降喵！")
 

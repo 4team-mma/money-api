@@ -41,3 +41,11 @@ class OllamaService:
         except Exception as e:
             logger.error(f"Ollama Connection Error: {str(e)}")
             return f"喵... 呼叫地端模型失敗，請確認 Ollama 有開喵: {str(e)[:50]}"
+
+
+    @staticmethod
+    async def chat_stream_async(base_url: str, model_id: str, prompt: str, system_instruction: str):
+        from langchain_community.llms import Ollama
+        llm = Ollama(base_url=base_url, model=model_id, system=system_instruction)
+        async for chunk in llm.astream(prompt):
+            yield chunk
