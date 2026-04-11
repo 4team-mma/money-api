@@ -78,11 +78,28 @@ def send_otp_email(receiver_email: str, otp_code: str):
     message.attach(MIMEText(body, "html"))
 
     # 3. 連接伺服器並發信
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
-        server.ehlo()  # 主動向伺服器打招呼
-        server.starttls()  # 啟用安全傳輸加密
-        server.ehlo()  # 加密後再次打招呼
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.send_message(message)
+    try:
+        # 這裡我們先手動解析一次 IP，強制篩選出 IPv4 (AF_INET)
+        # 這是為了解決 Render 雲端環境無法連線 IPv6 的問題
+        addr_info = socket.getaddrinfo(SMTP_SERVER, SMTP_PORT, socket.AF_INET, socket.SOCK_STREAM)
+        
+        # 取得解析後的 IP 字串，並用 str() 確保型別正確消滅 Pylance 紅線
+        target_ip = str(addr_info[0][4][0])
+        
+        logger.info(f"🚀 準備連線至 SMTP 伺服器 (IPv4 模式): {target_ip}")
+        
+        # 使用解析出來的 IP 直接進行連線
+        with smtplib.SMTP(target_ip, SMTP_PORT, timeout=10) as server:
+            server.ehlo()
+            server.starttls()  # 啟動加密
+            server.ehlo()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(message)
+        
+        logger.info(f"✅ 驗證碼已成功寄送至: {receiver_email}")
+        return True
 
-    logger.info(f"✅ 驗證碼已成功寄送至: {receiver_email}")
+    except Exception as e:
+        logger.error(f"❌ 寄信失敗，錯誤原因: {str(e)}")
+        # 這裡可以多印一點資訊方便 debug
+        return False
