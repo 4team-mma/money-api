@@ -54,8 +54,16 @@ class LineService:
             return TextSendMessage(text="喵嗚... AI 引擎有點累了，請再試一次。")
 
     @staticmethod
-    def _build_flex_message(action_data: dict):
+    def _build_flex_message(action_data): # 移除 : dict 型別提示，因為它可能是 list
         """內部方法：組裝 Flex Message 卡片"""
+        
+        # 🌟 關鍵修復：如果傳進來的是一個 list，我們只取第一個元素
+        if isinstance(action_data, list):
+            if len(action_data) > 0:
+                action_data = action_data[0]
+            else:
+                action_data = {} # 避免空 list 報錯
+
         amount = action_data.get("add_amount", 0)
         note = action_data.get("add_note", "無備註")
         record_type = action_data.get("record_type", "expense")
