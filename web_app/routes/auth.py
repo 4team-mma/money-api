@@ -76,7 +76,7 @@ async def request_password_reset_otp(
     # --- 第二層：Google reCAPTCHA 驗證 ---
     # 直接判斷變數，不要再呼叫 verify_recaptcha(...) 函式
     if not recaptcha_ok:
-        print("DEBUG: [FAIL] reCAPTCHA 驗證不通過")
+        
         raise HTTPException(status_code=400, detail="機器人驗證失敗，請重新嘗試")
 
     user = db.query(Member).filter(Member.email == data.email).first()
@@ -130,12 +130,20 @@ async def request_password_reset_otp(
     db.add(new_reset_entry)
     db.commit()
     print("DEBUG: OTP 已成功寫入資料庫")
-    # 使用 background_tasks，API 會立刻回應成功，後端才慢慢寄信
-    background_tasks.add_task(send_otp_email, user.email, otp)
 
-
-    print(f"DEBUG: [SUCCESS] 任務已掛載，準備回傳 API 成功訊息")
+    # --- 關鍵修正：從背景執行改成同步執行，強制抓出錯誤 ---
+    print(f"DEBUG: 準備進行【同步】寄信測試... 目標: {user.email}")
+    
+    # 🌟 我們暫時不使用 background_tasks.add_task
+    # 🌟 直接呼叫函式，這樣如果有錯，Render 的 Log 會直接炸出來！
+    success = send_otp_email(user.email, otp) 
+    
+    print(f"DEBUG: 同步寄信執行結束，結果: {success}")
     print(f"[DEBUG END] ----------------------------\n")
+
+    if not success:
+        # 如果同步寄信失敗，我們回傳 500，讓前端知道
+        raise HTTPException(status_code=500, detail="郵件伺服器連線失敗，請聯繫管理員")
 
     return {"msg": "驗證碼已寄出，請檢查您的信箱"}
 
