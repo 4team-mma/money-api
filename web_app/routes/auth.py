@@ -74,8 +74,9 @@ async def request_password_reset_otp(
     print(f"DEBUG: reCAPTCHA 驗證結果: {recaptcha_ok}")
     
     # --- 第二層：Google reCAPTCHA 驗證 ---
-    # 假設你的 SendOTPRequest 有包含 recaptcha_token 欄位
-    if not verify_recaptcha(data.recaptcha_token):
+    # 直接判斷變數，不要再呼叫 verify_recaptcha(...) 函式
+    if not recaptcha_ok:
+        print("DEBUG: [FAIL] reCAPTCHA 驗證不通過")
         raise HTTPException(status_code=400, detail="機器人驗證失敗，請重新嘗試")
 
     user = db.query(Member).filter(Member.email == data.email).first()
