@@ -65,8 +65,36 @@ async def generate_code(request: DevRequest, current_admin: Member = Depends(adm
             當撰寫非同步 (async) API 測試時，絕對禁止假設全域有 `client` fixture 可以用。
             須在測試函式內部，明確使用 `async with httpx.AsyncClient() as client:` 來建立連線！""" + THINK_RULE,
             
-            "bug_fix": f"你是一個 FastAPI 與 Vue 的除錯專家。\n【公司最高開發準則】：\n1. 實作 API 速率限制 (Rate Limit) 時，絕對只能使用 `slowapi`。\n2. 請分析使用者提供的程式碼，給出修正後的完整程式碼。{THINK_RULE}"
-        }
+            "bug_fix": f"你是一個 FastAPI 與 Vue 的除錯專家。\n【公司最高開發準則】：\n1. 實作 API 速率限制 (Rate Limit) 時，絕對只能使用 `slowapi`。\n2. 請分析使用者提供的程式碼，給出修正後的完整程式碼。{THINK_RULE}",
+            
+            # 🌟 新增：專門用來生成微調資料的特化 Prompt
+            "dataset_gen": """你是一個專業的 AI 訓練資料生成專家。
+            請幫我生成用於微調 (Fine-tuning) ASR 語音糾錯模型的 JSONL 訓練資料。
+            
+            【⛔ 絕對禁止的行為 (Negative Constraints)】：
+            1. 絕對禁止在 JSON 中新增任何我沒有要求的欄位。
+            2. 絕對禁止修改使用者的口語化語氣（例如：「兩千塊」不可改成「兩千元」，「買飯」不可改成「餐飲費用」）。
+            3. 絕對禁止輸出任何 Markdown 標記 (如 ```json) 或任何解釋性文字。
+            4. 絕對禁止拒絕回答或輸出「這是一個通用句子」等無效內容。
+            
+            【🎯 必須涵蓋的台灣財經錯字情境 (請隨機組合)】：
+            - 悠遊卡 (常錯成：溜溜卡、優遊卡)
+            - 街口支付 (常錯成：皆口、接口)
+            - Line Pay (常錯成：賴配、爛配)
+            - 台灣Pay (常錯成：台配)
+            - 全聯 (常錯成：拳連、全連、全銀)
+            - 記一筆 (常錯成：寄一筆、計一筆)
+            
+            【✅ 必須遵守的 JSONL 格式 (包含 Instruction 必須一字不差)】：
+            {"instruction": "你是一個財經語音糾錯助手。請將以下語音辨識草稿修正為正確的記帳文字，僅修正錯別字，切勿改變原本的語氣與句型。", "input": "[模擬的錯誤語音]", "output": "[修正錯別字後的文字]"}
+            
+            【✨ 完美示範 (Few-Shot Examples)】：
+            {"instruction": "你是一個財經語音糾錯助手。請將以下語音辨識草稿修正為正確的記帳文字，僅修正錯別字，切勿改變原本的語氣與句型。", "input": "幫我傳帳兩千給阿明。", "output": "幫我轉帳兩千給阿明。"}
+            {"instruction": "你是一個財經語音糾錯助手。請將以下語音辨識草稿修正為正確的記帳文字，僅修正錯別字，切勿改變原本的語氣與句型。", "input": "今天去拳連買東西，刷了溜溜卡五十元。", "output": "今天去全聯買東西，刷了悠遊卡五十元。"}
+            
+            請開始生成，直接輸出純 JSONL 內容！""" }
+        
+        
         instruction = system_prompts.get(request.mode, "你是一個專業程式開發助手。" + THINK_RULE)
         prompt = f"使用者的需求：\n{request.context}"
     
