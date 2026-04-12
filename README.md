@@ -86,6 +86,11 @@ git clone https://github.com/4team-mma/money-api.git
 - uv remove spacy
 - 移除非共用的套件:uv pip uninstall locust
 
+## 查套件:
+- uv pip list
+- pip show torch transformers peft accelerate
+- uv pip show torch transformers peft accelerate
+
 # 安裝依賴:
 - 執行：uv sync
 - macOS電腦如果執行./dev.sh不允許  請先使用：chmod +x dev.sh
