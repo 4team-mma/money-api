@@ -268,7 +268,7 @@ cors_raw = os.getenv("CORS_ORIGINS", "")
 origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
 # 掛載安檢門！
-app.add_middleware(SecurityAuditMiddleware)
+#app.add_middleware(SecurityAuditMiddleware)
 
 # --- 中間件設定 (Middleware) ---
 app.add_middleware(
