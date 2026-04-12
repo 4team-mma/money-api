@@ -81,19 +81,18 @@ def send_otp_email(receiver_email: str, otp_code: str):
     try:
         print(f"\n📬 [DEBUG] 開始寄信程序，目標: {receiver_email}")
         
-        # 強制 IPv4 補丁
-        print(f"DEBUG: 正在解析 {SMTP_SERVER} 的地址...")
+        # 這裡依然保留解析，用來在 Log 確認 DNS 運作正常
+        print(f"DEBUG: 正在確認 {SMTP_SERVER} 的 DNS 解析...")
         addr_info = socket.getaddrinfo(SMTP_SERVER, SMTP_PORT, socket.AF_INET, socket.SOCK_STREAM)
-        target_ip = str(addr_info[0][4][0])
-        print(f"DEBUG: 解析成功，使用 IP: {target_ip}")
+        print(f"DEBUG: 解析成功，目標 IPv4 為: {addr_info[0][4][0]}")
         
-        # 🌟 自動判斷 Port：如果是 465 就用 SMTP_SSL，否則用一般 SMTP
+        # 🌟 修正重點：連線對象改回 SMTP_SERVER (域名)，不要用 target_ip
         if SMTP_PORT == 465:
-            print(f"🚀 DEBUG: 嘗試使用 Port 465 (SSL) 連線至 {target_ip}")
-            server = smtplib.SMTP_SSL(target_ip, SMTP_PORT, timeout=15)
+            print(f"🚀 DEBUG: 嘗試使用 Port 465 (SSL) 連線至 {SMTP_SERVER}")
+            server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=15)
         else:
-            print(f"🚀 DEBUG: 嘗試使用 Port 587 (TLS) 連線至 {target_ip}")
-            server = smtplib.SMTP(target_ip, SMTP_PORT, timeout=15)
+            print(f"🚀 DEBUG: 嘗試使用 Port 587 (TLS) 連線至 {SMTP_SERVER}")
+            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=15)
             server.starttls()
 
         with server:
@@ -107,7 +106,6 @@ def send_otp_email(receiver_email: str, otp_code: str):
         return True
 
     except Exception as e:
-        # 這裡改用 print 確保在 Render Background Task 的 Log 裡一定看得到
         print(f"❌ [DEBUG ERROR] 寄信崩潰！原因: {str(e)}")
         logger.error(f"❌ 寄信失敗，詳細原因: {str(e)}")
         return False
