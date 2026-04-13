@@ -68,24 +68,24 @@ async def generate_code(request: DevRequest, current_admin: Member = Depends(adm
             "bug_fix": f"你是一個 FastAPI 與 Vue 的除錯專家。\n【公司最高開發準則】：\n1. 實作 API 速率限制 (Rate Limit) 時，絕對只能使用 `slowapi`。\n2. 請分析使用者提供的程式碼，給出修正後的完整程式碼。{THINK_RULE}",
             
             # 🌟 新增：專門用來生成微調資料的特化 Prompt
-            "dataset_gen": """你現在是一個只會輸出 JSONL 格式的機器人。
-            請幫我生成 10 筆「台灣人記帳語音糾錯」的訓練資料。
+            "dataset_gen": """你現在是一個無情的 JSONL 資料生成機器。
+            【最高強制防呆指令】：
+            1. 絕對禁止輸出任何開場白、思考過程或結尾語（例如「好的」、「以下是」）。
+            2. 絕對禁止使用 ```json 或 ```jsonl 這樣的 Markdown 標記將內容包起來。
+            3. 你的輸出的第一個字元必須是 { ，每一行必須是一個獨立且合法的 JSON 物件。
 
-            【嚴格規則】：
-            1. 只能輸出純 JSONL，絕對不能有開場白、結尾語或 ```json 標記。
-            2. 每行一個獨立的 JSON 物件。
-            3. 請模擬台灣常見的空耳錯字，包含：悠遊卡(溜溜卡)、街口支付(皆口)、Line Pay(賴配)、台灣Pay(台配)、全聯(拳連)、記一筆(寄一筆)。
-
-            【輸出格式範例 (請完全照抄此結構)】：
-            {"instruction": "你是一個財經語音糾錯助手。請將以下語音辨識草稿修正為正確的記帳文字，僅修正錯別字，切勿改變原本的語氣與句型。", "input": "幫我寄一筆，今天去拳連買東西，刷了溜溜卡五十元。", "output": "幫我記一筆，今天去全聯買東西，刷了悠遊卡五十元。"}
-            {"instruction": "你是一個財經語音糾錯助手。請將以下語音辨識草稿修正為正確的記帳文字，僅修正錯別字，切勿改變原本的語氣與句型。", "input": "買午餐用皆口付款，花了兩百塊。", "output": "買午餐用街口付款，花了兩百塊。"}
-
-            現在，請立刻開始輸出 10 筆 JSONL："""
+            """
             }
         
         
         instruction = system_prompts.get(request.mode, "你是一個專業程式開發助手。" + THINK_RULE)
-        prompt = f"使用者的需求：\n{request.context}"
+        
+        # 🌟 這裡：取代原本單一的 prompt 設定，加入動態判斷！
+        if request.mode == "dataset_gen":
+            # 把前端傳來的任何需求，加上最後的強迫啟動指令 (Pre-fill)
+            prompt = f"【使用者需求與資料格式定義】\n{request.context}\n\n請嚴格依照上述的欄位要求，立刻開始輸出 JSONL，不要廢話，第一個字元必須是：\n{{"
+        else:
+            prompt = f"使用者的需求：\n{request.context}"
     
     # 🌟 建立純文字產生器：一個字一個字往前端送
     async def stream_generator():
