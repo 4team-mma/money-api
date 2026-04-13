@@ -1,4 +1,4 @@
-# ingest_codebase.py
+# python ingest_codebase.py
 # 擔任 B1 機房的「圖書館管理員」，負責把你的 .py, .vue, .js 分門別類切好並向量化。
 
 import os
