@@ -50,20 +50,15 @@ logger = logging.getLogger(__name__)
 
 
 def send_otp_email(receiver_email: str, otp_code: str):
-    """實作寄送驗證碼郵件"""
-
-    # 1. 環境變數檢查 (改用 logger)
-    if not SMTP_USER or not SMTP_PASSWORD:
-        logger.error("SMTP 設定缺失：未設定 SMTP_USER 或 SMTP_PASSWORD")
-        return False
-
-    # 2. 建立郵件內容
-    message = MIMEMultipart()
-    message["From"] = f"Money MMA 管理團隊 <{SMTP_USER}>"
-    message["To"] = receiver_email
-    message["Subject"] = "【Money MMA】您的密碼重置驗證碼"
-
-    body = f"""
+    """
+    具備自動切換功能的寄信函式：
+    - 雲端偵測到 SENDGRID_API_KEY 時：走 HTTP API (繞過連接埠封鎖)
+    - 地端或未設定 Key 時：走原本穩定的 SMTP 邏輯
+    """
+    sendgrid_key = os.getenv("SENDGRID_API_KEY")
+    
+    # --- 1. 建立共同的郵件 HTML 內容 (確保地端雲端長相一致) ---
+    email_body = f"""
     <html>
         <body style="font-family: sans-serif;">
             <h2>您好：</h2>
@@ -75,37 +70,73 @@ def send_otp_email(receiver_email: str, otp_code: str):
         </body>
     </html>
     """
-    message.attach(MIMEText(body, "html"))
 
-    # 3. 連接伺服器並發信
-    try:
-        print(f"\n📬 [DEBUG] 開始寄信程序，目標: {receiver_email}")
-        
-        # 這裡依然保留解析，用來在 Log 確認 DNS 運作正常
-        print(f"DEBUG: 正在確認 {SMTP_SERVER} 的 DNS 解析...")
-        addr_info = socket.getaddrinfo(SMTP_SERVER, SMTP_PORT, socket.AF_INET, socket.SOCK_STREAM)
-        print(f"DEBUG: 解析成功，目標 IPv4 為: {addr_info[0][4][0]}")
-        
-        # 🌟 修正重點：連線對象改回 SMTP_SERVER (域名)，不要用 target_ip
-        if SMTP_PORT == 465:
-            print(f"🚀 DEBUG: 嘗試使用 Port 465 (SSL) 連線至 {SMTP_SERVER}")
-            server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=15)
-        else:
-            print(f"🚀 DEBUG: 嘗試使用 Port 587 (TLS) 連線至 {SMTP_SERVER}")
-            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=15)
-            server.starttls()
+    # --- 🚀 A模式：雲端 SendGrid API 模式 (HTTPS Port 443) ---
+    if sendgrid_key:
+        print(f"\n🚀 [SENDGRID API] 偵測到 Key，準備寄信至: {receiver_email}")
+        url = "https://api.sendgrid.com/v3/mail/send"
+        headers = {
+            "Authorization": f"Bearer {sendgrid_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "personalizations": [{"to": [{"email": receiver_email}]}],
+            "from": {"email": SMTP_USER, "name": "Money MMA 管理團隊"},
+            "subject": "【Money MMA】您的密碼重置驗證碼",
+            "content": [{"type": "text/html", "value": email_body}]
+        }
+        try:
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+            if response.status_code in [200, 201, 202]:
+                print(f"✅ [SENDGRID SUCCESS] 郵件已透過 API 成功送出！")
+                logger.info(f"✅ SendGrid API 寄送成功: {receiver_email}")
+                return True
+            else:
+                print(f"❌ [SENDGRID ERROR] 狀態碼: {response.status_code}, 原因: {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ [SENDGRID CRASH] API 連線失敗: {str(e)}")
+            return False
 
-        with server:
-            print("DEBUG: 正在執行 SMTP Login...")
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            print("DEBUG: Login 成功，正在發送郵件內容...")
-            server.send_message(message)
+    # --- 🏠 B模式：原本的 SMTP 模式 (用於地端開發) ---
+    else:
+        print(f"\n🏠 [SMTP DEBUG] 未偵測到 API Key，切換至傳統 SMTP 模式...")
+        
+        if not SMTP_USER or not SMTP_PASSWORD:
+            logger.error("SMTP 設定缺失：未設定 SMTP_USER 或 SMTP_PASSWORD")
+            return False
+
+        message = MIMEMultipart()
+        message["From"] = f"Money MMA 管理團隊 <{SMTP_USER}>"
+        message["To"] = receiver_email
+        message["Subject"] = "【Money MMA】您的密碼重置驗證碼"
+        message.attach(MIMEText(email_body, "html"))
+
+        try:
+            print(f"📬 [SMTP DEBUG] 開始連線程序，目標: {receiver_email}")
+            print(f"DEBUG: 正在確認 {SMTP_SERVER} 的 DNS 解析...")
+            addr_info = socket.getaddrinfo(SMTP_SERVER, SMTP_PORT, socket.AF_INET, socket.SOCK_STREAM)
+            print(f"DEBUG: 解析成功，目標 IPv4 為: {addr_info[0][4][0]}")
             
-        print(f"✅ [DEBUG SUCCESS] 驗證碼已成功寄送至: {receiver_email}")
-        logger.info(f"✅ 驗證碼已成功寄送至: {receiver_email}")
-        return True
+            if SMTP_PORT == 465:
+                print(f"🚀 DEBUG: 嘗試使用 Port 465 (SSL) 連線至 {SMTP_SERVER}")
+                server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=15)
+            else:
+                print(f"🚀 DEBUG: 嘗試使用 Port 587 (TLS) 連線至 {SMTP_SERVER}")
+                server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=15)
+                server.starttls()
 
-    except Exception as e:
-        print(f"❌ [DEBUG ERROR] 寄信崩潰！原因: {str(e)}")
-        logger.error(f"❌ 寄信失敗，詳細原因: {str(e)}")
-        return False
+            with server:
+                print("DEBUG: 正在執行 SMTP Login...")
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                print("DEBUG: Login 成功，發送郵件中...")
+                server.send_message(message)
+                
+            print(f"✅ [SMTP SUCCESS] 驗證碼已寄送至: {receiver_email}")
+            logger.info(f"✅ SMTP 寄送成功: {receiver_email}")
+            return True
+
+        except Exception as e:
+            print(f"❌ [SMTP ERROR] 寄信崩潰！原因: {str(e)}")
+            logger.error(f"❌ 寄信失敗，詳細原因: {str(e)}")
+            return False
