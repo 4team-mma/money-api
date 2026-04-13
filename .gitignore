@@ -20,3 +20,6 @@ build/
 dist/
 clean_env/
 *.spec
+
+# 大模型外掛LLM QRoRA模型
+**/qwen_lora/

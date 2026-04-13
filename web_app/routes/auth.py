@@ -64,16 +64,29 @@ async def request_password_reset_otp(
         - 無論 Email 是否存在，系統都會回傳「驗證碼已寄出」的成功訊息，以防止駭客掃描帳號。
         - 實際寄信為**背景執行** (Background Task)，API 回應速度快。
     """
+    
+    print(f"\n[DEBUG START] --- 收到發送驗證碼請求 ---")
+    print(f"DEBUG: 目標 Email: {data.email}")
+    
+    # ---檢查debug：Google reCAPTCHA 驗證 ---
+    print("DEBUG: 正在驗證 reCAPTCHA...")
+    recaptcha_ok = verify_recaptcha(data.recaptcha_token)
+    print(f"DEBUG: reCAPTCHA 驗證結果: {recaptcha_ok}")
+    
     # --- 第二層：Google reCAPTCHA 驗證 ---
-    # 假設你的 SendOTPRequest 有包含 recaptcha_token 欄位
-    if not verify_recaptcha(data.recaptcha_token):
+    # 直接判斷變數，不要再呼叫 verify_recaptcha(...) 函式
+    if not recaptcha_ok:
+        
         raise HTTPException(status_code=400, detail="機器人驗證失敗，請重新嘗試")
 
     user = db.query(Member).filter(Member.email == data.email).first()
     if not user:
         # 資安策略：對外統一口徑，不透露使用者是否存在
+        print(f"DEBUG: [WARN] 資料庫找不到此 Email: {data.email}")
         return {"msg": "若信箱正確，驗證碼已寄出"}
 
+    print(f"DEBUG: 找到使用者 ID: {user.user_id}")
+    
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -86,7 +99,10 @@ async def request_password_reset_otp(
         .count()
     )
 
+    print(f"DEBUG: 該 Email 今日已發送次數: {daily_count}")
+    
     if daily_count >= 5:
+        print("DEBUG: [FAIL] 已達每日上限")
         raise HTTPException(status_code=429, detail="今日發送次數已達上限")
 
     # --- 第四層：60 秒冷卻時間 (你原本寫得很好的邏輯) ---
@@ -99,10 +115,12 @@ async def request_password_reset_otp(
 
     if last_otp and (now - last_otp.created_at).total_seconds() < 60:
         wait = int(60 - (now - last_otp.created_at).total_seconds())
+        print(f"DEBUG: [FAIL] 處於冷卻時間，需等待 {wait}s")
         raise HTTPException(status_code=429, detail=f"請等待 {wait} 秒後再試")
 
     # --- 第五層：產碼、存檔與「非同步」寄信 ---
     otp = generate_otp()
+    print(f"DEBUG: 產生新 OTP: {otp}")
     new_reset_entry = PasswordReset(
         user_id=user.user_id,
         email=user.email,
@@ -111,9 +129,21 @@ async def request_password_reset_otp(
     )
     db.add(new_reset_entry)
     db.commit()
+    print("DEBUG: OTP 已成功寫入資料庫")
 
-    # 使用 background_tasks，API 會立刻回應成功，後端才慢慢寄信
-    background_tasks.add_task(send_otp_email, user.email, otp)
+    # --- 關鍵修正：從背景執行改成同步執行，強制抓出錯誤 ---
+    print(f"DEBUG: 準備進行【同步】寄信測試... 目標: {user.email}")
+    
+    # 🌟 我們暫時不使用 background_tasks.add_task
+    # 🌟 直接呼叫函式，這樣如果有錯，Render 的 Log 會直接炸出來！
+    success = send_otp_email(user.email, otp) 
+    
+    print(f"DEBUG: 同步寄信執行結束，結果: {success}")
+    print(f"[DEBUG END] ----------------------------\n")
+
+    if not success:
+        # 如果同步寄信失敗，我們回傳 500，讓前端知道
+        raise HTTPException(status_code=500, detail="郵件伺服器連線失敗，請聯繫管理員")
 
     return {"msg": "驗證碼已寄出，請檢查您的信箱"}
 

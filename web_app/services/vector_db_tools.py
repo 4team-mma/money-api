@@ -55,7 +55,8 @@ class VectorDBTools:
             cls._manual_store = Chroma(
                 collection_name="system_manual",
                 embedding_function=cls._get_embeddings(),
-                persist_directory=CHROMA_PERSIST_DIR
+                persist_directory=CHROMA_PERSIST_DIR,
+                collection_metadata={"hnsw:space": "cosine"}
             )
         return cls._manual_store
 
@@ -67,7 +68,8 @@ class VectorDBTools:
             cls._intent_store = Chroma(
                 collection_name="intent_examples",
                 embedding_function=cls._get_embeddings(),
-                persist_directory=CHROMA_PERSIST_DIR
+                persist_directory=CHROMA_PERSIST_DIR,
+                collection_metadata={"hnsw:space": "cosine"}
             )
         return cls._intent_store
 
@@ -79,7 +81,13 @@ class VectorDBTools:
             cls._codebase_store = Chroma(
                 collection_name="codebase_b1",
                 embedding_function=cls._get_local_embeddings(), # 🔒 使用地端引擎
-                persist_directory=CHROMA_PERSIST_DIR
+                persist_directory=CHROMA_PERSIST_DIR,
+                collection_metadata={
+                "hnsw:space": "cosine", 
+                #"hnsw:construction_ef": 200, # 資料量破萬可用
+                #"hnsw:M": 32 # 資料破萬再參考,會受顯存影響
+                }
+                
             )
         return cls._codebase_store
 

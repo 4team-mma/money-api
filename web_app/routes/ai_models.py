@@ -201,19 +201,26 @@ async def chat_with_meow(
         # 💡 通道 B：其他意圖
         try:
             # 🌟 邏輯：如果在 Render 且是 QUERY 意圖，自動導向 Groq 70B
+            # 🌟 邏輯：如果在 Render 且是 QUERY 意圖，自動導向 Groq 70B
             active_provider = config.provider
             active_model = config.model_version
+            
+            # 🌟 新增：準備一把專用的備用鑰匙
+            override_api_key = None 
 
             if current_intent == "QUERY" and is_on_render:
                 active_provider = "groq"
                 active_model = "llama-3.3-70b-versatile"
+                # 🌟 致命修復：既然強制換腦，就必須強制從環境變數拿 Groq 的鑰匙！
+                override_api_key = os.getenv("GROQ_API_KEY") 
                 print(f"🚀 [雲端優化] QUERY 自動切換至 Groq 70B")
 
             # A. Gemini 處理
             if active_provider == "gemini":
                 env_key = os.getenv("GEMINI_API_KEY") 
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
-                f_key = db_key or env_key
+                # 如果有 override_api_key 就用它的，不然才用資料庫或環境變數的
+                f_key = override_api_key or db_key or env_key
                 if not f_key: raise Exception("Missing Key")
 
                 from ..services.finance_tools import get_budget_tool, search_manual_tool
@@ -229,7 +236,8 @@ async def chat_with_meow(
             elif active_provider == "groq":
                 env_key = os.getenv("GROQ_API_KEY")
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
-                f_key = db_key or env_key
+                # 🌟 這裡最關鍵：override_api_key 優先權最高！
+                f_key = override_api_key or db_key or env_key
                 if not f_key: raise Exception("Missing Key")
 
                 reply = await GroqService.chat_async(

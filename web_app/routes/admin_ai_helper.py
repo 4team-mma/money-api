@@ -65,10 +65,27 @@ async def generate_code(request: DevRequest, current_admin: Member = Depends(adm
             當撰寫非同步 (async) API 測試時，絕對禁止假設全域有 `client` fixture 可以用。
             須在測試函式內部，明確使用 `async with httpx.AsyncClient() as client:` 來建立連線！""" + THINK_RULE,
             
-            "bug_fix": f"你是一個 FastAPI 與 Vue 的除錯專家。\n【公司最高開發準則】：\n1. 實作 API 速率限制 (Rate Limit) 時，絕對只能使用 `slowapi`。\n2. 請分析使用者提供的程式碼，給出修正後的完整程式碼。{THINK_RULE}"
-        }
+            "bug_fix": f"你是一個 FastAPI 與 Vue 的除錯專家。\n【公司最高開發準則】：\n1. 實作 API 速率限制 (Rate Limit) 時，絕對只能使用 `slowapi`。\n2. 請分析使用者提供的程式碼，給出修正後的完整程式碼。{THINK_RULE}",
+            
+            # 🌟 新增：專門用來生成微調資料的特化 Prompt
+            "dataset_gen": """你現在是一個無情的 JSONL 資料生成機器。
+            【最高強制防呆指令】：
+            1. 絕對禁止輸出任何開場白、思考過程或結尾語（例如「好的」、「以下是」）。
+            2. 絕對禁止使用 ```json 或 ```jsonl 這樣的 Markdown 標記將內容包起來。
+            3. 你的輸出的第一個字元必須是 { ，每一行必須是一個獨立且合法的 JSON 物件。
+
+            """
+            }
+        
+        
         instruction = system_prompts.get(request.mode, "你是一個專業程式開發助手。" + THINK_RULE)
-        prompt = f"使用者的需求：\n{request.context}"
+        
+        # 🌟 這裡：取代原本單一的 prompt 設定，加入動態判斷！
+        if request.mode == "dataset_gen":
+            # 把前端傳來的任何需求，加上最後的強迫啟動指令 (Pre-fill)
+            prompt = f"【使用者需求與資料格式定義】\n{request.context}\n\n請嚴格依照上述的欄位要求，立刻開始輸出 JSONL，不要廢話，第一個字元必須是：\n{{"
+        else:
+            prompt = f"使用者的需求：\n{request.context}"
     
     # 🌟 建立純文字產生器：一個字一個字往前端送
     async def stream_generator():
