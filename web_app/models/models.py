@@ -614,8 +614,37 @@ class LoginActivity(Base):
     location: Mapped[str] = mapped_column(String(100), server_default="Unknown")
     login_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     is_current: Mapped[bool] = mapped_column(Boolean, server_default="0")
+
+
+# 19. 模型評分資料表 (邱比特大腦評測用)
+class IntentReviewLog(Base):
+    __tablename__ = "intent_review_log"
+
+    review_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
+
+    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # AI 預測區塊
+    predicted_intent: Mapped[str] = mapped_column(String(20), nullable=False)
+    confidence_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+
+    # 人類審核區塊
+    corrected_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0") # 0: 未審, 1: 已審
+
+    #  is_blocked
+    is_blocked: Mapped[int] = mapped_column(Integer, server_default="0", comment="是否被安全機制攔截")
+
+    llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # 關聯設定 (可選)
+    user = relationship("Member")
     
-#19. 發票
+
+# 20. 發票
 class Invoice(Base):
     __tablename__ = "invoices"
 
@@ -645,7 +674,7 @@ class Invoice(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-# --- 20. 發票商品明細表 (新增這個) ---
+# 21. 發票商品明細表 (新增這個) ---
 class InvoiceItem(Base):
     __tablename__ = "invoice_items"
 
@@ -665,29 +694,32 @@ class InvoiceItem(Base):
 
 
 
-# 18. 模型評分資料表 (邱比特大腦評測用)
-class IntentReviewLog(Base):
-    __tablename__ = "intent_review_log"
+# 22.  語音糾錯成效紀錄表  ---
+class ASRCorrectionLog(Base):
+    __tablename__ = "asr_correction_log"
 
-    review_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
+    log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
 
-    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+    # 階段 1：原始語音輸入 (Speech API 直接轉出的草稿)
+    raw_asr_text: Mapped[str] = mapped_column(Text, nullable=False, comment="Speech API 轉出來的原始草稿")
 
-    # AI 預測區塊
-    predicted_intent: Mapped[str] = mapped_column(String(20), nullable=False)
-    confidence_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    # 階段 2：LoRA 修正輸出
+    corrected_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="Qwen+LoRA 修正後的文字")
+    
+    # 效能監控
+    inference_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="模型推論耗時(毫秒)")
 
-    # 人類審核區塊
-    corrected_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0") # 0: 未審, 1: 已審
+    # 階段 3：人類最終確認 (Human-in-the-loop 用於計算準確率)
+    # 預設為 NULL，當使用者在前端確認記帳時更新此欄位
+    final_user_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="使用者最終實際送出記帳的文字")
 
-    #  is_blocked
-    is_blocked: Mapped[int] = mapped_column(Integer, server_default="0", comment="是否被安全機制攔截")
+    # 是否被使用者修正過 (0: AI完全命中, 1: 使用者有手動修改)
+    is_user_corrected: Mapped[int] = mapped_column(Integer, server_default="0", comment="使用者是否手動修正過")
 
-    llm_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    # 關聯設定 (可選)
+    # 關聯設定
     user = relationship("Member")

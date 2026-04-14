@@ -22,7 +22,8 @@ from .models import (
     Budget,
     Invoice,
     InvoiceItem,
-    IntentReviewLog
+    IntentReviewLog,
+    ASRCorrectionLog
 
 )
 
