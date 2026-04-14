@@ -17,7 +17,16 @@ class FinanceRecordSchema(BaseModel):
     )
 
     # 支出/收入專用欄位
-    add_class: Optional[str] = Field(default="其他", description="支出填'飲食/交通/居家/娛樂'等；收入填'薪資/投資/其他收入'")
+    # 🌟 修改：把原本寫死的 description 拿掉，告訴它參照 Prompt拿「分類名稱」和「Emoji」
+    add_class: Optional[str] = Field(
+        default="其他", 
+        description="項目類別名稱。請優先使用 Prompt 中提供的專屬分類庫名稱，若無適合的再自行命名(限制4個字內)。"
+    )    
+    # 🌟 新增：讓 AI 決定 Emoji！
+    add_class_icon: Optional[str] = Field(
+        default="📦", 
+        description="類別對應的 Emoji。請嚴格參照 Prompt 中的合法 Emoji 清單挑選單一符號。"
+    )
     account_name: Optional[str] = Field(default="我的錢包", description="使用者提到的帳戶名稱，例如'台新銀行'")
     add_member: Optional[str] = Field(default="自己", description="幫誰花的，預設為'自己'")
     add_tag: Optional[str] = Field(default="需要", description="預設為'需要'(支出) 或 '意外之財'(收入)")

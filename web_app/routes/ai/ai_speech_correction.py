@@ -98,7 +98,18 @@ class QwenLoRAModel:
             
         import torch # 推論時需要用到 torch.no_grad()
             
-        prompt = f"<|im_start|>system\n請修正語音辨識錯誤<|im_end|>\n<|im_start|>user\n{raw_text}<|im_end|>\n<|im_start|>assistant\n"
+        # 🌟 換成超級嚴格的緊箍咒 System Prompt
+        strict_system_prompt = (
+            "你是一個精準的台灣財經語音糾錯專家。\n"
+            "請「嚴格」遵守以下規則：\n"
+            "1. 僅修正同音字、錯別字或台灣財經黑話（例如：吳柏毅 -> UberEats，接口 -> 街口，狗勾卡 -> GoGo卡）。\n"
+            "2. 【絕對不可以】改變使用者的原本語意！不可自創情境！\n"
+            "3. 【絕對不可以】修改任何數字或金額！保持原本的阿拉伯數字！\n"
+            "4. 如果句子沒有錯字，請直接輸出原句。"
+        )
+        
+        # 組裝 Qwen 的 ChatML 格式
+        prompt = f"<|im_start|>system\n{strict_system_prompt}<|im_end|>\n<|im_start|>user\n{raw_text}<|im_end|>\n<|im_start|>assistant\n"
         
         # 這裡 Pylance 就不會報錯了，因為上面已經排除了 None 的可能
         inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
@@ -107,7 +118,10 @@ class QwenLoRAModel:
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=100,
-                temperature=0.1,
+                temperature=0.01,       # 🌟 溫度壓到最低，讓它極度保守
+                do_sample=True,         # 🌟 改成 True，允許抽樣機制啟動
+                top_p=0.1,              # 🌟 top_p限制：只考慮機率最高的 10% 的字詞
+                repetition_penalty=1.1, # 稍微加上重複懲罰，避免它結巴
                 pad_token_id=self.tokenizer.eos_token_id,
                 eos_token_id=self.tokenizer.eos_token_id
             )

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AIConfig, Member
+from ..models import AIConfig, Member, AddRecord
 from ..schemas.ai import AIConfigSave, AIConfigResponse, ChatRequest
 from ..dependencies import get_current_user,admin_required
 from ..utils.ai_security import decrypt_api_key, encrypt_api_key
@@ -36,6 +36,31 @@ AI_BRAIN_VERSION = os.getenv("AI_BRAIN_VERSION", "v1")
 def get_sys_default_model(provider: str) -> str:
     """根據 Provider 決定預設模型名稱"""
     return SYS_OLLAMA_MODEL if provider == "ollama" else SYS_GEMINI_MODEL
+
+# 👇 新增這個打工仔函數 👇
+def get_user_categories_for_prompt(db: Session, user_id: int) -> str:
+    """從資料庫撈取使用者專屬的記帳分類與 Emoji"""
+    # 1. 預設分類保底 (對應你前端的按鈕)
+    base_cats = ["🍔 飲食", "🚗 交通", "🏠 居家", "🎮 娛樂", "💰 工資", "🏦 獎金", "🐷 投資"]
+    
+    # 2. 去資料庫撈這個使用者「曾經用過」的所有不重複分類與 Icon
+    try:
+        history_cats = db.query(AddRecord.add_class_icon, AddRecord.add_class)\
+                        .filter(AddRecord.user_id == user_id)\
+                        .distinct().all()
+        # 組合歷史分類 (例如: ['👗 衣服', '☕ 飲料'])
+        custom_cats = [f"{icon} {name}" for icon, name in history_cats if icon and name]
+    except Exception as e:
+        logger.error(f"撈取自訂分類失敗: {e}")
+        custom_cats = []
+        
+    # 3. 合併並去除重複，然後轉成字串
+    all_cats_set = set(base_cats + custom_cats)
+    return ", ".join(all_cats_set)
+# 👆 新增結束 👆
+
+
+
 
 # --- 1. 獲取配置 ---
 @router.get(
@@ -186,9 +211,22 @@ async def chat_with_meow(
     # 5. 意圖分流處理
     # ==========================================
     if current_intent in ["RECORD", "MULTI_RECORD"]:
+        
+        # 🌟🌟🌟 新增：動態 Prompt 注入 🌟🌟🌟
+        user_cat_string = get_user_categories_for_prompt(db, current_user.user_id)
+        dynamic_rule = (
+            f"\n\n【極度重要：小主人的專屬分類庫】\n"
+            f"請務必優先從以下清單挑選最適合的分類名稱與Emoji：[{user_cat_string}]\n"
+            f"如果清單內完全沒有合適的，才允許自行命名分類，並從合法Emoji清單中挑選搭配。"
+        )
+        # 把專屬分類硬塞到原本的 system_prompt 最後面！
+        record_system_prompt = final_system_prompt + dynamic_rule
+        
+        
         # 🚀 通道 A：記帳 (強制走 Groq)
         try:
-            groq_result = FinanceAgentService.execute_record_chain(final_system_prompt, latest_query)
+            # ⚠️ 注意這裡：把 final_system_prompt 換成剛組裝好的 record_system_prompt
+            groq_result = FinanceAgentService.execute_record_chain(record_system_prompt, latest_query)
             is_json_command = True
             parsed_action = groq_result.get("action_data", {})
             reply = groq_result.get("reply_text", "已記好囉喵！")
