@@ -110,6 +110,27 @@ class FinanceAgentMixAIService:
 
         final_intent = keras_intent
         
+        # 🌟🌟🌟 2. [絕對法則 - 專家顧問攔截 (複合條件版)] 🌟🌟🌟
+        # A. 專有名詞直接命中 (絕對是分析)
+        advisor_strong_keywords = ['薪資競爭力', '財務健檢', '通膨', 'CPI', '物價指數', 'Z-score']
+        
+        # B. 評估型問法 (主詞 + 疑問/評估)
+        advisor_subjects = ['薪水', '物價', '花費', '支出', '錢包']
+        advisor_evaluations = ['算高嗎', '變貴了', '太低了', '正常嗎', '合理嗎', '診斷', '建議', '分析']
+
+        # 判斷邏輯：要嘛直接命中專有名詞，要嘛是「主詞 + 評估詞」的組合
+        is_advisor = any(k in text_str for k in advisor_strong_keywords) or \
+                    (any(s in text_str for s in advisor_subjects) and any(e in text_str for e in advisor_evaluations))
+
+        if is_advisor:
+            # 🛡️ 最後防禦：如果使用者明確加了「查明細」、「紀錄」等字眼，放行給後面的 QUERY 處理
+            if any(q in text_str for q in ['明細', '紀錄', '歷史', '清單']):
+                print("🛡️ [V10 攔截] 包含分析詞但有『明細/紀錄』，放行給往下比對")
+            else:
+                print("🛡️ [V10 攔截] 偵測到「評估與分析」需求，精準轉為 ADVISOR")
+                return 'ADVISOR'
+        
+        
         # 提前把這幾個常用變數算好，後面大家一起用
         digit_groups = re.findall(r'\d+', text_str)
         money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')

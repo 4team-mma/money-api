@@ -12,6 +12,7 @@ from ..services.gemini_service import GeminiService
 from ..services.ollama_service import OllamaService
 from ..services.finance_agent_service import FinanceAgentService
 from ..services.groq_service import GroqService
+from ..services.advisor_graph_service import analyze_finance_advice
 
 from typing import Optional
 import os
@@ -279,6 +280,29 @@ async def chat_with_meow(
         except Exception as e:
             logger.error(f"Groq 解析 JSON 失敗: {str(e)}")
             reply = "喵喵聽不懂這筆帳，請換個方式說喵！"
+            
+            
+    
+    # 🌟🌟🌟 新增這一段：ADVISOR 專屬通道 🌟🌟🌟
+    elif current_intent == "ADVISOR":
+        try:
+            print("🚀 [大腦分流] 進入 LangGraph 理財顧問通道")
+            # 呼叫你剛寫好的 LangGraph 閉包工廠！
+            reply = await analyze_finance_advice(
+                user_message=latest_query,
+                db=db,
+                current_user=current_user
+            )
+            is_json_command = False
+            actual_model_used = "Groq (LangGraph-Advisor)"
+        except Exception as e:
+            logger.error(f"LangGraph 執行失敗: {str(e)}", exc_info=True)
+            reply = "喵喵的理財大腦暫時有點打結，請稍後再試喵！"
+            actual_model_used = "Error"
+    # 🌟🌟🌟 新增結束 🌟🌟🌟
+    
+    
+            
 
     else:
         # 💡 通道 B：其他意圖

@@ -25,7 +25,8 @@ from web_app.routes import (
     ai,
     ws,
     integrations,
-    admin_ai_helper
+    admin_ai_helper,
+    chat_langgraph_test
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -447,6 +448,8 @@ app.include_router(ai.router,
     tags=["AI 擴充功能"]
 )
 app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
+
+app.include_router(chat_langgraph_test.router, prefix="/api/langgraph", tags=["laghGraph測試"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():

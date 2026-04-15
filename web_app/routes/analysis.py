@@ -221,32 +221,46 @@ def get_salary_comparison(
         )
         .all()
     )
+    is_fallback = False
+    data_source_note = f"✅ {year}/{month} 基準"
+    actual_period = period_str
 
-    # 備案邏輯：找最近的一個月
     if not benchmarks:
+        # 找資料庫裡最新的一筆
         latest = (
             db.query(SalaryBenchmark.period)
+            .filter(SalaryBenchmark.period <= period_str) # 多了這一行防守！
             .order_by(SalaryBenchmark.period.desc())
             .first()
         )
         if latest:
+            actual_period = latest[0] # 例如拿到了 '2026M02'
             benchmarks = (
                 db.query(SalaryBenchmark)
                 .filter(
                     SalaryBenchmark.industry == user_job,
-                    SalaryBenchmark.period == latest[0],
+                    SalaryBenchmark.period == actual_period,
                     SalaryBenchmark.salary_is_real == 0,
                 )
                 .all()
             )
+            # 🌟 確認真的有發生回溯才亮起徽章
+            if actual_period != period_str:
+                is_fallback = True
+                formatted_period = actual_period.replace("M", "/")
+                data_source_note = f"ℹ️ 參考最新數據 ({formatted_period})"
+        else:
+            data_source_note = "⚠️ 尚無相關薪資資料"
 
     return {
         "user_job": user_job,
         "user_income": float(user_income),
-        "period": benchmarks[0].period if benchmarks else period_str,
+        "period": actual_period,
+        "is_fallback": is_fallback,  # 新增
+        "note": data_source_note,    # 新增
         "benchmarks": [
             {"type": b.salary_type, "value": float(b.salary_val)} for b in benchmarks
-        ],
+        ] if benchmarks else [],
     }
 
 
