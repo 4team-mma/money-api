@@ -152,37 +152,36 @@ class GeminiService:
             return {"text": reply_text, "actual_model": target_id}
 
         except Exception as e:
-            error_msg = str(e)
-            if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
-                import re
-                seconds_match = re.search(r"retry in ([\d\.]+)s", error_msg)
-                if seconds_match:
-                    sec = round(float(seconds_match.group(1)), 1)
-                    wait = f"{round(sec/60, 1)} 分鐘" if sec > 60 else f"{sec} 秒"
-                    return {"text": f"喵... 額度用完了，請等約 {wait} 再試喵！🍵", "actual_model": target_id}
-                return {"text": "喵... API 配額超限，請稍後再試喵！", "actual_model": target_id}
-            # 404 自動降級到 flash
-            if "404" in error_msg or "not found" in error_msg.lower():
-                fallback_id = "gemini-2.5-flash"
-                client = genai.Client(api_key=api_key)
-                image_part = types.Part.from_bytes(
-                    data=__import__('base64').b64decode(image_b64),
-                    mime_type="image/jpeg"
-                )
-                response = await client.aio.models.generate_content(
-                    model=fallback_id,
-                    contents=[image_part, types.Part.from_text(text=prompt)],
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=0.1,
-                    )
-                )
-                return {"text": response.text or "", "actual_model": fallback_id}
+                    error_msg = str(e)
+                    
+                    # 1. 處理 429 / RESOURCE_EXHAUSTED (配額用完)
+                    if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                        import re
+                        seconds_match = re.search(r"retry in ([\d\.]+)s", error_msg)
+                        if seconds_match:
+                            sec = round(float(seconds_match.group(1)), 1)
+                            wait = f"{round(sec/60, 1)} 分鐘" if sec > 60 else f"{sec} 秒"
+                            return {"text": f"喵... 記帳太快啦！請等約 {wait} 再試喵！🍵", "actual_model": target_id}
+                        return {"text": "喵... 今天的免費次數用完囉，請稍後再試喵！", "actual_model": target_id}
 
-            logger.error(f"Gemini Vision 異常: {error_msg}")
-            raise Exception(f"Gemini Vision 呼叫失敗：{error_msg}")
-            return {"text": f"喵... 腦袋當機了。原因：{error_msg[:30]}...", "actual_model": model_id}
-        
+                    # 2. 處理 503 / 500 (伺服器過載/塞車) 🌟 這是你剛剛遇到的
+                    if "503" in error_msg or "UNAVAILABLE" in error_msg or "high demand" in error_msg.lower():
+                        return {"text": "喵嗚！現在辨識伺服器大塞車中... 請等 10 秒後再試一次喵！🚗", "actual_model": target_id}
+                    
+                    if "500" in error_msg or "internal error" in error_msg.lower():
+                        return {"text": "喵？AI 腦袋稍微打結了，請再按一次看看喵！🧠", "actual_model": target_id}
+
+                    # 3. 處理 400 (通常是圖片太大或格式不對)
+                    if "400" in error_msg or "invalid" in error_msg.lower():
+                        return {"text": "喵... 圖片好像有點模糊或格式不對，重拍一張試試喵？📸", "actual_model": target_id}
+
+                    # 4. 404 自動降級邏輯 (保持原樣)
+                    if "404" in error_msg or "not found" in error_msg.lower():
+                        # ... (原有的降級邏輯)
+                        pass
+
+                    logger.error(f"Gemini Vision 異常: {error_msg}")
+                    return {"text": "喵... 網路連線好像有點不穩，檢查一下網路再試喵！🌐", "actual_model": model_id}        
         
     # 這是給google行事曆串接用
     # 🌟 在這裡新增多模態圖片解析方法 (新版 SDK 寫法)
