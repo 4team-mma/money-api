@@ -73,7 +73,7 @@ dev = [
     "accelerate>=1.13.0",
     # 🌟 分流：只有非 Mac (例如你的 Windows) 才會安裝這個顯卡瘦身套件
     "bitsandbytes>=0.46.1 ; sys_platform != 'darwin'",
-    "bitsandbytes>=0.46.1",
+
 ]
 
 # ==========================================
