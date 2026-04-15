@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AIConfig, Member
+from ..models import AIConfig, Member, AddRecord, Account
 from ..schemas.ai import AIConfigSave, AIConfigResponse, ChatRequest
 from ..dependencies import get_current_user,admin_required
 from ..utils.ai_security import decrypt_api_key, encrypt_api_key
@@ -36,6 +36,74 @@ AI_BRAIN_VERSION = os.getenv("AI_BRAIN_VERSION", "v1")
 def get_sys_default_model(provider: str) -> str:
     """根據 Provider 決定預設模型名稱"""
     return SYS_OLLAMA_MODEL if provider == "ollama" else SYS_GEMINI_MODEL
+
+# 👇 新增這個打工仔函數 👇
+def get_user_history_for_prompt(db: Session, user_id: int) -> dict:
+    """從資料庫撈取使用者專屬的：分類、標籤、成員、帳戶"""
+    
+    # 1. 處理分類 (Categories)
+    base_cats = ["🍔 飲食", "🚗 交通", "🏠 居家", "🎮 娛樂", "💰 工資", "🏦 獎金", "🐷 投資"]
+    try:
+        history_cats = db.query(AddRecord.add_class_icon, AddRecord.add_class)\
+                         .filter(AddRecord.user_id == user_id).distinct().all()
+        custom_cats = [f"{icon} {name}" for icon, name in history_cats if icon and name]
+    except:
+        custom_cats = []
+    all_cats = ", ".join(set(base_cats + custom_cats))
+
+    # 2. 處理標籤 (Tags)
+    base_tags = ["需要", "想要", "旅遊"]
+    try:
+        history_tags = db.query(AddRecord.add_tag)\
+                         .filter(AddRecord.user_id == user_id).distinct().all()
+        custom_tags = []
+        for (tag_str,) in history_tags:
+            if tag_str:
+                custom_tags.extend(tag_str.split('/')) 
+    except:
+        custom_tags = []
+    all_tags = ", ".join(set(base_tags + custom_tags))
+
+    # 3. 處理成員 (Members)
+    base_members = ["自己"]
+    try:
+        history_members = db.query(AddRecord.add_member)\
+                            .filter(AddRecord.user_id == user_id).distinct().all()
+        custom_members = [m[0] for m in history_members if m[0]]
+    except:
+        custom_members = []
+    all_members = ", ".join(set(base_members + custom_members))
+
+    # 🌟 4. 處理帳戶 (Accounts) - 動態抓取第一順位
+    try:
+        # 去帳戶表撈出這個小主人的所有帳戶名稱，用 created_at 排序確保第一個是最早建立的
+        user_accounts = db.query(Account.account_name)\
+                          .filter(Account.user_id == user_id)\
+                          .order_by(Account.created_at.asc()).all()
+        account_names = [a[0] for a in user_accounts if a[0]]
+        
+        if account_names:
+            accounts_str = ", ".join(account_names)
+            default_account = account_names[0]  # 直接拿陣列的第一個，也就是最早建立的帳戶
+        else:
+            accounts_str = "現金" # 系統保底防呆
+            default_account = "現金"
+    except Exception as e:
+        print(f"❌ 撈取帳戶失敗：{e}")
+        accounts_str = "現金"
+        default_account = "現金"
+
+    # 回傳打包好的四種清單
+    return {
+        "categories": all_cats,
+        "tags": all_tags,
+        "members": all_members,
+        "accounts": accounts_str,
+        "default_account": default_account
+    }
+
+
+
 
 # --- 1. 獲取配置 ---
 @router.get(
@@ -186,9 +254,24 @@ async def chat_with_meow(
     # 5. 意圖分流處理
     # ==========================================
     if current_intent in ["RECORD", "MULTI_RECORD"]:
+        
+        # 🌟🌟🌟 全面升級：動態注入分類、標籤、成員 🌟🌟🌟
+        user_history = get_user_history_for_prompt(db, current_user.user_id)
+        dynamic_rule = (
+            f"\n\n【極度重要：小主人的專屬資料庫】\n"
+            f"1. [專屬分類庫]：{user_history['categories']}\n"
+            f"2. [常用標籤庫]：{user_history['tags']} (若有多個請用 '/' 分隔，如 '需要/爬山')\n"
+            f"3. [常用成員庫]：{user_history['members']}\n"
+            f"請務必優先從上述清單挑選。請留意小主人對『標籤(想要/需要等)』與『成員(幫誰花錢)』的明確指示！"
+        )
+        record_system_prompt = final_system_prompt + dynamic_rule
+        # 🌟🌟🌟 新增結束 🌟🌟🌟
+        
+        
         # 🚀 通道 A：記帳 (強制走 Groq)
         try:
-            groq_result = FinanceAgentService.execute_record_chain(final_system_prompt, latest_query)
+            # ⚠️ 注意這裡：把 final_system_prompt 換成剛組裝好的 record_system_prompt
+            groq_result = FinanceAgentService.execute_record_chain(record_system_prompt, latest_query)
             is_json_command = True
             parsed_action = groq_result.get("action_data", {})
             reply = groq_result.get("reply_text", "已記好囉喵！")

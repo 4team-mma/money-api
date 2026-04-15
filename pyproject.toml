@@ -48,6 +48,8 @@ dependencies = [
     "anthropic>=0.88.0",
     "groq>=0.37.1",
     "langchain-ollama>=1.1.0",
+    "langgraph>=1.1.6",
+    "langchain-core>=1.2.28",
 ]
 
 [dependency-groups]
@@ -69,6 +71,9 @@ dev = [
     "langchain-ollama>=1.1.0",
     "peft>=0.18.1",
     "accelerate>=1.13.0",
+    # 🌟 分流：只有非 Mac (例如你的 Windows) 才會安裝這個顯卡瘦身套件
+    "bitsandbytes>=0.46.1 ; sys_platform != 'darwin'",
+
 ]
 
 # ==========================================

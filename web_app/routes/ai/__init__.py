@@ -4,6 +4,7 @@ from .ai_analysis import router as ai_analysis_router
 from .line_bot import router as line_bot_router
 from .invoice import router as invoice_router
 from .ai_cat_test import router as ai_cat_test_router
+from .ai_speech_correction import router as speech_correction_router
 
 router = APIRouter()
 
@@ -13,3 +14,4 @@ router.include_router(ai_analysis_router, prefix="/analysis")
 router.include_router(line_bot_router, prefix="/line")
 router.include_router(invoice_router, prefix="/invoice")
 router.include_router(ai_cat_test_router, prefix="/ai_test")
+router.include_router(speech_correction_router, prefix="/correct")

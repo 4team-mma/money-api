@@ -77,12 +77,18 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add langchain_ollama(AI輔助需要 )
 
 
-## 非共用套件:
+## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):
+- uv add --dev peft accelerate
 - uv pip install customtkinter requests pandas openpyxl
 - uv pip install -U langchain-ollama(你要用後端AI輔助需要安裝)
 - uv pip install locust (你要用模仿攻擊需要安裝)
 - uv pip install peft accelerate 
+
+### 如果要指定版本要加引號""
+- uv add --dev "bitsandbytes>=0.46.1"
 (QLoR外掛模型必備套件:Apeft是讀取(.safetensors)」的專用套件,accelerate是PyTorch 的官方擴充包)
+- 自己電腦的套件請執行white_tool.bat
+
 
 ## 移除套件:
 - 執行:uv remove google-generativeai

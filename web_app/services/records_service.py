@@ -33,7 +33,7 @@ class RecordsService:
             add_amount=amt,
             add_type=True if data.get("record_type") == "income" else False,
             add_class=data.get("add_class", "其他"),
-            add_class_icon=RecordsService.get_class_icon(data.get("add_class", "其他")),
+            add_class_icon=data.get("add_class_icon", "📦"), # 直接吃 AI 挑選的 Emoji！"其他")),
             account_id=account.account_id,
             add_member=data.get("add_member", "自己"),
             add_tag=data.get("add_tag", "需要"),
