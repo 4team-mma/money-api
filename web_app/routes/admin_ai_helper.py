@@ -14,12 +14,16 @@ router = APIRouter()
 
 # 建立 B1 圖書館管理員
 def search_codebase(query: str):
-    # 🌟 終極修正：直接向兵器庫索取 B1 的箱子！
+    
+    # 🛡️ 防呆機制：如果輸入超過 1000 字，強行截斷，避免撐爆 Ollama Embedding 模型
+    safe_query = query[:1000]
+    
     # 這樣它就會自動帶上 nomic-embed-text (768維度) 的正確鑰匙！
     vectorstore = VectorDBTools.get_codebase_store()
     
     # 找出跟使用者問題最相關的 5 塊程式碼
-    docs = vectorstore.similarity_search(query, k=5)
+    # 使用截斷後的安全字串去向量庫搜尋
+    docs = vectorstore.similarity_search(safe_query, k=5)
     
     # 把找出來的程式碼組合成字串
     context = ""
