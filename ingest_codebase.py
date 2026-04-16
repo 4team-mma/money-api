@@ -17,7 +17,7 @@ TARGET_DIRS = [
     "./web_app/models", 
     "./web_app/schemas", 
     "./web_app/services", 
-    "C:/MyData/TW_mobile/money/src"  # 🌟 直接填寫絕對路徑！
+    "C:/MyData/TW_mobile/money/src"  
 ]
 IGNORE_DIRS = ["node_modules", ".git", "__pycache__", "dist", "venv", ".venv"]
 ALLOWED_EXTENSIONS = [".py", ".vue", ".js"]
