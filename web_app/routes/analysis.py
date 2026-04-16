@@ -183,6 +183,7 @@ def get_cpi_comparison(
 def get_salary_comparison(
     year: str = Query(..., description="年份", examples=["2025"]),
     month: str = Query(..., description="月份", examples=["12"]),
+    industry: str | None = Query(None, description="可選：強制指定的行業"),
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
@@ -195,9 +196,29 @@ def get_salary_comparison(
     """
     # 1. 取得使用者職業
     user = db.query(Member).filter(Member.user_id == current_user.user_id).first()
-    user_job = user.job if user and user.job else "製造業"
+    
+    # 2. 如果前端有傳 industry 就優先用，不然才用資料庫的
+    user_job = industry or (user.job if user and user.job else None)
 
-    # 2. 撈取使用者當月總收入
+
+    # 🚫 防呆機制一：完全沒有職業資訊
+    if not user_job:
+        # 回傳這段 JSON 給 LangGraph，LLM 會自動把它轉換成溫柔的喵喵語氣告訴使用者
+        return {
+            "error": "empty_job",
+            "message": "系統找不到使用者的職業資訊。請告訴使用者：『喵喵不知道你是哪個行業的喵！你可以直接在對話中告訴我（例如：我是做教育業的），或者去個人資料設定喔！』"
+        }
+
+    # 🚫 防呆機制二：確認該行業是否存在於政府標準清單中
+    # 隨便查一筆該行業的資料，如果連一筆都沒有，代表是亂填的 (例如: 小菜鳥)
+    industry_exists = db.query(SalaryBenchmark.industry).filter(SalaryBenchmark.industry == user_job).first()
+    if not industry_exists:
+        return {
+            "error": "invalid_job",
+            "message": f"使用者提供的行業『{user_job}』不是政府統計的標準行業。請告訴使用者：『喵！「{user_job}」不是標準的行業名稱喔，喵喵無法幫你比對。你可以參考系統知識庫裡的標準行業清單，再重新告訴我一次喵！』"
+        }
+
+    #  撈取使用者當月總收入
     target_date = f"{year}-{month.zfill(2)}"
     user_income = (
         db.query(func.sum(AddRecord.add_amount))

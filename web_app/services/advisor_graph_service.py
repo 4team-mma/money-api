@@ -1,7 +1,7 @@
 # web_app/services/advisor_graph_service.py
 import json
 import re
-from typing import Annotated
+from typing import Annotated, Optional
 from typing_extensions import TypedDict
 from sqlalchemy.orm import Session
 
@@ -62,12 +62,16 @@ def create_advisor_graph(db: Session, current_user: Member):
     # 🛠️ 工具二：薪資基準比對 Tool
     # ------------------------------------------
     @tool
-    def tool_get_salary_benchmark(year: str, month: str) -> str:
+    def tool_get_salary_benchmark(
+        year: str, 
+        month: str, 
+        industry: Optional[str]  | None=None ) -> str:
         """
-        [重要提示給 LLM]：當使用者詢問「我的薪水算高嗎」、「我是不是薪水太低」、「跟同行比起來如何」時，請呼叫此工具。
+        [重要提示給 LLM]：當使用者詢問「我的薪水算高嗎」、「我是不是薪水太低」、「跟同行比起來如何」時，或當使用者詢問薪資競爭力時呼叫，請呼叫此工具。
         參數說明：
-        - year: 四碼年份字串，例如 "2026"
-        - month: 兩碼月份字串，例如 "04"
+        - year: 四碼年份字串
+        - month: 兩碼月份字串
+        - industry: (可選) 若使用者有明確提到他的行業 (例如: 資訊軟體業、教育業、製造業)，請填入此參數。
         """
         try:
             # 🛡️ 同理，加上神級防禦
@@ -77,6 +81,7 @@ def create_advisor_graph(db: Session, current_user: Member):
             result_dict = get_salary_comparison(
                 year=clean_year, 
                 month=clean_month, 
+                industry=industry,
                 db=db, 
                 current_user=current_user
             )

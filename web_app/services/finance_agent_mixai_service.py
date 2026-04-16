@@ -112,16 +112,19 @@ class FinanceAgentMixAIService:
         
         # 🌟🌟🌟 2. [絕對法則 - 專家顧問攔截 (複合條件版)] 🌟🌟🌟
         # A. 專有名詞直接命中 (絕對是分析)
-        advisor_strong_keywords = ['薪資競爭力', '財務健檢', '通膨', 'CPI', '物價指數', 'Z-score']
+        advisor_strong_keywords = ['薪資競爭力', '財務健檢', '通膨', 'CPI', '物價指數', 'Z-score', '換工作'] 
         
-        # B. 評估型問法 (主詞 + 疑問/評估)
-        advisor_subjects = ['薪水', '物價', '花費', '支出', '錢包']
+        # B. 評估型問法 (主詞 + 正式評估詞) -> 移除好扁、一直漲這種危險詞
+        advisor_subjects = ['薪水', '物價', '花費', '支出', '錢包', '薪資', '收入']
         advisor_evaluations = ['算高嗎', '變貴了', '太低了', '正常嗎', '合理嗎', '診斷', '建議', '分析']
+
+        # C. 🌟 新增：日常理財抱怨 (必須是完整片語，防誤判)
+        advisor_complaints = ['錢包好扁', '物價一直漲', '薪水不夠用', '快吃土了', '存不到錢']
 
         # 判斷邏輯：要嘛直接命中專有名詞，要嘛是「主詞 + 評估詞」的組合
         is_advisor = any(k in text_str for k in advisor_strong_keywords) or \
+                    any(c in text_str for c in advisor_complaints) or \
                     (any(s in text_str for s in advisor_subjects) and any(e in text_str for e in advisor_evaluations))
-
         if is_advisor:
             # 🛡️ 最後防禦：如果使用者明確加了「查明細」、「紀錄」等字眼，放行給後面的 QUERY 處理
             if any(q in text_str for q in ['明細', '紀錄', '歷史', '清單']):
