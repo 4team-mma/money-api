@@ -75,6 +75,9 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add detect-secrets --dev # 檢查白名單
 - uv add groq
 - uv add langchain_ollama(AI輔助需要 )
+2026.04.15更新：
+- uv add langgraph 
+- uv add langchain-core
 
 
 ## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):

@@ -1,90 +1,143 @@
-from typing import Annotated, Literal
+# web_app/services/advisor_graph_service.py
+import json
+import re
+from typing import Annotated, Optional
 from typing_extensions import TypedDict
-from langgraph.graph import StateGraph, START, END
+from sqlalchemy.orm import Session
+
+from langgraph.graph import StateGraph, START
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
-import os
+
+# 💡 小白教學區：把我們需要的資料庫模型和隊友寫好的功能「進口」進來
+from web_app.models.models import Member
+from web_app.routes.analysis import get_cpi_comparison, get_salary_comparison
 
 # ==========================================
-# 1. 定義 Tools (請組員把分析邏輯寫在這裡)
+# 1. 定義狀態 (State)
 # ==========================================
-@tool
-def get_monthly_summary(user_id: int) -> str:
-    """查詢使用者本月的總收入、總支出與結餘。理財分析前必須先呼叫此工具。"""
-    # 這裡放連接資料庫的邏輯
-    return f"[系統回傳] user_{user_id} 本月總支出: 15000元, 總收入: 50000元"
-
-@tool
-def detect_spending_anomalies(user_id: int) -> str:
-    """偵測使用者近期的消費是否有異常暴增 (Z-score 分析)。"""
-    # 這裡放組員的數據分析邏輯
-    return f"[系統回傳] 偵測到『娛樂類』支出異常偏高。"
-
-# 將工具打包
-tools = [get_monthly_summary, detect_spending_anomalies]
-
-# ==========================================
-# 2. 定義狀態 (State) 與 LLM
-# ==========================================
-# 定義對話紀錄的狀態 (MessagesState 是 LangGraph 內建最常用的狀態)
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-# 初始化 LLM 並綁定工具 (讓 LLM 知道它有哪些工具可以用)
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
-llm_with_tools = llm.bind_tools(tools)
-
 # ==========================================
-# 3. 定義圖形節點 (Nodes)
+# 2. 閉包工廠 (把 db 跟 current_user 鎖進房間)
 # ==========================================
-def chatbot_node(state: State):
-    """思考與決策節點：LLM 決定要回答還是要呼叫工具"""
-    # 掛載 Advisor 人格設定
-    sys_msg = SystemMessage(content="你是 MoneyMMA 的專業理財顧問。請善用工具分析使用者財務狀況後，給予溫暖、專業的建議。")
-    messages = [sys_msg] + state["messages"]
+def create_advisor_graph(db: Session, current_user: Member):
+    """
+    這是一個「工廠函數」。
+    每當有使用者發問，我們就動態建立一個全新的 Graph，
+    並且把這個使用者的資料庫連線 (db) 和身分 (current_user) 傳進來給 Tool 用。
+    """
     
-    # LLM 進行推論
-    response = llm_with_tools.invoke(messages)
-    return {"messages": [response]}
+    # ------------------------------------------
+    # 🛠️ 工具一：CPI 物價比對 Tool
+    # ------------------------------------------
+    @tool
+    def tool_get_cpi_comparison(year: str, month: str) -> str:
+        """
+        [重要提示給 LLM]：當使用者詢問「物價是不是變貴了」、「這個月花費合理嗎」、「通膨」等問題時，請呼叫此工具。
+        參數說明：
+        - year: 四碼年份字串，例如 "2026"
+        - month: 兩碼月份字串，例如 "04"
+        """
+        try:
+            # 🛡️ 神級防禦：把 LLM 亂傳的 "2026年" 變 "2026"，"4月" 或 "4" 變成 "04"
+            clean_year = re.sub(r'\D', '', str(year))
+            clean_month = re.sub(r'\D', '', str(month)).zfill(2)
 
-# ==========================================
-# 4. 組裝 LangGraph (The Graph)
-# ==========================================
-# 初始化狀態機
-graph_builder = StateGraph(State)
+            result_list = get_cpi_comparison(
+                year=clean_year, 
+                month=clean_month, 
+                db=db, 
+                current_user=current_user
+            )
+            return json.dumps(result_list, ensure_ascii=False)
+        except Exception as e:
+            return f"獲取 CPI 資料失敗：{str(e)}"
 
-# 加入節點：大腦(chatbot_node) 與 工具箱(ToolNode)
-graph_builder.add_node("chatbot", chatbot_node)
-graph_builder.add_node("tools", ToolNode(tools=tools)) # ToolNode 是官方提供的方便工具執行器
+    # ------------------------------------------
+    # 🛠️ 工具二：薪資基準比對 Tool
+    # ------------------------------------------
+    @tool
+    def tool_get_salary_benchmark(
+        year: str, 
+        month: str, 
+        industry: Optional[str]  | None=None ) -> str:
+        """
+        [重要提示給 LLM]：當使用者詢問「我的薪水算高嗎」、「我是不是薪水太低」、「跟同行比起來如何」時，或當使用者詢問薪資競爭力時呼叫，請呼叫此工具。
+        參數說明：
+        - year: 四碼年份字串
+        - month: 兩碼月份字串
+        - industry: (可選) 若使用者有明確提到他的行業 (例如: 資訊軟體業、教育業、製造業)，請填入此參數。
+        """
+        try:
+            # 🛡️ 同理，加上神級防禦
+            clean_year = re.sub(r'\D', '', str(year))
+            clean_month = re.sub(r'\D', '', str(month)).zfill(2)
 
-# 定義流程路線 (Edges)
-graph_builder.add_edge(START, "chatbot")
+            result_dict = get_salary_comparison(
+                year=clean_year, 
+                month=clean_month, 
+                industry=industry,
+                db=db, 
+                current_user=current_user
+            )
+            return json.dumps(result_dict, ensure_ascii=False)
+        except Exception as e:
+            return f"獲取薪資比較資料失敗：{str(e)}"
 
-# 條件路由：如果大腦說要用工具 -> 走 tools 節點；如果大腦直接給出文字建議 -> 結束 (END)
-graph_builder.add_conditional_edges(
-    "chatbot",
-    tools_condition, # 官方內建的判斷條件：檢測 LLM 回覆中有沒有 tool_calls
-)
+    # 把工具打包成一個列表
+    tools = [tool_get_cpi_comparison, tool_get_salary_benchmark]
 
-# 工具執行完後，把結果丟回給大腦繼續思考
-graph_builder.add_edge("tools", "chatbot")
+    # ------------------------------------------
+    # 🧠 初始化 LLM (大腦)
+    # ------------------------------------------
+    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
+    llm_with_tools = llm.bind_tools(tools)
 
-# 最終編譯成可執行的應用
-advisor_graph = graph_builder.compile()
+    # ------------------------------------------
+    # 🤖 定義決策節點
+    # ------------------------------------------
+    def chatbot_node(state: State):
+        # 💡 動態把使用者的名字塞進 Prompt 裡，讓喵喵更有親切感！
+        sys_prompt = f"""
+        你是 MoneyMMA 的專業理財喵喵顧問。現在正在為小主人「{current_user.name}」服務。
+        請善用你的工具（CPI 比對、薪資比對）來獲取真實數據，再給予溫暖、專業的理財建議。
+        回答結尾請記得加上「喵！」。
+        """
+        messages = [SystemMessage(content=sys_prompt)] + state["messages"]
+        response = llm_with_tools.invoke(messages)
+        return {"messages": [response]}
 
-# ==========================================
-# 5. 給外部呼叫的進入點
-# ==========================================
-async def analyze_finance_advice(user_id: int, user_message: str):
-    """被原本路由器呼叫的主要 Function"""
-    # 這裡可以把 user_id 偷偷塞進去，限制 Agent 只能查該用戶的資料
-    prompt = f"(背景參數 user_id={user_id}) 使用者詢問：{user_message}"
+    # ------------------------------------------
+    # 🕸️ 組裝 Graph (畫出流程圖)
+    # ------------------------------------------
+    graph_builder = StateGraph(State)
+    graph_builder.add_node("chatbot", chatbot_node)
+    graph_builder.add_node("tools", ToolNode(tools=tools)) 
     
-    # 執行圖形
-    result = await advisor_graph.ainvoke({"messages": [("user", prompt)]})
+    graph_builder.add_edge(START, "chatbot")
+    graph_builder.add_conditional_edges("chatbot", tools_condition)
+    graph_builder.add_edge("tools", "chatbot")
     
-    # 取出最後一句話回傳給前端
+    return graph_builder.compile()
+
+# ==========================================
+# 3. 給外部 API (Router) 呼叫的進入點
+# ==========================================
+async def analyze_finance_advice(user_message: str, db: Session, current_user: Member):
+    """
+    這支 Function 是給你主要的 FastAPI 路由呼叫的。
+    你需要把前端傳來的 user_message、資料庫 db、跟 current_user 傳進來。
+    """
+    # 1. 建立當次對話專屬的 Graph
+    advisor_graph = create_advisor_graph(db, current_user)
+    
+    # 2. 執行圖形推理
+    result = await advisor_graph.ainvoke({"messages": [("user", user_message)]})
+    
+    # 3. 取出最後一句話回傳給前端
     return result["messages"][-1].content

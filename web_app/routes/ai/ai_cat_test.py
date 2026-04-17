@@ -20,6 +20,7 @@ from ...dependencies import get_current_user
 from ...services.finance_agent_service import FinanceAgentService
 from ...services.gemini_service import GeminiService
 from ...services.ollama_service import OllamaService
+from ...services.vector_db_tools import VectorDBTools
 from ...utils.ai_security import decrypt_api_key
 from web_app.utils.security_guard import is_malicious
 
@@ -509,11 +510,15 @@ async def update_intent_review(
         
         # 🌟 判斷：如果是「真正需要糾正」的錯誤，才寫入 ChromaDB 進行學習
         if corrected != log.predicted_intent:
-            if arena_brains.chroma_store:
-                arena_brains.chroma_store.add_documents([
+            # 
+            # ✅ 改成這樣：當場獲取最新鮮的 ChromaDB 連線
+            fresh_store = VectorDBTools.get_intent_store()
+            if fresh_store:
+                fresh_store.add_documents([
                     Document(page_content=log.user_message, metadata={"intent": corrected})
                 ])
                 logger.info(f"🧠 已將糾正語句寫入 ChromaDB: {log.user_message} -> {corrected}")
+
         
         db.commit()
         return {"success": True}
@@ -569,8 +574,10 @@ async def engineer_direct_fix(
     db.add(new_log)
     
     # 2. 寫入 ChromaDB 大腦
-    if arena_brains.chroma_store:
-        arena_brains.chroma_store.add_documents([
+    # ✅ 改成這樣：當場獲取最新鮮的 ChromaDB 連線
+    fresh_store = VectorDBTools.get_intent_store()
+    if fresh_store:
+        fresh_store.add_documents([
             Document(page_content=payload.user_message, metadata={"intent": payload.corrected_intent})
         ])
         logger.info(f"🧠 [工程師手動注入] ChromaDB: {payload.user_message} -> {payload.corrected_intent}")

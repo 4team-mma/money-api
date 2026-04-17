@@ -18,6 +18,16 @@ class VectorDBTools:
     _cohere_client = None # 🌟 新增 Cohere 客戶端
     _codebase_store = None   # 🌟 B1 機房專屬 Store
 
+
+#  新增方法 
+    @classmethod
+    def clear_caches(cls):
+        """🌟 讓記憶體放棄舊的 ChromaDB 連線，強制下次重新抓取新房間的 UUID"""
+        cls._intent_store = None
+        cls._manual_store = None
+        cls._codebase_store = None
+        print("🔄 [VectorDB] 背景重建完畢，已清空舊的資料庫連線快取！")
+
     @classmethod
     def _get_embeddings(cls):
         """☁️ 共用的雲端向量化引擎 (給 1F, 2F 用)"""

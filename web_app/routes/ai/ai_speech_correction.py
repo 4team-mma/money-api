@@ -8,7 +8,7 @@ from ...database import get_db
 from ...models import ASRCorrectionLog,Member
 from ...dependencies import admin_required, get_current_user
 from ...schemas.speech import CorrectionRequest, CorrectionResponse, ToggleRequest
-
+from fastapi import Body
 
 # 偵測是否在本地環境 (可以自己在 .env 裡設定 USE_LOCAL_GPU=True)
 USE_LOCAL_GPU = os.getenv("USE_LOCAL_GPU", "False").lower() == "true"
@@ -92,36 +92,31 @@ class QwenLoRAModel:
         print("✅ GPU 記憶體已完美釋放！")
 
     def correct_text(self, raw_text: str):
-        # 修復 Pylance 警告：明確告訴 Pylance 如果模型沒載入就直接 return
         if not self.is_loaded or self.tokenizer is None or self.model is None:
             return raw_text 
             
-        import torch # 推論時需要用到 torch.no_grad()
+        import torch
             
-        # 🌟 換成超級嚴格的緊箍咒 System Prompt
-        strict_system_prompt = (
-            "你是一個精準的台灣財經語音糾錯專家。\n"
-            "請「嚴格」遵守以下規則：\n"
-            "1. 僅修正同音字、錯別字或台灣財經黑話（例如：吳柏毅 -> UberEats，接口 -> 街口，狗勾卡 -> GoGo卡）。\n"
-            "2. 【絕對不可以】改變使用者的原本語意！不可自創情境！\n"
-            "3. 【絕對不可以】修改任何數字或金額！保持原本的阿拉伯數字！\n"
-            "4. 如果句子沒有錯字，請直接輸出原句。"
+        # 🌟 1. 返璞歸真：請務必回想你「訓練這個 LoRA 時」用的系統提示詞是什麼！
+        # 這裡我先幫你擬一個最標準、最不容易干擾權重的版本。
+        # 如果你訓練時是用別的句子，請一定要替換成你訓練時的那句！
+        base_system_prompt = (
+            "你是一個台灣財經語音糾錯專家，請將句子中的錯別字、同音字或口語表達，"
+            "修正為正確的品牌名稱、財經專有名詞與阿拉伯數字金額。若無錯字請照原樣輸出。"
         )
         
-        # 組裝 Qwen 的 ChatML 格式
-        prompt = f"<|im_start|>system\n{strict_system_prompt}<|im_end|>\n<|im_start|>user\n{raw_text}<|im_end|>\n<|im_start|>assistant\n"
+        prompt = f"<|im_start|>system\n{base_system_prompt}<|im_end|>\n<|im_start|>user\n{raw_text}<|im_end|>\n<|im_start|>assistant\n"
         
-        # 這裡 Pylance 就不會報錯了，因為上面已經排除了 None 的可能
         inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
         
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=100,
-                temperature=0.01,       # 🌟 溫度壓到最低，讓它極度保守
-                do_sample=True,         # 🌟 改成 True，允許抽樣機制啟動
-                top_p=0.1,              # 🌟 top_p限制：只考慮機率最高的 10% 的字詞
-                repetition_penalty=1.1, # 稍微加上重複懲罰，避免它結巴
+                temperature=0.1,        # 🌟 微調至 0.1：給它一點點彈性去組合「以前的50」->「150」
+                do_sample=True,         
+                top_p=0.8,              # 🌟 放寬到 0.8：不要只拿最死板的字，讓 LoRA 的黑話有機會浮現
+                repetition_penalty=1.05, 
                 pad_token_id=self.tokenizer.eos_token_id,
                 eos_token_id=self.tokenizer.eos_token_id
             )
@@ -198,3 +193,32 @@ def process_speech_correction(
         corrected_text=corrected_text,
         inference_time_ms=inference_time_ms
     )
+    
+    
+
+# 4. 語音糾錯：更新最終確認文字
+@router.put("/logs/{log_id}", summary="📝 更新語音糾錯最終結果")
+def update_speech_log(
+    log_id: int, 
+    # 這裡接收前端傳來的 JSON payload
+    payload: dict = Body(...), 
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user)
+):
+    # 從前端傳來的資料中抓取使用者最終確認的文字
+    # 請對照你的前端 robot.js，確認傳過來的 key 是什麼，通常會是 final_user_text 或 corrected_text
+    final_text = payload.get("final_user_text") or payload.get("corrected_text")
+    
+    if not final_text:
+        raise HTTPException(status_code=400, detail="缺少最終文字資料喵")
+
+    # 尋找那筆剛剛建立的語音紀錄
+    log = db.query(ASRCorrectionLog).filter(ASRCorrectionLog.log_id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="找不到該筆語音紀錄喵")
+        
+    # 寫入人類最終確認的正解！
+    log.final_user_text = final_text
+    db.commit()
+    
+    return {"success": True, "message": "✅ 成效紀錄已入庫！"}

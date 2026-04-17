@@ -25,7 +25,8 @@ from web_app.routes import (
     ai,
     ws,
     integrations,
-    admin_ai_helper
+    admin_ai_helper,
+    chat_langgraph_test
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -52,6 +53,7 @@ from web_app.utils.ai_security_analyst import run_daily_security_audit
 from web_app.utils.ai_warmup import warmup_ai_systems
 from ingest_knowledge import ingest_data as ingest_knowledge_data
 from ingest_intents import ingest_intents as ingest_intents_data
+from web_app.services.vector_db_tools import VectorDBTools
 
 
 
@@ -100,13 +102,16 @@ async def init_vector_db():
     """在背景執行緒重建語意資料庫，避免阻塞 FastAPI 主執行緒導致伺服器啟動超時"""
     logging.info("🧠 啟動背景任務：開始重建 AI 語意資料庫 (1樓警衛室 與 2樓圖書館)...")
     try:
-        # 使用 asyncio.to_thread 讓耗時的 I/O 與向量運算在背景執行，不卡死 FastAPI
+        # 使用 asyncio.to_thread 讓耗時的 I/O 與向量運算在背景執行
         await asyncio.to_thread(ingest_knowledge_data)
         await asyncio.to_thread(ingest_intents_data)
+        
+        # 👇 核心修復：重建完成後，立刻通知 VectorDB 丟掉舊連線！ 👇
+        VectorDBTools.clear_caches()
+        
         logging.info("✅ AI 語意資料庫重建完成！AI 大腦已更新至最新狀態。")
     except Exception as e:
         logging.error(f"❌ AI 語意資料庫重建失敗，請檢查日誌: {e}", exc_info=True)
-
 
 # ----------------------------------------------------------------
 # 生命週期管理器 (Lifespan)
@@ -447,6 +452,8 @@ app.include_router(ai.router,
     tags=["AI 擴充功能"]
 )
 app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
+
+app.include_router(chat_langgraph_test.router, prefix="/api/langgraph", tags=["laghGraph測試"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():
