@@ -317,6 +317,7 @@ class FinanceAgentService:
             "1. 絕對不允許在 JSON 之前或之後加上任何文字。\n"
             "2. 請直接以 `{` 開頭，並以 `}` 結尾。\n"
             "3. 不要使用 ```json 的 Markdown 標籤，只輸出純文字格式的 JSON。\n"
+            "4. ⚠️ 【日期格式強制規定】：如果小主人提到「今天」或沒有明確指明日期，請一律使用系統時間的日期！且格式必須嚴格為 YYYY-MM-DD（例如：2026-04-17），絕對不可包含具體時間（HH:MM:SS）或中文字！\n"
         )
 
         final_prompt = PromptTemplate(

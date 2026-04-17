@@ -74,23 +74,34 @@ class FinanceAgentMixAIService:
         assert cls.label_list is not None
         assert cls.ort_session is not None
 
-        text_str = str(message)
+        text_str = str(message).strip() # 加上 strip() 過濾前後空白，更安全
 
-        # 1. 預處理：斷詞 + 轉序列 + Padding
+        # 🛡️ 第一道防線：ChromaDB 向量警衛室 (Early Return)
+        # 移到最前面！只要歷史糾正庫有命中，直接放行，完全不消耗 ONNX 運算資源
+        vector_intent = VectorDBTools.search_intent(text_str)
+        if vector_intent is not None:
+            print(f"🛡️ [第一道防線攔截] ChromaDB 語意完全命中：{vector_intent}")
+            return {
+                "predicted_intent": vector_intent, 
+                "final_intent": vector_intent,
+                "confidence": 1.0 # 語意命中視為 100% 準確
+            }
+
+        # 🥈 第二道防線：預處理與 ONNX 模型推論
+        # 只有警衛室沒看過的句子，才會來到這裡
         cut_text = " ".join(jieba.cut(text_str))
         padded_seq = cls._manual_texts_to_sequences(cut_text, maxlen=cls.maxlen)
 
-        # 2. ONNX 模型推論
         input_name = cls.ort_session.get_inputs()[0].name
         raw_probs = cls.ort_session.run(None, {input_name: padded_seq})[0]
         probs = np.array(raw_probs)
 
-        # 3. 取得模型直覺 (使用 label_list 取代 encoder)
+        # 取得模型直覺
         best_idx = int(np.argmax(probs, axis=1)[0])
         confidence = float(probs[0][best_idx])
         keras_intent = cls.label_list[best_idx]
 
-        # 4. 執行 V10 行為邏輯攔截器修正
+        # 🥉 第三道防線：執行 V10 理科保鑣攔截器修正 (Regex 降級/升級)
         final_intent = cls.apply_v10_logic(text_str, keras_intent)
 
         return {
@@ -101,16 +112,11 @@ class FinanceAgentMixAIService:
 
     @classmethod
     def apply_v10_logic(cls, text_str, keras_intent):
-        """邱比特行為邏輯攔截器 V10 (統一變數與關鍵字版本)"""
-
-        # 🛡️ 1. 向量警衛室優先
-        vector_intent = VectorDBTools.search_intent(text_str)
-        if vector_intent is not None:
-            return vector_intent
-
+        """邱比特行為邏輯攔截器 V10 (移除 ChromaDB，專注於物理防呆)"""
+        
         final_intent = keras_intent
         
-        # 🌟🌟🌟 2. [絕對法則 - 專家顧問攔截 (複合條件版)] 🌟🌟🌟
+        # 🌟🌟🌟 1. [絕對法則 - 專家顧問攔截 (複合條件版)] 🌟🌟🌟
         # A. 專有名詞直接命中 (絕對是分析)
         advisor_strong_keywords = ['薪資競爭力', '財務健檢', '通膨', 'CPI', '物價指數', 'Z-score', '換工作'] 
         
@@ -133,13 +139,11 @@ class FinanceAgentMixAIService:
                 print("🛡️ [V10 攔截] 偵測到「評估與分析」需求，精準轉為 ADVISOR")
                 return 'ADVISOR'
         
-        
         # 提前把這幾個常用變數算好，後面大家一起用
         digit_groups = re.findall(r'\d+', text_str)
         money_unit_count = text_str.count('元') + text_str.count('塊') + text_str.count('千') + text_str.count('萬')
         record_trigger_words = ['存', '領', '花', '賺', '薪水', '支出', '買', '付', '收', '匯', '轉帳', '轉給', '轉到', '轉出', '轉入', '轉']
         
-
         # 🚀 2. [絕對法則 - 查詢攔截]
         query_hard_keywords = ['有沒有', '吃過', '買過', '紀錄', '查一下', '找一下', '過嗎']
         if any(k in text_str for k in query_hard_keywords):
@@ -167,7 +171,7 @@ class FinanceAgentMixAIService:
             if len(digit_groups) == 0 and not any(q in text_str for q in query_verify_words):
                 return 'CHAT'
 
-        # 📚 4. 純知識名詞保護
+        # 📚 6. 純知識名詞保護
         knowledge_keywords = ['任務', '成就', '主題', '背景', '解鎖', '手冊', '規則', '簽到', '卡牌', 'CPI', '物價指數']
         if any(kw in text_str for kw in knowledge_keywords):
             if any(kw in text_str for kw in ['好簡單', '太難了', '真累', '開心', '好開心', '早上好', '嗚嗚']):
