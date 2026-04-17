@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Body
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Any
 from web_app.database import get_db
 from web_app.models import Member
-from web_app.schemas.ai import ChatRequest
 from web_app.routes.ai_models import chat_with_meow
 from web_app.services.records_service import RecordsService
 from web_app.utils.jwt import verify_token
@@ -11,68 +10,77 @@ from web_app.utils.ws_manager import manager
 
 router = APIRouter()
 
-# 暫存區與通知標記 (全域)
+# 全域暫存與通知字典
 pending_cache = {}
-voice_notif_flag = {}
+voice_notif_data = {}  
 
 @router.post("/siri_chat", summary="Siri 專用語音接口")
 async def siri_chat_endpoint(
-    req: ChatRequest,
+    # 🌟 使用 Body(None) 接收原始字典，繞過 Pydantic 嚴格檢查空格
+    data: dict = Body(...),
     db: Session = Depends(get_db),
-    authorization: Optional[str] = Header(None)
+    # 🌟 直接讀取你捷徑裡設定的 "text" 標頭
+    text: Optional[str] = Header(None)
 ):
-    msg = req.message.strip()
-
-    # 🕵️‍♂️ 身分識別邏輯：優先解 Token，失敗就用 ID 6
-    uid = 6
-    if authorization and "Bearer " in authorization:
+    # 🕵️‍♂️ 1. 抓取語音訊息 (相容 "message" 或 "message " 帶空格)
+    raw_msg = data.get("message ", data.get("message", ""))
+    msg = str(raw_msg).strip()
+    
+    # 🕵️‍♂️ 2. 身分識別邏輯 (讀取 text 標頭)
+    uid = 6  # 預設 ID
+    auth_source = text  # 你捷徑裡是用 text 傳送 Bearer Token
+    
+    if auth_source and "Bearer " in auth_source:
         try:
-            token = authorization.split(" ")[1]
+            token = auth_source.split(" ")[1]
             payload = verify_token(token)
             sub_val = payload.get("sub")
             if sub_val is not None:
                 uid = int(sub_val)
         except Exception as e:
-            print(f"⚠️ Token 解析失敗 (使用預設 ID 6): {e}")
+            print(f"⚠️ Token 解析失敗: {e}")
 
-    # 取得使用者物件
     user_obj = db.query(Member).filter(Member.user_id == uid).first()
     if user_obj is None:
-        return "喵... 找不到帳號，請檢查資料庫喵。"
-    current_user: Member = user_obj
+        return {"reply": "喵... 找不到帳號，請檢查 Token 喵。", "status": "error"}
 
-    # 準備用來廣播的變數
+    current_user: Member = user_obj
     reply_text = ""
     duration = 0
 
-    # 1. 處理結束語 (讓捷徑聽懂何時該停)
+    # 3. 處理結束語
     if any(k in msg for k in ["結束", "再見", "不用了", "拜拜", "沒事了"]):
         if uid in pending_cache: del pending_cache[uid]
         reply_text = "好的，下次見喵！"
 
-    # 2. 處理二次確認 (記帳寫入)
+    # 4. 處理二次確認
     elif msg in ["確認", "對", "沒錯", "確定", "可以", "好", "要"]:
-        data = pending_cache.get(uid)
-        if data:
-            # 💡 呼叫大臣：RecordsService 會自動判斷轉帳或收支
+        pending_data = pending_cache.get(uid)
+        if pending_data:
             success = False
-            if data.get("record_type") == "transfer":
-                success = RecordsService.create_transfer(db, uid, data)
+            if pending_data.get("record_type") == "transfer":
+                success = RecordsService.create_transfer(db, uid, pending_data)
             else:
-                success = RecordsService.create_add_record(db, uid, data)
+                success = RecordsService.create_add_record(db, uid, pending_data)
 
             if success:
                 del pending_cache[uid]
-                voice_notif_flag[uid] = True # 🚩 標記前端領取通知(保留舊機制以防萬一)
                 reply_text = "記好了！小主人真棒，喵喵已經更新帳本囉喵！"
+                voice_notif_data[uid] = {
+                    "reply": reply_text,
+                    "status": "success",
+                    "type": "record_added"
+                }
             else:
                 reply_text = "喵... 記帳過程出了一點小問題喵。"
         else:
             reply_text = "喵？小主人妳剛才沒說要記什麼呀。"
 
-    # 3. 正常解析意圖
+    # 5. 正常解析意圖 (這裡把 msg 包裝回原本 ChatRequest 期待的樣子傳給 chat_with_meow)
     else:
-        result = await chat_with_meow(req, db, current_user)
+        from web_app.schemas.ai import ChatRequest
+        wrapped_req = ChatRequest(message=msg)
+        result = await chat_with_meow(wrapped_req, db, current_user)
         duration = result.get("duration", 0)
 
         if result.get("is_command") and result.get("action_data"):
@@ -81,27 +89,23 @@ async def siri_chat_endpoint(
         else:
             reply_text = result.get("reply", "喵喵在聽...")
 
-    # ==========================================
-    # 🌟 核心新增：透過 WebSocket 廣播給前端網頁
-    # ==========================================
+    # 🌟 WebSocket 廣播
     try:
         await manager.send_personal_message({
             "type": "siri_sync",
-            "user_query": req.message,
+            "user_query": msg,
             "ai_reply": reply_text,
             "duration": duration
         }, user_id=uid)
-        print(f"📡 [WebSocket] 成功廣播 Siri 訊息給 User {uid}")
     except Exception as e:
         print(f"⚠️ [WebSocket] 廣播失敗: {e}")
 
-    # 最後回傳字串給 Siri 捷徑唸出來
-    return reply_text
+    return {"reply": reply_text, "status": "success"}
 
 @router.get("/notifications")
 async def get_voice_notifications(user_id: int = 6):
-    # 這裡暫時保留 user_id 參數供前端手動傳入
-    if voice_notif_flag.get(user_id):
-        voice_notif_flag[user_id] = False
-        return {"has_new": True}
+    data = voice_notif_data.get(user_id)
+    if data:
+        del voice_notif_data[user_id]
+        return {"has_new": True, **data}
     return {"has_new": False}
