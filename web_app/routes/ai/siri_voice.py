@@ -7,7 +7,7 @@ from web_app.routes.ai_models import chat_with_meow
 from web_app.services.records_service import RecordsService
 from web_app.utils.jwt import verify_token
 from web_app.utils.ws_manager import manager
-
+from fastapi import Request
 router = APIRouter()
 
 # 全域暫存與通知字典
@@ -16,14 +16,55 @@ voice_notif_data = {}
 
 @router.post("/siri_chat", summary="Siri 專用語音接口")
 async def siri_chat_endpoint(
+    request: Request,  
     data: dict = Body(...),
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),  
     text: Optional[str] = Header(None)
 ):
-    raw_msg = data.get("message ", data.get("message", ""))
-    msg = str(raw_msg).strip()
+    # ===== debug（先留著）=====
+    print("🔥 headers:", request.headers)
+    print("🔥 body:", await request.body())
+    
+    
+    msg = ""
+    for k, v in data.items():
+        if k.strip() == "message":
+            msg = str(v).strip()
+            break
+    
+    
+    # 🕵️‍♂️ 1. 抓取語音訊息
+    #raw_msg = data.get("message ", data.get("message", ""))
+    #msg = str(raw_msg).strip()
+    msg = str(data.get("message", "")).strip()
+    
+    # 🕵️‍♂️ 2. token 來源（多重 fallback）
+    token = None
+    
+    # ✔ 標準 Authorization
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+    
+    # ✔ 你原本的 text header（保底）
+    elif text and "Bearer " in text:
+        token = text.split(" ")[1]
+
+    # ✔ body 傳 token（最穩，給 iOS 用）
+    elif data.get("token"):
+        token = data.get("token")
     
     uid = 6 
+    
+    if token:
+        try:
+            payload = verify_token(token)
+            sub_val = payload.get("sub")
+            if sub_val:
+                uid = int(sub_val)
+        except Exception as e:
+            print(f"⚠️ Token 解析失敗: {e}")
+    
     auth_source = text
     if auth_source and "Bearer " in auth_source:
         try:
@@ -40,9 +81,26 @@ async def siri_chat_endpoint(
         return {"reply": "喵... 找不到帳號，請檢查 Token 喵。", "status": "error"}
 
     current_user: Member = user_obj
+    user_name = current_user.name or "小主人" # 抓取資料庫裡的名字
     reply_text = ""
     duration = 0
     action_status = "chat" # 新增狀態追蹤
+    
+# 🌟 2. 核心改動：處理「啟動打招呼」邏輯
+    if msg == "START_GREETING":
+        reply_text = f"{user_name} 你好，歡迎使用語音功能，請問你有什麼問題嗎？喵～"
+        # 廣播給網頁端，讓網頁貓咪也顯示打招呼
+        try:
+            await manager.send_personal_message({
+                "type": "siri_sync",
+                "user_query": "啟動語音助手",
+                "ai_reply": reply_text,
+                "status": "chat",
+                "duration": 0
+            }, user_id=uid)
+        except: pass
+        return {"reply": reply_text, "status": "success"}
+    
 
     # 3. 處理結束語
     if any(k in msg for k in ["結束", "再見", "不用了", "拜拜", "沒事了"]):
@@ -111,4 +169,5 @@ async def siri_chat_endpoint(
     except Exception as e:
         print(f"⚠️ [WebSocket] 廣播失敗: {e}")
 
-    return {"reply": reply_text, "status": "success"}
+    return reply_text
+    #return {"reply": reply_text, "status": "success"}
