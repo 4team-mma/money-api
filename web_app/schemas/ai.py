@@ -73,3 +73,16 @@ class AICompareResponse(BaseModel):
 class DevRequest(BaseModel):
     mode: str = Field(..., description="模式: 'test_script', 'bug_fix', 'sql_gen'")
     context: str = Field(..., description="使用者輸入的需求內容")
+    
+    
+# -----------------------------
+# Siri使用的專用 Schemas
+# -----------------------------
+class SiriResponse(BaseModel):
+    reply: str
+    status: str = "success"
+
+class SiriNotification(BaseModel):
+    has_new: bool
+    reply: Optional[str] = None
+    status: Optional[str] = None
