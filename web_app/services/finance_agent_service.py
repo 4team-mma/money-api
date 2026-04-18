@@ -22,6 +22,14 @@ from langchain_groq import ChatGroq
 from ..schemas.bot_schema import RecordResponseSchema
 from .finance_agent_mixai_service import FinanceAgentMixAIService
 
+# 引入 RuleEngine
+from ..services.nlp.context import IntentContext
+from ..services.nlp.engine import RuleEngine
+from ..services.nlp.patterns import INTENT_PATTERNS
+from ..services.nlp.rules import INTENT_RULES
+
+
+
 class FinanceAgentService:
 
     @staticmethod
@@ -82,6 +90,20 @@ class FinanceAgentService:
 
         return "CHAT"
 
+    
+    @staticmethod
+    def _clean_message(message: str) -> str:
+        """統一的訊息清洗邏輯"""
+        latest_msg = message
+        # 妳原本的邏輯
+        if "【現在】" in message and "小主人說：" in message:
+            latest_msg = message.split("小主人說：")[-1]
+        elif "]" in message:
+            latest_msg = message.split("]")[-1]
+        
+        # 清除系統指令並轉小寫
+        clean_msg = re.sub(r'\[系統指令.*?\]', '', latest_msg).strip().lower()
+        return clean_msg
     
 
 
@@ -191,14 +213,17 @@ class FinanceAgentService:
         # ==========================================
         elif intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
             from .vector_db_tools import VectorDBTools
-            retrieved_docs = VectorDBTools.search_manual(clean_query) # 使用乾淨的訊息
+            
+            # 使用清洗過的訊息去向量庫找答案,標準 RAG pipeline
+            # query → embedding → chroma search → rerank(cohere) → context injection → LLM
+            retrieved_docs = VectorDBTools.search_manual(clean_query)
+            
             prompt = KNOWLEDGE_TEMPLATE.format(
                 today=today,
                 persona=current_persona,
                 rules=BASE_RULES,
                 retrieved_docs=retrieved_docs
             )
-            # ✅ 補上 confidence
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
 

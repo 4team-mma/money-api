@@ -1,4 +1,3 @@
-import os
 from fastapi import APIRouter, Depends, Header, Body, Request
 from sqlalchemy.orm import Session
 from typing import Optional
