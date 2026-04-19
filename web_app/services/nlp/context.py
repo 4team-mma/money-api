@@ -6,6 +6,7 @@ from .patterns import INTENT_PATTERNS
 class IntentContext:
     def __init__(self, text: str, initial_intent: str, initial_confidence: float = 1.0):
         self.text = text
+        self.initial_intent = initial_intent
         self.intent = initial_intent
         self.trace = []
         # 初始化分數池
@@ -20,7 +21,6 @@ class IntentContext:
             self.trace.append(f"[{rule_name}] {intent} +{weight}")
 
     def force(self, intent: str, rule_name: str):
-        """硬規則強制覆蓋"""
         self.intent = intent
         self.trace.append(f"⚡ [HARD_RULE: {rule_name}] -> {intent}")
 
@@ -28,9 +28,8 @@ class IntentContext:
         return self.features.get(name, False)
 
     def finalize(self):
-        """解決 max 紅線：確保有值且類型正確"""
         if not self.scores:
             return self.intent
-        # 改用 lambda 避開 Pylance 對 .get 的型別誤判
+        # 結算最高分
         self.intent = max(self.scores, key=lambda k: self.scores[k])
         return self.intent

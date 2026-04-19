@@ -8,6 +8,8 @@ from datetime import datetime
 import pytz
 import os
 
+
+
 # 🌟 引入所有需要的模板
 from ..prompts.system_prompts import (
     PERSONAS, BASE_RULES, CHAT_TEMPLATE,
@@ -20,92 +22,32 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from ..schemas.bot_schema import RecordResponseSchema
-from .finance_agent_mixai_service import FinanceAgentMixAIService
 
-# 引入 RuleEngine
+# 🚀 引入妳新定義的兩顆大腦與 V2 需要的 NLP 引擎
+from .finance_agent_v1_service import FinanceAgentV1Service
+from .finance_agent_mixai_service import FinanceAgentMixAIService
 from ..services.nlp.context import IntentContext
 from ..services.nlp.engine import RuleEngine
-from ..services.nlp.patterns import INTENT_PATTERNS
-from ..services.nlp.rules import INTENT_RULES
-
-
 
 class FinanceAgentService:
 
     @staticmethod
-    def analyze_intent(message: str) -> str:
-        # 🛡️ 1. 擷取真正的「最新發言」
-        latest_msg = message
-        if "【現在】" in message and "小主人說：" in message:
-            latest_msg = message.split("小主人說：")[-1]
-        elif "]" in message:
-            latest_msg = message.split("]")[-1]
-
-        # 🛡️ 2. 清理系統指令
-        clean_msg = re.sub(r'\[系統指令.*?\]', '', latest_msg)
-        msg = clean_msg.lower()
-
-        # 🚨 第零道防線：理財顧問分析
-        advisor_keywords = ["健檢", "建議", "理財顧問", "檢視", "診斷", "投資建議", "消費基準"]
-        if any(k in msg for k in advisor_keywords):
-            return "ADVISOR"
-
-        # 🌟 🚨 優先防線：系統知識與手冊
-        knowledge_keywords = ["怎麼用", "設定", "成就", "解鎖", "規則", "什麼是", "卡牌", "等級", "怎麼", "如何", "手冊"]
-        if any(k in msg for k in knowledge_keywords):
-            return "KNOWLEDGE"
-
-        # 🚨 第一道核心防線：強化的查詢偵測 (新增了有沒有、過、紀錄)
-        # 只要是問事實、問歷史、問有沒有，通通送去 QUERY
-        query_trigger = [
-            "多少", "剩", "總共", "統計", "分析", "餘額", "明細", "占比", "排行",
-            "有沒有", "吃了沒", "買了沒", "過", "紀錄", "查詢", "找一下",
-            "答案", "結果", "多少錢", "算了沒" 
-        ]
-        if any(q in msg for q in query_trigger):
-            return "QUERY"
-
-        # 🌟 第一點五道防線 (假設性與評估攔截)
-        hypothetical_keywords = ["可以", "夠嗎", "夠不夠", "評估", "能不能", "預算查詢"]
-        if any(k in msg for k in hypothetical_keywords):
-            return "QUERY"
-
-        # 🚨 第二道防線：記帳與轉帳意圖
-        record_keywords = [
-            "花", "買", "記帳", "支出", "消費", "吃了", "花了", "付",
-            "中獎", "收入", "賺", "薪水", "收",
-            "匯", "轉帳", "轉給", "轉到", "轉出", "轉入", "存", "領", "轉"
-        ]
-        has_number = bool(re.search(r'\d+', msg))
-        if any(k in msg for k in record_keywords) and has_number:
-            return "RECORD"
-
-        # 🚨 第三道防線：查詢意圖
-        query_keywords = ["錢", "資產", "銀行", "存款", "台新", "錢包",
-                        "占比", "吃飯", "交通", "工資", "股息", "利息",
-                        "物價", "漲價", "通膨", "cpi", "貴", "嚴重", "指標",
-                        "提醒", "繳費", "行事曆", "忘記", "預算"]
-        if any(k in msg for k in query_keywords):
-            return "QUERY"
-
-        return "CHAT"
-
-    
-    @staticmethod
     def _clean_message(message: str) -> str:
-        """統一的訊息清洗邏輯"""
+        """統一的訊息清洗邏輯，拿掉 [系統指令] 標籤"""
         latest_msg = message
-        # 妳原本的邏輯
-        if "【現在】" in message and "小主人說：" in message:
+        if "小主人說：" in message:
             latest_msg = message.split("小主人說：")[-1]
         elif "]" in message:
             latest_msg = message.split("]")[-1]
         
-        # 清除系統指令並轉小寫
-        clean_msg = re.sub(r'\[系統指令.*?\]', '', latest_msg).strip().lower()
-        return clean_msg
-    
+        # 清除系統指令並轉小寫，並去除頭尾空白
+        return re.sub(r'\[系統指令.*?\]', '', latest_msg).strip()
 
+    @staticmethod
+    def analyze_intent(message: str) -> str:
+        """此方法現在僅作為 V1 的捷徑入口，供舊有代碼相容使用"""
+        clean_msg = FinanceAgentService._clean_message(message)
+        return FinanceAgentV1Service.analyze_intent(clean_msg)
 
     @staticmethod
     async def get_context(
@@ -114,49 +56,37 @@ class FinanceAgentService:
         message: str, 
         persona_key: str | None = "cute", 
         override_intent: str | None = None,
-        version: str = "v1"  # 加上這一個開關，預設是 v1
+        version: str = "v1"
         ) -> dict:
 
         user_id = user.user_id
 
-        # 🛡️ 1. 定義 clean_query
-        clean_query = message
-        if "小主人說：" in message:
-            clean_query = message.split("小主人說：")[-1]
-        elif "]" in message:
-            clean_query = message.split("]")[-1]
-        clean_query = re.sub(r'\[系統指令.*?\]', '', clean_query).strip()
+        # 🛡️ 1. 定義 clean_query (這是給 KNOWLEDGE 或 QUERY 檢索用的)
+        clean_query = FinanceAgentService._clean_message(message)
         
-        # 🧠 2. 確定大腦版本並取得意圖 (變數 intent 在此正式定義)
+        # 🧠 2. 確定大腦版本並取得意圖
         if override_intent:
             intent = override_intent
             confidence = 1.0
         elif version == "v2":
-            mix_res = FinanceAgentMixAIService.analyze_intent(message)
+            # ✅ 調用 V2 旗艦大腦 (傳入乾淨字串，觸發 NLP 跑分引擎)
+            mix_res = FinanceAgentMixAIService.analyze_intent(clean_query)
             intent = mix_res["final_intent"]
             confidence = mix_res["confidence"]
-            print(f"🧠 [V2 大腦啟動] 偵測意圖為: {intent} (信心度: {confidence})")
+            
+            # 詳細 Debug 報告
+            print(f"🧠 [V2 大腦診斷報告]")
+            print(f"   > 原始訊息: {message[:30]}...")
+            print(f"   > 清洗後訊息: {clean_query}")
+            print(f"   > ONNX 初判: {mix_res.get('predicted_intent')} ({mix_res.get('confidence'):.2f})")
+            print(f"   > 規則修正後: {intent}")
         else:
-            intent = FinanceAgentService.analyze_intent(message)
+            # 🏠 調用 V1 舊大腦 (維持原本 Regex 邏輯)
+            intent = FinanceAgentV1Service.analyze_intent(clean_query)
             confidence = 1.0
+            print(f"🏠 [V1 大腦啟動] 意圖: {intent}")
 
-        # 🛡️ 3. [新增且修正] 攔截邏輯：解決「閒聊帶錢」與「感性發言」的區隔
-        # 理由：只有當意圖是 CHAT，且包含錢的關鍵字，且具有「詢問語氣」時才轉 QUERY
-        money_keywords = ["收入", "支出", "多少", "剩", "花費", "總額", "答案"]
-        question_marks = ["？", "?", "多少", "幾", "算", "查詢"]
-        
-        if intent == "CHAT" and any(k in message for k in money_keywords):
-            if any(q in message for q in question_marks):
-                intent = "QUERY"
-                print(f"🛡️ [強制轉換] 偵測到詢問財務問題，轉為 QUERY")
-            # 💡 補充：如果只是說「收入好多好開心」，沒有詢問語氣，就會維持 CHAT
-
-        # 🛡️ 4. 質疑攔截
-        doubt_keywords = ["為什麼", "怎算的", "算錯", "不對", "為啥", "不是吧"]
-        if intent in ["RECORD", "MULTI_RECORD"] and any(k in message for k in doubt_keywords):
-            intent = "QUERY"
-            print(f"🛡️ [攔截] 偵測到質疑語氣，將 {intent} 強制轉為 QUERY")
-
+        # ⏰ 取得當前時間
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         today = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -165,73 +95,39 @@ class FinanceAgentService:
         current_persona = PERSONAS.get(safe_persona_key, PERSONAS["cute"])
 
         # ==========================================
-        # 💡 意圖 A：純閒聊 (CHAT)
+        # 💡 意圖分流組合 Prompt (依序為：CHAT, ADVISOR, RECORD, KNOWLEDGE, QUERY)
         # ==========================================
+        
+        # A: 純閒聊 (CHAT)
         if intent == "CHAT":
-            prompt = CHAT_TEMPLATE.format(
-                today=today,
-                persona=current_persona,
-                rules=BASE_RULES
-            )
-            # ✅ 補上 confidence
+            prompt = CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES)
             return {"intent": "CHAT", "system_prompt": prompt, "confidence": confidence}
 
-        # ==========================================
-        # 💡 意圖 B：理財顧問 (ADVISOR)
-        # ==========================================
+        # B: 理財顧問 (ADVISOR)
         elif intent in ["ADVISOR", "MULTI_ADVISOR"]:
             from .advisor_tools import FinancialAdvisorService
             abnormal_report = await FinancialAdvisorService.get_ai_context(db, user)
-            prompt = ADVISOR_TEMPLATE.format(
-                today=today,
-                persona=PERSONAS["professional"],
-                abnormal_report=abnormal_report
-            )
-            # ✅ 補上 confidence
+            prompt = ADVISOR_TEMPLATE.format(today=today, persona=PERSONAS["professional"], abnormal_report=abnormal_report)
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
-        # ==========================================
-        # 💡 意圖 C：記帳並要求回傳 JSON (RECORD)
-        # ==========================================
+        # C: 記帳 (RECORD)
         elif intent in ["RECORD", "MULTI_RECORD"]:
             from ..models import Account
             first_acc = db.query(Account).filter(Account.user_id == user_id).first()
             default_acc_name = first_acc.account_name if first_acc else "我的錢包"
-
             parser = PydanticOutputParser(pydantic_object=RecordResponseSchema)
-            prompt = RECORD_TEMPLATE.format(
-                today=today,
-                persona=current_persona,
-                default_acc_name=default_acc_name,
-                format_instructions=parser.get_format_instructions()
-            )
-            # ✅ 補上 confidence
+            prompt = RECORD_TEMPLATE.format(today=today, persona=current_persona, default_acc_name=default_acc_name, format_instructions=parser.get_format_instructions())
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
-        # ==========================================
-        # 💡 意圖 D：系統手冊 (KNOWLEDGE)
-        # ==========================================
+        # D: 系統手冊 (KNOWLEDGE)
         elif intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
             from .vector_db_tools import VectorDBTools
-            
-            # 使用清洗過的訊息去向量庫找答案,標準 RAG pipeline
-            # query → embedding → chroma search → rerank(cohere) → context injection → LLM
             retrieved_docs = VectorDBTools.search_manual(clean_query)
-            
-            prompt = KNOWLEDGE_TEMPLATE.format(
-                today=today,
-                persona=current_persona,
-                rules=BASE_RULES,
-                retrieved_docs=retrieved_docs
-            )
+            prompt = KNOWLEDGE_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES, retrieved_docs=retrieved_docs)
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
-
-        # ==========================================
-        # 💡 意圖 E：智能數據查詢 (Text-to-SQL SOP 模式)
-        # ==========================================
+        # E: 智能數據查詢 (Text-to-SQL 完整邏輯)
         elif intent in ["QUERY", "MULTI_QUERY"]:
-            # 🚀 1. 初始化權限資訊與背景 (保留原有邏輯)
             db_info = "【📁 帳本權限資訊】: 你擁有從 2026-01-01 至今的所有歷史明細權限。"
             context_parts = [f"[系統時間]: {today}", db_info]
 
@@ -241,11 +137,7 @@ class FinanceAgentService:
             precise_val = 0
 
             try:
-                # 🛡️ 2. 擷取乾淨訊息
-                clean_query = message.split("小主人說：")[-1] if "小主人說：" in message else message
-                clean_query = re.sub(r'\[系統指令.*?\]', '', clean_query).strip()
-
-                # 🚀 3. 呼叫重構後的 SQL 引擎
+                # 呼叫重構後的 SQL 引擎
                 generated_sql = await SQLGeneratorService.generate_sql(clean_query, user_id)
                 print(f"🕵️‍♂️ [SQL 引擎啟動]：{generated_sql}")
 
@@ -253,13 +145,9 @@ class FinanceAgentService:
                     with SessionLocal() as db_session:
                         result = db_session.execute(text(generated_sql))
                         sql_result = result.fetchall()
-
-                        # 🛡️ 4. 數據處理：強制轉整數並處理 None
                         if sql_result:
                             raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
                             precise_val = int(round(float(raw_val)))
-
-                            # 🔥 修正：把小主人的問題 (clean_query) 塞進去，不讓 AI 猜測「該項目」是什麼
                             context_parts.append(
                                 f"【📊 資料庫精確查詢結果】：\n"
                                 f"針對小主人的提問「{clean_query}」，系統查出的精準總金額為：「{precise_val}」元。"
@@ -272,17 +160,14 @@ class FinanceAgentService:
                 print(f"❌ SQL 執行報警: {e}")
                 context_parts.append(f"【⚠️ 系統異常】: 資料庫連線失敗，請小主人稍後再試。")
 
-            # 🚀 6. 補底參考邏輯 (保留不變)
             if not sql_data_found:
                 context_parts.append("【📊 當前帳戶餘額概況】")
                 context_parts.append(FinanceTools.get_account_summary(db, user_id))
                 context_parts.append("【📅 本月收支參考數據(4月)】")
                 context_parts.append(FinanceTools.get_monthly_stats(db, user_id))
             
-            # 🌟 組合上下文
             full_context = "\n\n".join(context_parts)
 
-            # 🧠 7. 強化版指令規則：強制隔離歷史記憶
             if sql_data_found and "【📊 資料庫精確查詢結果】" in full_context:
                 instruction_rule = (
                     "【最高回答準則 - 嚴格遵守】\n"
@@ -292,7 +177,6 @@ class FinanceAgentService:
                     "4. 請全程使用「正體中文」回答，禁止使用簡體字。\n"
                 )
             elif not sql_data_found:
-                # 把防護也加在補底機制上
                 instruction_rule = (
                     "【最高回答準則】：請直接參考上方的『當前帳戶餘額概況』與『本月收支參考數據』來回答。\n"
                     "嚴禁向小主人要數據！嚴禁重複過去對話中的問答紀錄！"
@@ -300,8 +184,6 @@ class FinanceAgentService:
             else:
                 instruction_rule = "請老實告訴小主人系統查不到這筆資料，不准向小主人索要數據。"
                 
-                
-            # 最終 Prompt 組合：直接組裝字串，徹底刪除多餘的 final_prompt 解決 Pylance 黃線！
             prompt = f"""
             [角色設定]
             {current_persona}
@@ -313,17 +195,14 @@ class FinanceAgentService:
             {BASE_RULES}
             {instruction_rule}
             """
-            
-            # ✅ 補上 confidence
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
 
-        else:
-            # 補底防噴
-            # ✅ 補上 confidence
-            return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES), "confidence": confidence}
+        # 最終保底
+        return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES), "confidence": confidence}
 
     @staticmethod
     def execute_record_chain(system_prompt: str, user_message: str) -> dict:
+        """此方法維持原樣，處理 Llama 3 的 JSON 解析"""
         from pydantic import SecretStr
         from langchain_core.output_parsers import PydanticOutputParser
         from ..schemas.bot_schema import RecordResponseSchema

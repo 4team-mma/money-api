@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from web_app.database import get_db
 from web_app.dependencies import get_current_user
 from web_app.models.models import Member
-# 匯入你剛寫好的超強函數
 from web_app.services.advisor_graph_service import analyze_finance_advice
 
 router = APIRouter()
