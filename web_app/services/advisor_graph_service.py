@@ -1,6 +1,7 @@
 # web_app/services/advisor_graph_service.py
 import json
 import re
+
 from typing import Annotated, Optional
 from typing_extensions import TypedDict
 from sqlalchemy.orm import Session
@@ -15,7 +16,8 @@ from langchain_groq import ChatGroq
 # 💡 小白教學區：把我們需要的資料庫模型和隊友寫好的功能「進口」進來
 from web_app.models.models import Member
 from web_app.routes.analysis import get_cpi_comparison, get_salary_comparison
-
+from web_app.services.advisor_tools import FinancialAdvisorService
+from web_app.prompts.ai_analysis_prompts import SYSTEM_INSTRUCTION
 # ==========================================
 # 1. 定義狀態 (State)
 # ==========================================
@@ -89,32 +91,110 @@ def create_advisor_graph(db: Session, current_user: Member):
         except Exception as e:
             return f"獲取薪資比較資料失敗：{str(e)}"
 
-    # 把工具打包成一個列表
-    tools = [tool_get_cpi_comparison, tool_get_salary_benchmark]
+    
+    # ------------------------------------------
+    # 🌟 工具三：📊 進階分析 Z-Score 異常偵測 Tool
+    # ------------------------------------------
+    @tool
+    async def tool_get_advanced_anomaly_analysis() -> str:
+        """
+        [進階診斷]：當使用者詢問「為什麼我最近存不到錢」、「我的消費正常嗎」或感覺「焦慮」時呼叫。
+        此工具會透過 Z-Score 計算消費是否大幅偏離歷史常態，並識別『生活失衡』的訊號。
+        """
+        try:
+            # 呼叫 FinancialAdvisorService 獲取 context
+            context = await FinancialAdvisorService.get_ai_context(db, current_user)
+            anomaly = context['metrics']['anomaly_analysis']
+            
+            # 建立結構化回傳，方便 AI 進行心理學轉譯
+            report = {
+                "is_anomaly": anomaly['is_anomaly'],
+                "z_score": anomaly['z_score'],
+                "severity": anomaly['severity'],
+                "status_desc": "顯著異常" if anomaly['is_anomaly'] else "正常波動"
+            }
+            return json.dumps(report, ensure_ascii=False)
+        except Exception as e:
+            return f"異常偵測執行失敗：{str(e)}"
+
+    # ------------------------------------------
+    # 🌟 工具四：📈 全局財務視角整合 Tool
+    # ------------------------------------------
+    @tool
+    async def tool_get_global_financial_overview() -> str:
+        """
+        [全局概覽]：當使用者詢問「我現在有多少錢」、「這個月支出多少」、「消費占比」或「整體分析」時呼叫。
+        回傳包含：總支出、月增長率、當前淨資產、前三大消費類別。
+        """
+        try:
+            context = await FinancialAdvisorService.get_ai_context(db, current_user)
+            metrics = context['metrics']
+            top_cats = context['top_categories']
+            
+            overview = {
+                "使用者名稱": context['user_profile']['name'],
+                "職業": context['user_profile']['job'],
+                "本月總支出": f"NT$ {metrics['total_expense']:,}",
+                "支出變動率": metrics['growth_from_last_month'],
+                "當前淨資產": f"NT$ {metrics['current_net_worth']:,}",
+                "前三大消費占比": [f"{i['category']}({i['ratio']}%)" for i in top_cats]
+            }
+            return json.dumps(overview, ensure_ascii=False)
+        except Exception as e:
+            return f"全局數據獲取失敗：{str(e)}"
+    
+    
+# 打包所有工具
+    tools = [
+        tool_get_cpi_comparison, 
+        tool_get_salary_benchmark, 
+        tool_get_advanced_anomaly_analysis, 
+        tool_get_global_financial_overview
+    ]
 
     # ------------------------------------------
     # 🧠 初始化 LLM (大腦)
     # ------------------------------------------
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
+    # 備用模型:
+    # meta-llama/llama-4-scout-17b-16e-instruct
+    # llama-3.3-70b-versatile
+    llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0.2)
     llm_with_tools = llm.bind_tools(tools)
 
     # ------------------------------------------
     # 🤖 定義決策節點
     # ------------------------------------------
     def chatbot_node(state: State):
-        # 💡 動態把使用者的名字塞進 Prompt 裡，讓喵喵更有親切感！
-        sys_prompt = f"""
-        你是 MoneyMMA 的專業理財喵喵顧問。現在正在為小主人「{current_user.name}」服務。
-        請善用你的工具（CPI 比對、薪資比對）來獲取真實數據，再給予溫暖、專業的理財建議。
-        回答結尾請記得加上「喵！」。
+        # 🌟 1. 引入 datetime 獲取現在時間
+        from datetime import datetime
+        now = datetime.now()
+        current_year = now.strftime("%Y")
+        current_month = now.strftime("%m")
+
+        # 🌟 2. 把時間與防呆指令塞進 Prompt 裡
+        full_sys_prompt = f"""
+        {SYSTEM_INSTRUCTION}
+        
+        現在正在為小主人「{current_user.name}」進行深度財務諮詢。
+        [系統當前時間]：{current_year} 年 {current_month} 月。
+        
+        【操作準則】：
+        1. 若使用者詢問具體數據，請優先使用『全局財務視角整合工具』。
+        2. 若使用者感到不安或數據異常，請使用『進階分析 Z-Score 工具』。
+        3. ⚠️ 若需呼叫 CPI 或薪資工具，且使用者未指定時間，請務必直接代入系統當前時間 ({current_year}, {current_month}) 作為參數！
+        4. 回答必須溫暖、專業，結尾記得帶「喵！」。
+        
+        「風格限制」：
+        「【輸出風格】：請將數據融合成一段流暢、自然的綜合建議。絕對不要像機器人一樣重複相同的句型（例如一直重複『屬於平穩狀態』），請挑出漲跌幅最明顯的 1~2 項重點提醒即可。」
+        
         """
-        messages = [SystemMessage(content=sys_prompt)] + state["messages"]
+        messages = [SystemMessage(content=full_sys_prompt)] + state["messages"]
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
-
     # ------------------------------------------
     # 🕸️ 組裝 Graph (畫出流程圖)
     # ------------------------------------------
+    # 組裝流程圖
     graph_builder = StateGraph(State)
     graph_builder.add_node("chatbot", chatbot_node)
     graph_builder.add_node("tools", ToolNode(tools=tools)) 
@@ -123,7 +203,8 @@ def create_advisor_graph(db: Session, current_user: Member):
     graph_builder.add_conditional_edges("chatbot", tools_condition)
     graph_builder.add_edge("tools", "chatbot")
     
-    return graph_builder.compile()
+    return graph_builder.compile()    
+
 
 # ==========================================
 # 3. 給外部 API (Router) 呼叫的進入點

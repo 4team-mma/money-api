@@ -308,7 +308,6 @@ async def chat_with_meow(
         # 💡 通道 B：其他意圖
         try:
             # 🌟 邏輯：如果在 Render 且是 QUERY 意圖，自動導向 Groq 70B
-            # 🌟 邏輯：如果在 Render 且是 QUERY 意圖，自動導向 Groq 70B
             active_provider = config.provider
             active_model = config.model_version
             
