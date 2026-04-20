@@ -1,13 +1,18 @@
 # routers/admin_ai_helper.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from ..services.ollama_service import OllamaService
 from ..schemas.ai import DevRequest
+from ..schemas.admin_ragB1test import RagTestRequest, RagLogCreate
 from ..dependencies import admin_required
-from ..models import Member
+from ..models import Member,RagPerformanceLog
 #from langchain_chroma import Chroma
 from ..services.vector_db_tools import VectorDBTools
+from ..services.admin_lab_service import AdminLabService
 import os
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session # 🌟 解決 Undefined name `Session`
+from ..database import get_db # 🌟 解決 Undefined name `get_db`
+
 
 router = APIRouter()
 
@@ -106,3 +111,47 @@ async def generate_code(request: DevRequest, current_admin: Member = Depends(adm
             yield f"\n\n[系統錯誤]: {str(e)}"
 
     return StreamingResponse(stream_generator(), media_type="text/plain")
+
+
+
+@router.post("/rag_test")
+async def run_rag_test(request: RagTestRequest, current_admin: Member = Depends(admin_required)):
+    # 直接呼叫專業的 Service 處理
+    result = await AdminLabService.run_rag_performance_test(
+        query=request.query,
+        hnsw_m=request.hnsw_m,
+        hnsw_ef=request.hnsw_ef,
+        top_k=request.top_k
+    )
+    
+    # 加上 GPU 監控數據回傳給前端儀表板
+    hw_status = AdminLabService.get_gpu_status()
+    return {**result, **hw_status}
+
+@router.post("/rag_test/log")
+async def save_rag_log(
+    data: RagLogCreate, 
+    db: Session = Depends(get_db), 
+    current_admin: Member = Depends(admin_required)
+):
+    try:
+        new_log = RagPerformanceLog(
+            user_id=current_admin.user_id,
+            query_text=data.query_text,
+            hnsw_m=data.hnsw_m,
+            hnsw_ef=data.hnsw_ef,
+            retrieval_ms=data.retrieval_ms,
+            llm_duration_s=data.llm_duration_s,
+            tokens_per_sec=data.tokens_per_sec,
+            vram_usage_mb=data.vram_usage_mb,
+            gpu_temp=data.gpu_temp,
+            total_chunks=data.total_chunks,
+            human_score=data.human_score,
+            ai_response=data.ai_response
+        )
+        db.add(new_log)
+        db.commit()
+        return {"status": "success", "message": "實驗數據已存入"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"儲存失敗: {str(e)}")
