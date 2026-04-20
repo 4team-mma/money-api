@@ -23,7 +23,8 @@ from .models import (
     Invoice,
     InvoiceItem,
     IntentReviewLog,
-    ASRCorrectionLog
+    ASRCorrectionLog,
+    RagPerformanceLog
 
 )
 
