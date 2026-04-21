@@ -28,7 +28,9 @@ class OllamaService:
                 res = await client.post(
                     f"{base_url}/api/chat",
                     json=payload,
-                    timeout=120.0
+                    # 原本120.0
+                    #timeout=300.0
+                    timeout=httpx.Timeout(60.0, connect=5.0)
                 )
 
                 if res.status_code == 200:

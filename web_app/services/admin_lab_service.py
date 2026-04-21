@@ -14,9 +14,8 @@ class AdminLabService:
         
         # 🌟 透過 search_kwargs 注入實驗參數
         docs = vectorstore.similarity_search(
-            query[:1000], 
-            k=top_k,
-            search_kwargs={"k": top_k, "ef_search": hnsw_ef}
+            query, 
+            k=top_k
         )
         retrieval_ms = int((time.time() - start_time) * 1000)
 
