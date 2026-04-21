@@ -1,4 +1,8 @@
-# 這是一個通用的引擎，它不關心規則內容，只負責執行。
+# 這是一個通用的引擎，它不關心規則內容，只負責執行前三項:
+# 1.排序規則rule
+# 2.先跑hard Rules(強制規則)，命中就return，無視其他規則。
+# 3.再跑soft Rules(加分系統)，不會覆蓋,只會加分。
+# 4.最後finalize選分數最高
 # ctx.trace 是幫助debug用
 
 #from typing import List, Dict
