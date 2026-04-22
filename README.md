@@ -69,7 +69,6 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add customtkinter
 - uv add pyinstaller
 2026.04.02更新:
-- uv add cohere # 輕量級的二次排序 (Re-ranking)功能
 - uv add anthropic # 育育更新
 - uv add pre-commit --dev # key檢查機器人:需放在根目錄
 - uv add detect-secrets --dev # 檢查白名單
@@ -78,6 +77,8 @@ git clone https://github.com/4team-mma/money-api.git
 2026.04.15更新：
 - uv add langgraph 
 - uv add langchain-core
+2026.04.22更新：
+- uv add fastembed (向量模型替代huggingface的)->請重新執行rm -rf ./.chromadb
 
 
 ## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):

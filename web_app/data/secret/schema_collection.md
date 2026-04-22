@@ -30,6 +30,18 @@
 - **搜尋邏輯**: 查詢活動花費時，務必用 `OR` 連接備註與標籤欄位。
 - `add_date`: 記帳日期。
 
+## 3-1. add_items (訂單品項明細 - adds 的子表)
+- `item_id`: 主鍵。
+- `add_id`: 外鍵，對應 adds 表的 add_id（一對多關係）。
+- `sort_order`: 品項排序，確保外送訂單明細順序正確。
+- `item_name`: 品項名稱（如：排骨飯、珍奶、外送費）。
+- `item_amount`: 該品項金額。
+- `item_class`: 品項子分類（如：飲食、服務費）。
+- **查詢邏輯**: 若使用者詢問某筆訂單的明細，用 `WHERE add_id = {add_id}` 查詢。
+- **彙總邏輯**: 若要分析某類品項消費，可跨訂單搜尋 `item_name LIKE '%關鍵字%'`。
+- **注意**: 並非所有 adds 都有對應的 add_items，手動記帳的紀錄不會有子明細。
+
+
 ## 4. transactions (轉帳紀錄)
 - `transaction_id`: 主鍵。
 - `from_account_id`: 轉出帳戶。
@@ -88,3 +100,5 @@
 
 ## 18. password_resets (密碼重設)
 - 紀錄 OTP 驗證碼與過期時間。
+
+

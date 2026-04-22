@@ -1,30 +1,28 @@
-# python ingest_intents.py
+# ingest_intents.py
 import os
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+# 🌟 核心改動：改用地端 FastEmbed
+from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 import chromadb
 
-# 🌟 匯入你的資料庫連線與模型 (請根據你專案的實際路徑調整)
+# 🌟 匯入資料庫連線與模型
 from web_app.database import SessionLocal
-from web_app.models.models import IntentReviewLog # 假設這張表對應的 ORM Model 在這裡
+from web_app.models.models import IntentReviewLog
 
 load_dotenv()
 
 # 檔案路徑設定
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# 你的基礎題庫
+# 你的基礎題庫 (Excel)
 TEST_DATA_FILE = os.path.join(BASE_DIR, "web_app", "temp", "excel", "hard_cases.xlsx")
 CHROMA_PERSIST_DIR = os.path.join(BASE_DIR, ".chromadb")
 
 
 def ingest_intents():
-    hf_token = os.getenv("HF_TOKEN")
-    if not hf_token:
-        print("❌ 請先在 .env 檔案中設定 HF_TOKEN")
-        return
-
+    """建立或更新 1F 意圖警衛室 (地端向量版)"""
+    
     texts = []
     metadatas = []
 
@@ -32,8 +30,8 @@ def ingest_intents():
     # 來源 A: 讀取基礎題庫 (Excel)
     # ==========================================
     if os.path.exists(TEST_DATA_FILE):
-        #print(f"📊  loading excel_base: {TEST_DATA_FILE}")
         df = pd.read_excel(TEST_DATA_FILE)
+        # 過濾掉空值，確保資料乾淨
         df = df.dropna(subset=['text', 'intent'])
 
         texts.extend(df['text'].astype(str).tolist())
@@ -45,9 +43,9 @@ def ingest_intents():
     # ==========================================
     # 🌟 來源 B: 讀取人類導師修正的錯題 (MySQL)
     # ==========================================
+    db = SessionLocal()
     try:
-        db = SessionLocal()
-        #print("🗄️ connecting MySQL 接收人工修正的錯題...")
+        # 撈取已經由人類審核過的正確意圖紀錄
         reviewed_logs = db.query(IntentReviewLog).filter(
             IntentReviewLog.is_reviewed == 1,
             IntentReviewLog.corrected_intent.isnot(None)
@@ -68,37 +66,40 @@ def ingest_intents():
         print("❌ 沒有任何資料可以建立警衛室，腳本結束。")
         return
 
-    #print(f"\n🔍 總共準備了 {len(texts)} 筆意圖範例準備進行向量化！")
-
     # ==========================================
-    # 準備 ChromaDB 寫入
+    # 準備 ChromaDB 寫入 (1F 警衛室清理)
     # ==========================================
     if os.path.exists(CHROMA_PERSIST_DIR):
-        #print("🧹 準備清理舊的意圖資料庫...")
         client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
         try:
+            # 🔪 只刪除 1F 的房間，不影響其他資料
             client.delete_collection("intent_examples")
             print("✅ clean old intend library database")
         except Exception:
             print("💡 1樓警衛室目前還是空的，我們直接開始動工建立！")
-            pass
 
-    #print("🧠 正在啟動 HuggingFace 向量化引擎...")
-    embeddings = HuggingFaceEndpointEmbeddings(
-        model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        huggingfacehub_api_token=hf_token
+    # 🚀 啟動 FastEmbed 地端向量化引擎 (與全專案保持一致)
+    print("🚀 [VectorDB] 正在加載 FastEmbed 地端模型 (BAAI/bge-small-zh-v1.5)...")
+    embeddings = FastEmbedEmbeddings(
+        model_name="BAAI/bge-small-zh-v1.5",
+        cache_dir="./web_app/models/fastembed_cache"
     )
 
     print("💾 turn vector to 1F intent_examples...")
-    Chroma.from_texts(
-        texts=texts,
-        metadatas=metadatas,
-        embedding=embeddings,
-        collection_name="intent_examples",
-        persist_directory=CHROMA_PERSIST_DIR
-    )
-
-    print("\n🎉  MySQL 1F Installation is completed")
+    try:
+        # 使用原生 Client 模式寫入，解決 Pylance 報錯並提升穩定性
+        client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        
+        Chroma.from_texts(
+            texts=texts,
+            metadatas=metadatas,
+            embedding=embeddings,
+            collection_name="intent_examples",
+            client=client # 🌟 使用 client 模式
+        )
+        print("\n🎉  MySQL 1F Installation is completed")
+    except Exception as e:
+        print(f"❌ 存入 1F 意圖資料庫失敗: {e}")
 
 if __name__ == "__main__":
     ingest_intents()

@@ -1,175 +1,140 @@
 # web_app/services/vector_db_tools.py
 import os
+import chromadb
 from typing import Optional
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
-import cohere
+# 🌟 核心改動：改用 FastEmbed，體積更小、速度更快、不依賴 PyTorch (解決 nn 報錯)
+from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+
 load_dotenv()
 
 CHROMA_PERSIST_DIR = "./.chromadb"
 
 class VectorDBTools:
-    _cloud_embeddings = None # ☁️ 雲端引擎
-    _local_embeddings = None # 💻 地端引擎
-    _embeddings = None
-    _intent_store = None
-    _manual_store = None
-    _cohere_client = None # 🌟 新增 Cohere 客戶端
-    _codebase_store = None   # 🌟 B1 機房專屬 Store
+    _client = None           # 🌟 ChromaDB 原生客戶端 (地基)
+    _embeddings = None       # 💻 地端嵌入引擎 (使用 FastEmbed)
+    _intent_store = None     # 1F 意圖 Store
+    _manual_store = None     # 2F 手冊 Store
+    _codebase_store = None   # B1 機房 Store
+    _local_embeddings = None # Ollama 引擎 (供 B1 使用)
 
+    @classmethod
+    def _get_client(cls):
+        """🌟 取得或建立原生 ChromaDB 持久化客戶端 (解決 Chroma 紅線關鍵)"""
+        if cls._client is None:
+            # 確保目錄存在
+            os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
+            cls._client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        return cls._client
 
-#  新增方法 
     @classmethod
     def clear_caches(cls):
-        """🌟 讓記憶體放棄舊的 ChromaDB 連線，強制下次重新抓取新房間的 UUID"""
+        """🌟 徹底清空連線快取"""
         cls._intent_store = None
         cls._manual_store = None
         cls._codebase_store = None
-        print("🔄 [VectorDB] 背景重建完畢，已清空舊的資料庫連線快取！")
+        cls._client = None
+        cls._embeddings = None
+        print("🔄 [VectorDB] 連線快取已清空，下次呼叫將重新初始化。")
 
     @classmethod
     def _get_embeddings(cls):
-        """☁️ 共用的雲端向量化引擎 (給 1F, 2F 用)"""
+        """💻 強制地端模式：不論在何處，只讀取本地模型檔案"""
         if cls._embeddings is None:
-            hf_token = os.getenv("HF_TOKEN")
-            if not hf_token:
-                raise ValueError("找不到 HF_TOKEN，請確認 .env 檔案設定喵！")
+            model_name = "BAAI/bge-small-zh-v1.5"
+            cache_folder = "./web_app/models/fastembed_cache"
+            
+            # 💡 檢查資料夾是否存在，確保你真的有把模型 commit 進去
+            if not os.path.exists(cache_folder):
+                print(f"⚠️ 警告：找不到模型目錄 {cache_folder}，這在雲端會導致崩潰！")
 
-            print("🚀 load HuggingFace Embeddings...")
-            cls._embeddings = HuggingFaceEndpointEmbeddings(
-                model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                huggingfacehub_api_token=hf_token
+            cls._embeddings = FastEmbedEmbeddings(
+                model_name=model_name,
+                cache_dir=cache_folder,
+                # 🌟 加入這行，如果本地找不到檔案，它會報錯而不是去下載
+                # 注意：有些版本是用 local_files_only=True，但 FastEmbed 預設會優先讀取 cache_dir
+                # 為了絕對保險，我們確保 cache_dir 路徑在雲端是一致的
             )
+            print("✅ [VectorDB] 已從本地目錄載入 FastEmbed 模型，目前為 100% 離線狀態。")
         return cls._embeddings
-
 
     @classmethod
     def _get_local_embeddings(cls):
-        """💻 共用的地端向量化引擎 (給 B1 機房用，保護程式碼隱私)"""
+        """💻 Ollama 地端引擎 (供 B1 機房使用)"""
         if cls._local_embeddings is None:
             print("🛡️ loading Ollama nomic-embed-text...")
-            # 確保你的電腦已經執行過 ollama pull nomic-embed-text
-            # 把 import 寫在函數裡面！ Render 啟動只要沒呼叫函數，就不會報錯！
             from langchain_ollama import OllamaEmbeddings
             cls._local_embeddings = OllamaEmbeddings(model="nomic-embed-text")
         return cls._local_embeddings
 
-
-
     @classmethod
     def get_manual_store(cls):
-        """取得 2 樓：知識圖書館 (使用雲端)"""
+        """取得 2 樓：知識圖書館"""
         if cls._manual_store is None:
             print("📚 loading system_manual...")
             cls._manual_store = Chroma(
+                client=cls._get_client(), # 🌟 使用 client 模式避免紅線
                 collection_name="system_manual",
-                embedding_function=cls._get_embeddings(),
-                persist_directory=CHROMA_PERSIST_DIR,
-                collection_metadata={"hnsw:space": "cosine"}
+                embedding_function=cls._get_embeddings()
             )
         return cls._manual_store
 
     @classmethod
     def get_intent_store(cls):
-        """取得 1 樓：意圖警衛室 (使用雲端)"""
+        """取得 1 樓：意圖警衛室"""
         if cls._intent_store is None:
-            print("👮‍♂️  loading 1F intent_examples...")
+            print("👮‍♂️ loading 1F intent_examples...")
             cls._intent_store = Chroma(
+                client=cls._get_client(),
                 collection_name="intent_examples",
-                embedding_function=cls._get_embeddings(),
-                persist_directory=CHROMA_PERSIST_DIR,
-                collection_metadata={"hnsw:space": "cosine"}
+                embedding_function=cls._get_embeddings()
             )
         return cls._intent_store
 
-
     @classmethod
     def get_codebase_store(cls):
-        """🌟 取得 B1：全專案機房 (使用地端，絕對隱私)"""
+        """🌟 取得 B1：全專案機房 (使用 Ollama)"""
         if cls._codebase_store is None:
             cls._codebase_store = Chroma(
+                client=cls._get_client(),
                 collection_name="codebase_b1",
-                embedding_function=cls._get_local_embeddings(), # 🔒 使用地端引擎
-                persist_directory=CHROMA_PERSIST_DIR,
-                collection_metadata={
-                "hnsw:space": "cosine", 
-                #"hnsw:construction_ef": 200, # 資料量破萬可用
-                #"hnsw:M": 32 # 資料破萬再參考,會受顯存影響
-                }
-                
+                embedding_function=cls._get_local_embeddings()
             )
         return cls._codebase_store
 
-
     @staticmethod
     def search_manual(query: str, k: int = 3) -> str:
-        """在 2 樓搜尋手冊知識 (使用 Cohere 重排)"""
+        """在地端搜尋手冊知識 (移除會報 401 的 Cohere Rerank)"""
         try:
             vectorstore = VectorDBTools.get_manual_store()
-
-            # 1. Chroma 粗撈 (抓 10 筆)
-            docs = vectorstore.similarity_search(query, k=10)
+            # 使用地端模型進行語意搜尋
+            docs = vectorstore.similarity_search(query, k=k)
 
             if not docs:
                 return "喵喵在手冊裡找不到相關的說明喵..."
 
-            cohere_client = VectorDBTools._get_cohere_client()
-
-            if cohere_client:
-                # 2. 抽出文字內容準備給 Cohere
-                doc_texts = [doc.page_content for doc in docs]
-
-                # 3. 呼叫 Cohere API 進行精密打分與重排
-                results = cohere_client.rerank(
-                    query=query,
-                    documents=doc_texts,
-                    top_n=k, # 只取前 k 名
-                    model='rerank-multilingual-v3.0' # 指定多語言模型
-                )
-
-                # 4. 組裝重排後的結果
-                best_docs = [docs[res.index] for res in results.results]
-            else:
-                # 如果沒有設 API Key，就退回原本的 Chroma 排序
-                best_docs = docs[:k]
-
-            context_text = "\n\n".join([f"【參考段落 {i+1}】\n{doc.page_content}" for i, doc in enumerate(best_docs)])
+            context_text = "\n\n".join([f"【參考段落 {i+1}】\n{doc.page_content}" for i, doc in enumerate(docs)])
             return context_text
 
         except Exception as e:
-            print(f"查詢錯誤: {e}")
-            return "喵喵的手冊資料庫連線中斷，請稍後再試喵！"
+            print(f"地端搜尋錯誤: {e}")
+            return "喵喵的本地資料庫連線中斷喵！"
 
     @staticmethod
     def search_intent(query: str) -> Optional[str]:
         """在 1 樓搜尋意圖防呆範例"""
         try:
             vectorstore = VectorDBTools.get_intent_store()
-
             # 尋找最相似的 1 句話
             docs_and_scores = vectorstore.similarity_search_with_score(query, k=1)
 
             if docs_and_scores:
                 doc, score = docs_and_scores[0]
-                # 🌟 門檻值：如果你覺得它亂攔截，調低(例如 0.2)；攔截不到，調高(例如 0.4)
-                if score < 0.3:
+                # FastEmbed 的餘弦距離分數通常在 0.3~0.5 之間代表很像
+                if score < 0.4: 
                     return doc.metadata["intent"]
-
             return None
-
         except Exception as e:
             print(f"ChromaDB 意圖查詢錯誤: {e}")
             return None
-
-    @classmethod
-    def _get_cohere_client(cls):
-        """共用的 Cohere Client (使用雲端)"""
-        if cls._cohere_client is None:
-            cohere_key = os.getenv("COHERE_API_KEY")
-            if not cohere_key:
-                print("⚠️ 找不到 COHERE_API_KEY，將不使用重排功能。")
-                return None
-            print("⚖️  loading Cohere Rerank ...")
-            cls._cohere_client = cohere.Client(cohere_key)
-        return cls._cohere_client

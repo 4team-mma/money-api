@@ -73,3 +73,28 @@ class AddRecordUpdate(BaseModel):
     add_member: Optional[str] = None
     add_tag: Optional[str] = None
     add_note: Optional[str] = None
+
+
+#### 這邊是Add_item表格的schemas
+# schemas/add.py 新增
+
+class AddItemCreate(BaseModel):
+    sort_order: int = 0
+    item_name: str
+    item_amount: Decimal
+    item_class: Optional[str] = None
+
+class AddItemResponse(BaseModel):
+    item_id: int
+    add_id: int
+    sort_order: int
+    item_name: str
+    item_amount: Decimal
+    item_class: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class AddRecordWithItemsResponse(AddRecordResponse):
+    items: List[AddItemResponse] = []
