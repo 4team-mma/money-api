@@ -78,8 +78,9 @@ git clone https://github.com/4team-mma/money-api.git
 - uv add langgraph 
 - uv add langchain-core
 2026.04.22更新：
-- uv add fastembed (向量模型替代huggingface的)->請重新執行rm -rf ./.chromadb
-
+- uv add fastembed (向量模型替代huggingface的)
+->請重新執行rm -rf ./.chromadb (MacOS) ,win系列請執行rm -r -force .chromadb
+- uv add pynvml
 
 ## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):
 - uv add --dev peft accelerate

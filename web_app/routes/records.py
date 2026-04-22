@@ -22,6 +22,7 @@ import math  #  用於計算總頁數
 router = APIRouter()
 
 
+
 # 1. 讀取紀錄 API (支援分頁與搜尋)
 @router.get("/")
 async def get_records(
@@ -365,14 +366,13 @@ async def ai_create_record(
     """
     接收截圖 → LLaVA 解析 → 寫入 adds + add_items
     """
-    LLAVA_BASE_URL = "http://localhost:11434"
-    LLAVA_MODEL    = "llava"  # 你 ollama 下載的 model 名稱，確認一下
 
     # 1. 讀取圖片
     image_bytes = await file.read()
 
     # 2. LLaVA 解析
-    parsed = await LLaVAService.parse_receipt_image(LLAVA_BASE_URL, LLAVA_MODEL, image_bytes)
+    # 呼叫改成
+    parsed = await LLaVAService.parse_receipt_image(image_bytes)
 
     if "error" in parsed:
         raise HTTPException(status_code=422, detail=parsed["error"])
@@ -420,11 +420,10 @@ async def ai_parse_receipt(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
-    LLAVA_BASE_URL = "http://localhost:11434"
-    LLAVA_MODEL = "llava"
+
 
     image_bytes = await file.read()
-    parsed = await LLaVAService.parse_receipt_image(LLAVA_BASE_URL, LLAVA_MODEL, image_bytes)
+    parsed = await LLaVAService.parse_receipt_image(image_bytes)
 
     if "error" in parsed:
         raise HTTPException(status_code=422, detail=parsed["error"])

@@ -2,9 +2,13 @@
 import httpx
 import base64
 import logging
-from pathlib import Path
+import pynvml  # ✅ 1. 引入 pynvml
 
 logger = logging.getLogger(__name__)
+
+# ✅ 設定集中在這裡，routes 不需要知道
+LLAVA_BASE_URL = "http://localhost:11434"
+LLAVA_MODEL = "llava-phi3"
 
 class LLaVAService:
 
@@ -14,15 +18,21 @@ class LLaVAService:
         return base64.b64encode(image_bytes).decode("utf-8")
 
     @staticmethod
-    async def parse_receipt_image(base_url: str, model_id: str, image_bytes: bytes) -> dict:
+    async def parse_receipt_image(image_bytes: bytes) -> dict:
         """
         用 LLaVA 解析訂單截圖，回傳結構化 JSON
         只有在使用者上傳圖片時才會被呼叫
         """
         image_b64 = LLaVAService.encode_image_to_base64(image_bytes)
 
-        system_prompt = """你是一個訂單解析助手。
-請分析圖片中的訂單資訊，並**只回傳 JSON 格式**，不要有任何多餘文字。
+        system_prompt = """
+        
+        你是訂單 OCR 解析器。
+規則：
+1. 只擷取「品項名稱」和「該品項金額」，忽略折扣、優惠券、服務費
+2. add_amount = 總計（含稅）的數字
+3. 如果有「- $xx」折扣行，不要列為品項
+4. 回傳純 JSON，不要解釋
 格式如下：
 {
   "store": "店名",
@@ -37,31 +47,23 @@ class LLaVAService:
 注意：add_amount 必須等於所有 items 的 item_amount 總和。"""
 
         payload = {
-            "model": model_id,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": f"data:image/jpeg;base64,{image_b64}"
-                        },
-                        {
-                            "type": "text",
-                            "text": "請解析這張訂單截圖"
-                        }
-                    ]
-                }
-            ],
-            "stream": False,
-            "options": {
-                "temperature": 0.1  # 解析任務要非常穩定
-            }
+    "model": LLAVA_MODEL,   # ← 用常數，不用參數
+    "messages": [
+        {
+            "role": "user",
+            "content": system_prompt + "\n\n請解析這張訂單截圖",  # ← 純字串
+            "images": [image_b64]  # ← base64，不加 data:image/jpeg;base64, 前綴
         }
+    ],
+    "stream": False,
+    "options": {
+        "temperature": 0.1
+    }
+}
 
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
-                res = await client.post(f"{base_url}/api/chat", json=payload)
+                res = await client.post(f"{LLAVA_BASE_URL}/api/chat", json=payload)
 
                 if res.status_code != 200:
                     logger.error(f"LLaVA Error {res.status_code}: {res.text}")
