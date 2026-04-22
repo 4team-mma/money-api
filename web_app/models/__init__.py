@@ -24,7 +24,8 @@ from .models import (
     InvoiceItem,
     IntentReviewLog,
     ASRCorrectionLog,
-    RagPerformanceLog
+    RagPerformanceLog,
+    AddItem
 
 )
 

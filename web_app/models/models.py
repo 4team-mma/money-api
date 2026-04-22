@@ -752,3 +752,35 @@ class RagPerformanceLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user = relationship("Member")
+
+# 24. 記帳明細子表格 (多模態外送/網購訂單解析)
+class AddItem(Base):
+    __tablename__ = "add_items"
+
+    item_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, unique=True
+    )
+    
+    # 關聯到 adds 表格的 add_id，並設定級聯刪除 (CASCADE)
+    add_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("adds.add_id", ondelete="CASCADE"), nullable=False
+    )
+
+    # 確保外送訂單的明細順序不會亂掉
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    # 品項名稱與單一品項金額
+    item_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    item_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    
+    # 子分類，允許為空 (因有些品項可能一時無法精準分類)
+    item_class: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 建立與主記帳表 (AddRecord) 的關聯，方便查詢時一併撈出明細
+    # 這裡的 "AddRecord" 對應到你上面第 3 點的 class 名稱
+    add_record = relationship("AddRecord", backref="items")
