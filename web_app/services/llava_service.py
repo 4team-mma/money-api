@@ -2,15 +2,40 @@
 import httpx
 import base64
 import logging
-import pynvml  # ✅ 1. 引入 pynvml
+import pynvml  
 
 logger = logging.getLogger(__name__)
 
 # ✅ 設定集中在這裡，routes 不需要知道
 LLAVA_BASE_URL = "http://localhost:11434"
-LLAVA_MODEL = "llava-phi3"
+# LLAVA_MODEL = "llava-phi3"  # ← 原本寫死的註解掉，改用動態取得
 
 class LLaVAService:
+
+    @staticmethod
+    def _get_dynamic_model() -> str:
+        """
+        [新增] 動態檢查 GPU VRAM。
+        為了測試穩定性，將門檻設為 15GB，確保 8GB 顯卡一定會跑 4b 模型。
+        """
+        try:
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            free_bytes = int(info.free)  # type: ignore
+            free_vram_gb = free_bytes / (1024 ** 3)
+            pynvml.nvmlShutdown()
+
+            # 將門檻設高（例如 15.0），強制讓 8GB 顯卡走 else 路徑載入 4b
+            if free_vram_gb > 15.0:
+                logger.info(f"📊 [VRAM 監控] 剩餘顯存: {free_vram_gb:.2f} GB -> 資源極其充足，載入 qwen3-vl:8b")
+                return "qwen3-vl:8b"
+            else:
+                logger.info(f"📊 [VRAM 監控] 剩餘顯存: {free_vram_gb:.2f} GB -> 測試模式，載入 qwen3-vl:4b")
+                return "qwen3-vl:4b"
+        except Exception as e:
+            logger.warning(f"📊 [VRAM 監控] 無法讀取 VRAM，預設安全使用 qwen3-vl:4b。錯誤: {e}")
+            return "qwen3-vl:4b"
 
     @staticmethod
     def encode_image_to_base64(image_bytes: bytes) -> str:
@@ -24,30 +49,31 @@ class LLaVAService:
         只有在使用者上傳圖片時才會被呼叫
         """
         image_b64 = LLaVAService.encode_image_to_base64(image_bytes)
+        
+        # ✅ 2. 呼叫動態模型選擇器
+        target_model = LLaVAService._get_dynamic_model()
 
         system_prompt = """
-        
-        你是訂單 OCR 解析器。
-規則：
-1. 只擷取「品項名稱」和「該品項金額」，忽略折扣、優惠券、服務費
-2. add_amount = 總計（含稅）的數字
-3. 如果有「- $xx」折扣行，不要列為品項
-4. 回傳純 JSON，不要解釋
-格式如下：
+
+你是訂單 OCR 解析器。
+
+⚠️ 你必須只輸出「合法 JSON」，不能包含任何說明、標點或多餘文字。
+⚠️ 不允許出現 ```json 或任何 markdown
+
+格式：
 {
-  "store": "店名",
-  "add_amount": 總金額數字,
+  "store": "...",
+  "add_amount": 數字,
   "add_class": "飲食",
-  "add_note": "店名 訂單",
+  "add_note": "...",
   "items": [
-    {"item_name": "品項名稱", "item_amount": 金額數字, "item_class": "飲食"},
-    {"item_name": "外送費",   "item_amount": 金額數字, "item_class": "服務費"}
+    {"item_name": "...", "item_amount": 數字, "item_class": "飲食"}
   ]
 }
-注意：add_amount 必須等於所有 items 的 item_amount 總和。"""
+"""
 
         payload = {
-    "model": LLAVA_MODEL,   # ← 用常數，不用參數
+    "model": target_model,  # ✅ 3. 這裡改成剛剛抓到的 target_model
     "messages": [
         {
             "role": "user",
@@ -77,7 +103,13 @@ class LLaVAService:
 
         except Exception as e:
             logger.error(f"LLaVA Service Error: {str(e)}")
-            return {"error": f"圖片解析失敗：{str(e)[:80]}"}
+            return {
+                "store": "辨識失敗",
+                "add_amount": 0,
+                "add_class": "飲食",
+                "add_note": f"錯誤: {str(e)[:50]}",
+                "items": []
+            }
 
     @staticmethod
     def _safe_parse_json(raw_text: str) -> dict:
