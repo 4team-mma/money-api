@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 from datetime import datetime, date
 import pytz
-from ..models import AddRecord, Account, Transaction, Notification, Budget, SavingsGoal,AddItem
+from ..models import AddRecord, Account, Transaction, SavingsGoal,AddItem,Budget,Notification
 from web_app.services.game_service import GameService
 from sqlalchemy import func
 
@@ -25,14 +25,22 @@ class RecordsService:
     @staticmethod
     def create_add_record(db: Session, user_id: int, data: dict):
         amt = Decimal(str(data.get("add_amount", 0)))
-        account = db.query(Account).filter(
-            Account.user_id == user_id,
-            Account.account_name == data.get("account_name")
-        ).first()
+
+        # ✅ 正確抓 account
+        account_id = data.get("account_id")
+
+        if account_id:
+            account = db.query(Account).filter(
+                Account.user_id == user_id,
+                Account.account_id == account_id
+            ).first()
+        else:
+            account = db.query(Account).filter(
+                Account.user_id == user_id
+            ).first()
+
         if not account:
-            account = db.query(Account).filter(Account.user_id == user_id).first()
-        if not account:
-            raise ValueError("小主人還沒建帳戶喵")
+            raise ValueError("帳戶不存在")
 
         new_rec = AddRecord(
             user_id=user_id,
@@ -44,15 +52,20 @@ class RecordsService:
             account_id=account.account_id,
             add_member=data.get("add_member", "自己"),
             add_tag=data.get("add_tag", "需要"),
-            add_note=data.get("add_note", "語音記帳")
+            add_note=data.get("add_note", "語音記帳"),
+            store_name=data.get("store_name"),
+            order_number=data.get("order_number"),
         )
+
         if new_rec.add_type:
             account.current_balance += amt
         else:
             account.current_balance -= amt
+
         db.add(new_rec)
         db.commit()
         return True
+
 
     @staticmethod
     def create_transfer(db: Session, user_id: int, data: dict):

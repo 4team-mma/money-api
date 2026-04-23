@@ -1,8 +1,10 @@
+# gemini_service.py
 import logging
 import re
 from typing import Optional, List, Callable
 from google import genai
 from google.genai import types
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -224,3 +226,96 @@ class GeminiService:
                 )
                 return res.text or ""
             raise e
+        
+        
+    # 加在 GeminiService class 裡面，analyze_image_async 下面
+
+    @staticmethod
+    async def parse_receipt_images(
+        image_bytes: list[bytes],       
+        platform: str = "foodpanda") -> dict:
+        """專門解析外送訂單截圖"""
+        import json, re
+        api_key = os.getenv("GEMINI_API_KEY", "")
+        platform_hint = f"這是來自【{platform}】平台的訂單截圖，共 {len(image_bytes)} 張。\n"  # ← 用 image_bytes
+    
+        receipt_prompt = platform_hint + """你是訂單 OCR 解析器，專門處理台灣電商/外送平台截圖。
+    這些截圖來自同一張訂單，可能有重疊內容，請合併去重。
+    只回傳合法 JSON，不能包含任何說明或 markdown。
+    只回傳合法 JSON，不能包含任何說明或 markdown。
+    格式：
+    {
+    "store": "店家名稱（不是顧客姓名）",
+    "order_number": "訂單編號（如果圖片有顯示，沒有則空字串）",
+    "add_amount": 總計含稅數字,
+    "add_class": "根據品項內容判斷的主類別",
+    "add_note": "店名 訂單",
+    "items": [
+    {"item_name": "品項名稱", "item_amount": 金額, "item_class": "類別", "quantity": 數量數字}
+        ]
+    }
+    規則：
+    1. store = 店家名稱，不是顧客名字
+    2. add_amount = 總計（含稅）的數字
+    3. items 包含：實際品項（正數）＋折扣優惠（負數）＋平台費服務費（正數）
+    例如：{"item_name": "折扣", "item_amount": -2, "item_class": "折扣"}
+    4. 所有 items 的 item_amount 加總必須等於 add_amount
+    5. 外送服務費如果是免費則不列入
+    6. add_class 判斷規則（以金額佔比最高的品項類別為主）：
+    - 食物飲料外送 → "飲食"
+    - 玩具/遊戲/娛樂用品 → "娛樂"
+    - 衣服/鞋子/配件 → "服飾"
+    - 家電/3C/電腦 → "3C"
+    - 日用品/家居/清潔 → "居家"
+    - 書籍/文具/教育 → "教育"
+    - 美妝/保養/醫藥 → "醫療"
+    - 交通/運輸 → "交通"
+    - 混合多種類別 → 以金額最大的品項類別為主
+    7. 每個 item 的 item_class 也用上述規則個別判斷
+    8. order_number = 訂單編號，通常是英數字混合，如果圖片沒有則填空字串""
+    9. 每個 item 的 quantity = 品項數量，1x 就是 1，沒標示預設為 1
+    
+    """
+    
+
+        try:
+            client = genai.Client(api_key=api_key)
+            
+            # 多張圖片打包進 contents
+            contents = []
+            for img in image_bytes:              # ← 用 image_bytes
+                contents.append(types.Part.from_bytes(data=img, mime_type="image/jpeg"))
+            contents.append("請合併這些截圖，解析成一筆完整訂單")
+
+            response = await client.aio.models.generate_content(
+                model="gemini-flash-latest",
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=receipt_prompt,
+                    temperature=0.1,
+                )
+            )
+
+            raw_text = response.text or ""
+            logger.info(f"[Receipt OCR multi] output: {raw_text[:200]}")
+
+            try:
+                return json.loads(raw_text)
+            except json.JSONDecodeError:
+                pass
+
+            match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw_text)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    pass
+
+            return {"error": "無法解析圖片內容，請手動輸入"}
+
+        except Exception as e:
+            logger.error(f"[Receipt OCR multi] 失敗: {str(e)}")
+            return {"error": f"圖片解析失敗：{str(e)[:80]}"}
+
+
+

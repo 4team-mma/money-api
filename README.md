@@ -80,7 +80,9 @@ git clone https://github.com/4team-mma/money-api.git
 2026.04.22更新：
 - uv add fastembed (向量模型替代huggingface的)
 ->請重新執行rm -rf ./.chromadb (MacOS) ,win系列請執行rm -r -force .chromadb
-- uv add pynvml
+或者:Remove-Item -Recurse -Force .chromadb
+然後確認資料在不在要出現False，請輸入:Test-Path .chromadb
+
 
 ## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):
 - uv add --dev peft accelerate
@@ -99,6 +101,7 @@ git clone https://github.com/4team-mma/money-api.git
 - 執行:uv remove google-generativeai
 - uv remove spacy
 - 移除非共用的套件:uv pip uninstall locust
+- uv remove pynvml 
 
 ## 查套件:
 - uv pip list

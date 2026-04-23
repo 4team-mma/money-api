@@ -11,14 +11,13 @@ from ..schemas.add import (
 )
 from fastapi import Depends
 from ..dependencies import get_current_user
-from typing import Optional
+from typing import Optional,List
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
 from datetime import date, timedelta
 from web_app.services.records_service import RecordsService
-from web_app.services.llava_service import LLaVAService
+from web_app.services.gemini_service import GeminiService
 import math  #  用於計算總頁數
-
 router = APIRouter()
 
 
@@ -303,6 +302,7 @@ async def delete_record(
     if record is None:
         raise HTTPException(status_code=404, detail="紀錄不存在或無權限刪除")
 
+    # 1. 處理帳戶餘額與儲蓄目標還原 (保留你原本的完美邏輯)
     account = db.query(Account).filter(Account.account_id == record.account_id).first()
     if account:
         if record.add_type is False:
@@ -310,25 +310,31 @@ async def delete_record(
         else:
             account.current_balance -= record.add_amount
 
-            # 儲蓄目標同步還原
-            # 只有刪除「收入」時，才需要扣除對應儲蓄目標的進度
-            goal = db.query(SavingsGoal).filter(
-                SavingsGoal.account_id == record.account_id,
-                SavingsGoal.user_id == current_user.user_id
-            ).first()
+        # 儲蓄目標同步還原
+        # 只有刪除「收入」時，才需要扣除對應儲蓄目標的進度
+        goal = db.query(SavingsGoal).filter(
+            SavingsGoal.account_id == record.account_id,
+            SavingsGoal.user_id == current_user.user_id
+        ).first()
 
-            if goal:
-                # 扣除進度
-                goal.current_amount -= record.add_amount
+        if goal:
+            # 扣除進度
+            goal.current_amount -= record.add_amount
 
-                # 狀態判定：如果扣除後低於目標，且原本狀態是已完成 (completed)
-                if goal.current_amount < goal.target_amount and goal.status == "completed":
-                    goal.status = "active"  # 改回進行中
+            # 狀態判定：如果扣除後低於目標，且原本狀態是已完成 (completed)
+            if goal.current_amount < goal.target_amount and goal.status == "completed":
+                goal.status = "active"  # 改回進行中
 
+    # 🚀 關鍵新增：2. 先刪除關聯的「訂單明細」子項目
+    db.query(AddItem).filter(AddItem.add_id == record_id).delete(synchronize_session=False)
 
+    # 3. 再刪除主紀錄
     db.delete(record)
+    
+    # 4. 最後一次提交所有變更
     db.commit()
-    return {"msg": "紀錄已成功刪除，帳戶餘額已同步更新"}
+    
+    return {"msg": "紀錄與明細已成功刪除，帳戶餘額已同步更新"}
 
 
 
@@ -358,31 +364,37 @@ async def get_record_items(
 
 @router.post("/ai-add")
 async def ai_create_record(
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),  # ← file 改成 files
     account_name: str = Form(default="現金"),
+    platform: str = Form(default="foodpanda"),
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
     """
-    接收截圖 → LLaVA 解析 → 寫入 adds + add_items
+    接收截圖 → Gemini解析 → 寫入 adds + add_items
     """
 
-    # 1. 讀取圖片
-    image_bytes = await file.read()
-
-    # 2. LLaVA 解析
-    # 呼叫改成
-    parsed = await LLaVAService.parse_receipt_image(image_bytes)
+    images_bytes = [await f.read() for f in files]  
+    parsed = await GeminiService.parse_receipt_images(images_bytes, platform)
+    parsed["add_class"] = "訂單"
+    print("🔥 parsed:", parsed)
 
     if "error" in parsed:
         raise HTTPException(status_code=422, detail=parsed["error"])
 
-    # 3. 補上使用者相關欄位（LLaVA 不會知道這些）
+    # 3. 補上使用者相關欄位
     parsed["account_name"] = account_name
     parsed.setdefault("add_member", "自己")
     parsed.setdefault("add_tag", "需要")
 
     items = parsed.pop("items", [])
+
+    parsed["store_name"] = parsed.pop("store", None)
+
+    parsed["order_number"] = (
+        parsed.get("order_number") 
+        or parsed.pop("order_id", None)
+    )
 
     # 4. 建立主記帳
     try:
@@ -416,14 +428,14 @@ async def ai_create_record(
 # 純解析，不存 DB
 @router.post("/ai-parse")
 async def ai_parse_receipt(
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),  # ← 改成 List
+    platform: str = Form(default="foodpanda"),  # ← 加這行
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
 
-
-    image_bytes = await file.read()
-    parsed = await LLaVAService.parse_receipt_image(image_bytes)
+    images_bytes = [await f.read() for f in files]
+    parsed = await GeminiService.parse_receipt_images(images_bytes, platform)  
 
     if "error" in parsed:
         raise HTTPException(status_code=422, detail=parsed["error"])
@@ -442,6 +454,8 @@ async def ai_confirm_record(
     current_user: Member = Depends(get_current_user),
 ):
     items = payload.pop("items", [])
+    payload.setdefault("store_name", payload.pop("store", None))  # ← 把 store 對應到 store_name
+    payload.setdefault("order_number", None)
 
     try:
         RecordsService.create_add_record(db, current_user.user_id, payload)
@@ -462,4 +476,75 @@ async def ai_confirm_record(
         "success": True,
         "add_id": new_record.add_id if new_record else None,
         "msg": f"記帳成功！共 {len(items)} 項明細"
+    }
+    
+    
+
+@router.get("/orders")
+async def get_order_list(
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+    """取得有品項明細的訂單列表"""
+    query = db.query(AddRecord).filter(
+        AddRecord.user_id == current_user.user_id,
+        AddRecord.store_name != None  # 只撈有 store_name 的（訂單掃描產生的）
+    )
+    if search:
+        query = query.filter(
+            or_(
+                AddRecord.store_name.ilike(f"%{search}%"),
+                AddRecord.order_number.ilike(f"%{search}%"),
+                AddRecord.add_note.ilike(f"%{search}%"),
+            )
+        )
+
+    total_count = query.count()
+    records = (
+        query.order_by(AddRecord.add_date.desc(), AddRecord.add_id.desc())
+        .limit(page_size).offset((page - 1) * page_size).all()
+    )
+
+    result = []
+    for record in records:
+        items = db.query(AddItem).filter(
+            AddItem.add_id == record.add_id
+        ).order_by(AddItem.sort_order).all()
+
+        # 取帳戶名
+        account = db.query(Account).filter(
+            Account.account_id == record.account_id
+        ).first()
+
+        result.append({
+            "add_id": record.add_id,
+            "store_name": record.store_name,
+            "order_number": record.order_number,
+            "add_date": str(record.add_date),
+            "add_amount": float(record.add_amount),
+            "add_note": record.add_note,
+            "account_name": account.account_name if account else "未知帳戶",
+            "items": [
+                {
+                    "item_name": item.item_name,
+                    "item_amount": float(item.item_amount),
+                    "item_class": item.item_class,
+                    "quantity": item.quantity if hasattr(item, 'quantity') else 1,
+                }
+                for item in items
+            ]
+        })
+
+    return {
+        "success": True,
+        "data": result,
+        "pagination": {
+            "current_page": page,
+            "page_size": page_size,
+            "total_rows": total_count,
+            "total_pages": math.ceil(total_count / page_size) if total_count > 0 else 1,
+        }
     }

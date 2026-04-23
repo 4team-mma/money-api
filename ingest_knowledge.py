@@ -46,7 +46,8 @@ def ingest_data():
 
     # ✂️ 3. 切割段落
     # 使用 RecursiveCharacterTextSplitter 確保切割邏輯較為智能
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    # 500/50適合較長的上下文,400/80適合較密集的重疊
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=80)
     chunks = text_splitter.split_documents(all_documents)
     print(f"✂️ [切割] 手冊已切割為 {len(chunks)} 個段落。")
 
@@ -67,7 +68,8 @@ def ingest_data():
             documents=chunks,
             embedding=embeddings,
             collection_name="system_manual",
-            client=client # 🌟 使用 client 模式，確保一致性
+            client=client, # 🌟 使用 client 模式，確保一致性
+            collection_metadata={"hnsw:space": "cosine"}
         )
         print("✅ [完成] 匯入成功！AI 喵喵現在已經學會所有手冊裡的知識了喵！")
     except Exception as e:

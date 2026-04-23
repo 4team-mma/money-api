@@ -1,3 +1,4 @@
+# schemas的add.py
 from pydantic import BaseModel, Field, ConfigDict  # ConfigDict是將資料庫物件轉成Json
 from datetime import date, datetime
 from decimal import Decimal  # 處理收支紀錄運算
@@ -37,6 +38,8 @@ class AddRecordCreate(BaseModel):
     add_member: str
     add_tag: Optional[str] = None
     add_note: Optional[str] = None
+    store_name:   Optional[str] = None
+    order_number: Optional[str] = None
 
     # 存檔成功後，回傳給前端顯示在清單上的資料。
     # Pydantic v2 的設定寫法，允許從 ORM 物件讀取資料
@@ -73,6 +76,8 @@ class AddRecordUpdate(BaseModel):
     add_member: Optional[str] = None
     add_tag: Optional[str] = None
     add_note: Optional[str] = None
+    store_name:   Optional[str] = None
+    order_number: Optional[str] = None
 
 
 #### 這邊是Add_item表格的schemas
@@ -83,6 +88,7 @@ class AddItemCreate(BaseModel):
     item_name: str
     item_amount: Decimal
     item_class: Optional[str] = None
+    quantity: int = 1
 
 class AddItemResponse(BaseModel):
     item_id: int
@@ -92,6 +98,7 @@ class AddItemResponse(BaseModel):
     item_amount: Decimal
     item_class: Optional[str]
     created_at: datetime
+    quantity: int
 
     class Config:
         from_attributes = True

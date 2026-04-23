@@ -95,7 +95,8 @@ def ingest_intents():
             metadatas=metadatas,
             embedding=embeddings,
             collection_name="intent_examples",
-            client=client # 🌟 使用 client 模式
+            client=client, # 🌟 使用 client 模式
+            collection_metadata={"hnsw:space": "cosine"}
         )
         print("\n🎉  MySQL 1F Installation is completed")
     except Exception as e:

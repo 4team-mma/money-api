@@ -112,6 +112,9 @@ class AddRecord(Base):
 
     add_member: Mapped[str] = mapped_column(String(10), nullable=False)
 
+    store_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="商家名稱")
+    order_number: Mapped[Optional[str]] = mapped_column(String(50),  nullable=True, comment="訂單編號")
+
     add_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     add_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
@@ -769,8 +772,10 @@ class AddItem(Base):
     # 確保外送訂單的明細順序不會亂掉
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
-    # 品項名稱與單一品項金額
+    # 品項名稱與單一品項 數量 金額
     item_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="品項數量")
+
     item_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     
     # 子分類，允許為空 (因有些品項可能一時無法精準分類)
