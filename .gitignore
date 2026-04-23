@@ -24,3 +24,5 @@ clean_env/
 # 大模型外掛LLM QRoRA模型
 **/qwen_lora/
 **/qwen_lora_new/
+
+**/fastembed_cache/
