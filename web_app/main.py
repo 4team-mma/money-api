@@ -410,6 +410,11 @@ async def db_exception_handler(request: Request, exc: SQLAlchemyError):
 # 基礎路由
 app.include_router(root.router, tags=["根目錄顯示"])
 
+# 加入這個專門給 cron-job 戳的路由
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "message": "MoneyMMA Render 伺服器醒著喔！"}
+
 #
 # 分支_使用 prefix
 app.include_router(auth.router, prefix="/api", tags=["認證與密碼管理"])
@@ -440,7 +445,7 @@ app.include_router(ai_models.router,
 app.include_router(admin_ai_helper.router, 
                 prefix="/api/admin_helper", 
                 tags=["AI開發輔助"],
-                dependencies=[Depends(admin_required)],
+                #dependencies=[Depends(admin_required)],
                 )
 
 

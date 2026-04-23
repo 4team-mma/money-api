@@ -285,18 +285,20 @@ async def chat_with_meow(
     
     # 🌟🌟🌟 新增這一段：ADVISOR 專屬通道 🌟🌟🌟
     elif current_intent == "ADVISOR":
+        #print(f"🚀 [DEBUG] ADVISOR elif 觸發！準備呼叫 LangGraph...")
         try:
-            print("🚀 [大腦分流] 進入 LangGraph 理財顧問通道")
-            # 呼叫你剛寫好的 LangGraph 閉包工廠！
             reply = await analyze_finance_advice(
-                user_message=latest_query,
-                db=db,
-                current_user=current_user
+                user_message=latest_query,   # ← 補回來
+                db=db,                        # ← 補回來
+                current_user=current_user     # ← 補回來
             )
+            #print(f"✅ [DEBUG] LangGraph 回傳成功: {reply[:50]}")
             is_json_command = False
             actual_model_used = "Groq (LangGraph-Advisor)"
         except Exception as e:
-            logger.error(f"LangGraph 執行失敗: {str(e)}", exc_info=True)
+            #print(f"❌ [DEBUG] LangGraph 炸了: {str(e)}")
+            import traceback
+            traceback.print_exc()
             reply = "喵喵的理財大腦暫時有點打結，請稍後再試喵！"
             actual_model_used = "Error"
     # 🌟🌟🌟 新增結束 🌟🌟🌟

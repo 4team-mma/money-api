@@ -112,6 +112,9 @@ class AddRecord(Base):
 
     add_member: Mapped[str] = mapped_column(String(10), nullable=False)
 
+    store_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="商家名稱")
+    order_number: Mapped[Optional[str]] = mapped_column(String(50),  nullable=True, comment="訂單編號")
+
     add_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     add_note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
@@ -715,11 +718,74 @@ class ASRCorrectionLog(Base):
     # 階段 3：人類最終確認 (Human-in-the-loop 用於計算準確率)
     # 預設為 NULL，當使用者在前端確認記帳時更新此欄位
     final_user_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="使用者最終實際送出記帳的文字")
-
     # 是否被使用者修正過 (0: AI完全命中, 1: 使用者有手動修改)
     is_user_corrected: Mapped[int] = mapped_column(Integer, server_default="0", comment="使用者是否手動修正過")
-
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
     # 關聯設定
     user = relationship("Member")
+    
+    
+# 23. RAG 效能與實驗室紀錄表
+class RagPerformanceLog(Base):
+    __tablename__ = "rag_performance_logs"
+
+    log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # HNSW 實驗參數
+    hnsw_m: Mapped[int] = mapped_column(Integer, server_default="16")
+    hnsw_ef: Mapped[int] = mapped_column(Integer, server_default="100")
+
+    # 效能指標
+    retrieval_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    llm_duration_s: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+    tokens_per_sec: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # 硬體狀態
+    vram_usage_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    gpu_temp: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # 系統狀態
+    total_chunks: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # 人工標記
+    human_score: Mapped[int] = mapped_column(Integer, server_default="0")
+    ai_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user = relationship("Member")
+
+# 24. 記帳明細子表格 (多模態外送/網購訂單解析)
+class AddItem(Base):
+    __tablename__ = "add_items"
+
+    item_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, unique=True
+    )
+    
+    # 關聯到 adds 表格的 add_id，並設定級聯刪除 (CASCADE)
+    add_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("adds.add_id", ondelete="CASCADE"), nullable=False
+    )
+
+    # 確保外送訂單的明細順序不會亂掉
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    # 品項名稱與單一品項 數量 金額
+    item_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="品項數量")
+
+    item_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    
+    # 子分類，允許為空 (因有些品項可能一時無法精準分類)
+    item_class: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 建立與主記帳表 (AddRecord) 的關聯，方便查詢時一併撈出明細
+    # 這裡的 "AddRecord" 對應到你上面第 3 點的 class 名稱
+    add_record = relationship("AddRecord", backref="items")

@@ -147,6 +147,10 @@ class FinanceAgentService:
                         sql_result = result.fetchall()
                         if sql_result:
                             raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
+                            # 🛡️ 防呆：如果 SQL 沒有 SUM，多筆資料只取第一筆會造成幻覺
+                            # 應由 SQLGeneratorService 確保 aggregate query，這裡加上警告 log
+                            if len(sql_result) > 1:
+                                print(f"⚠️ [SQL 警告] 查詢回傳 {len(sql_result)} 筆，疑似缺少 SUM()，只取第一筆可能不準確")
                             precise_val = int(round(float(raw_val)))
                             context_parts.append(
                                 f"【📊 資料庫精確查詢結果】：\n"

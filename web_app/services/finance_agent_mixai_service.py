@@ -1,3 +1,4 @@
+# finance_agent_mixai_service.py
 import os
 import json
 import numpy as np
@@ -112,10 +113,13 @@ class FinanceAgentMixAIService:
         # 重構的「兩階段決策引擎」，負責修正 ONNX 的錯誤
         final_intent = cls.apply_v10_logic(text_str, keras_intent, confidence)
 
+        # 如果規則引擎修正了意圖，信心度給 0.85（代表規則確認，不是模型猜的）
+        adjusted_confidence = 0.85 if final_intent != keras_intent else confidence
+        
         return {
             "predicted_intent": keras_intent,
             "final_intent": final_intent,
-            "confidence": confidence
+            "confidence": adjusted_confidence  # ← 用修正後的
         }
 
     @classmethod

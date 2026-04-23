@@ -130,3 +130,66 @@ async def get_expense_category_stats(
         }
         for index, r in enumerate(results)
     ]
+
+
+from web_app.models.models import AddItem
+
+@router.get("/category-with-items", response_model=List[ExpenseStatItem])
+async def get_expense_category_with_items(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+    """
+    🔥 新版：訂單用 item_class，其餘用 add_class
+    """
+
+    # 1️⃣ 撈所有支出紀錄
+    records = db.query(AddRecord).filter(
+        AddRecord.user_id == current_user.user_id,
+        AddRecord.add_type == False,
+        AddRecord.add_date.between(start_date, end_date),
+    ).all()
+
+    category_map = defaultdict(float)
+    grand_total = 0
+
+    for record in records:
+        amount = float(record.add_amount or 0)
+
+        # 🔥 關鍵：判斷是不是「訂單」
+        items = db.query(AddItem).filter(
+            AddItem.add_id == record.add_id
+        ).all()
+
+        if items:
+            # 👉 訂單 → 用 item_class 拆分
+            item_total = sum(float(i.item_amount) for i in items) or 1
+
+            for item in items:
+                ratio = float(item.item_amount) / item_total
+                split_amount = amount * ratio
+
+                category = item.item_class or "未分類"
+                category_map[category] += split_amount
+
+        else:
+            # 👉 一般記帳 → 用 add_class
+            category = record.add_class or "未分類"
+            category_map[category] += amount
+
+        grand_total += amount
+
+    # 排序
+    sorted_data = sorted(category_map.items(), key=lambda x: x[1], reverse=True)
+
+    return [
+        {
+            "id": i + 1,
+            "category": name,
+            "amount": round(amt, 2),
+            "ratio": round((amt / grand_total * 100), 1) if grand_total > 0 else 0
+        }
+        for i, (name, amt) in enumerate(sorted_data)
+    ]

@@ -1,23 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query,UploadFile,File,Form
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AddRecord, Account, Member, Notification
-from web_app.models.models import Budget, SavingsGoal
+from ..models import AddRecord, Account, Member
+from web_app.models.models import SavingsGoal,AddItem
 from ..schemas.add import (
     AddRecordCreate,
     AddRecordResponse,
     AddRecordUpdate,
     MonthlyRecordResponse,
 )
+from fastapi import Depends
 from ..dependencies import get_current_user
-from typing import Optional
+from typing import Optional,List
 from sqlalchemy import func, or_, select, and_, extract
 from decimal import Decimal
-from datetime import date, timedelta, datetime
-from web_app.services.game_service import GameService
+from datetime import date, timedelta
+from web_app.services.records_service import RecordsService
+from web_app.services.gemini_service import GeminiService
 import math  #  用於計算總頁數
-
 router = APIRouter()
+
 
 
 # 1. 讀取紀錄 API (支援分頁與搜尋)
@@ -246,132 +248,14 @@ async def create_record(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
-    amt_decimal = Decimal(str(data.add_amount))
     new_record = AddRecord(user_id=current_user.user_id, **data.dict())
     db.add(new_record)
+    db.flush()  # 先取得 ID 但不提交
 
-    account = db.query(Account).filter(Account.account_id == data.account_id).first()
-    if account is None:
-        raise HTTPException(status_code=404, detail="找不到指定帳戶")
-
-    if data.add_type is False:  # 支出
-        account.current_balance -=  amt_decimal
-
-        # 預算檢查邏輯
-        today = date.today()
-        first_day_of_month = today.replace(day=1)
-
-        # 判斷：只有當新增的是「本月」的紀錄時才檢查預算
-        if data.add_date >= first_day_of_month:
-            budget = db.query(Budget).filter(
-                Budget.user_id == current_user.user_id,
-                Budget.category == data.add_class
-            ).first()
-
-            if budget and budget.amount > 0:
-                # 計算本月該分類總支出
-                total_spent = db.query(func.sum(AddRecord.add_amount)).filter(
-                    AddRecord.user_id == current_user.user_id,
-                    AddRecord.add_class == data.add_class,
-                    AddRecord.add_type == False,
-                    AddRecord.add_date >= first_day_of_month
-                ).scalar() or Decimal(0)
-
-                # 加上本次新增金額 (因為 db 尚未 commit，需手動加上)
-                total_spent += amt_decimal
-                usage_percent = (total_spent / budget.amount) * 100
-
-                if usage_percent >= 90:
-                    # 檢查今日是否已對該分類發過預算通知
-                    existing_note = db.query(Notification).filter(
-                        Notification.user_id == current_user.user_id,
-                        Notification.category == "budget",
-                        Notification.reminder_title.like(f"%{data.add_class}%"),
-                        func.date(Notification.created_at) == today
-                    ).first()
-
-                    if not existing_note:
-                        new_notification = Notification(
-                            user_id=current_user.user_id,
-                            reminder_title=f"⚠️ 預算警報：{data.add_class} 已達 {usage_percent:.0f}%",
-                            category="budget",
-                            description=f"您在「{data.add_class}」的支出已達 {total_spent:,.0f} 元，接近預算上限 {budget.amount:,.0f} 元。",
-                            reminder_date_start=today,
-                            reminder_time=datetime.now().time(),
-                            is_active=True,
-                            is_read=False
-                        )
-                        db.add(new_notification)
-            elif budget and budget.amount == 0:
-                # 如果預算為 0 代表「禁止支出」，則任何一筆支出都發警告
-                if amt_decimal > 0:
-                    # 檢查今天是否已發過「禁止支出」警告
-                    new_notification = Notification(
-                        user_id=current_user.user_id,
-                        reminder_title=f"🚫 超額警報：{data.add_class} 已超出預算",
-                        category="budget",
-                        description=f"您在「{data.add_class}」並未編列預算，但已有支出 {amt_decimal:,.0f} 元。",
-                        reminder_date_start=date.today(),
-                        reminder_time=datetime.now().time(),
-                        is_active=True,
-                        is_read=False
-                    )
-                    db.add(new_notification)
-    else:  # 收入
-        account.current_balance += amt_decimal
-
-        # 尋找與此帳戶關聯且進行中的儲蓄目標
-        goal = db.query(SavingsGoal).filter(
-            SavingsGoal.account_id == data.account_id,
-            SavingsGoal.user_id == current_user.user_id,
-            SavingsGoal.status == "active"
-        ).first()
-
-        if goal:
-            # 更新目標目前的金額
-            goal.current_amount += amt_decimal
-
-            # 檢查是否達標
-            if goal.current_amount >= goal.target_amount:
-                # 檢查是否已發過「達成通知」(避免重複發送)
-                existing_note = db.query(Notification).filter(
-                    Notification.user_id == current_user.user_id,
-                    Notification.category == "savings",
-                    Notification.reminder_title.like(f"%{goal.goal_name}%")
-                ).first()
-
-                if not existing_note:
-                    # 建立賀報通知
-                    new_notification = Notification(
-                        user_id=current_user.user_id,
-                        reminder_title=f"🎉 恭喜！儲蓄目標「{goal.goal_name}」已達成！",
-                        category="savings",
-                        description=f"太棒了！您已成功存下 {goal.current_amount:,.0f} 元，完成了「{goal.goal_name}」的目標。繼續保持優良的理財習慣！",
-                        reminder_date_start=date.today(),
-                        reminder_time=datetime.now().time(),
-                        is_active=True,
-                        is_read=False
-                    )
-                    db.add(new_notification)
-                    # 同時將目標狀態改為已完成
-                    goal.status = "completed"
-
-    db.commit()
-    db.refresh(new_record)
-
-    # 🌟 這裡加入全域掃描器
-    # 根據 add_type 判斷類別 (True: 收入, False: 支出)
-    category_label = '記帳'
-    GameService.update_mission_progress(
-        db,
-        user_id=current_user.user_id,
-        category=category_label,
-        amount=float(new_record.add_amount), # 傳入金額供「大額支出」判定
-        tag=new_record.add_tag,         # 🌟 傳入標籤內容
-        record_class=new_record.add_class, # 🌟 傳入消費類別
-        note=new_record.add_note,       # 🌟 傳入備註字串
-        add_type=new_record.add_type    # 🌟 傳入布林值 (True=收入, False=支出)
-    )
+    success, msg = RecordsService.process_record_logic(db, current_user.user_id, new_record)
+    if not success:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=msg)
 
     return new_record
 
@@ -384,152 +268,19 @@ async def update_record(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
-    db_record = (
-        db.query(AddRecord)
-        .filter(
-            AddRecord.add_id == record_id, AddRecord.user_id == current_user.user_id
-        )
-        .first()
-    )
+    db_record = db.query(AddRecord).filter(
+        AddRecord.add_id == record_id,
+        AddRecord.user_id == current_user.user_id
+    ).first()
     if not db_record:
         raise HTTPException(status_code=404, detail="找不到該筆紀錄")
 
-    # 1. 還原舊影響
-    old_account = (
-        db.query(Account).filter(Account.account_id == db_record.account_id).first()
+    success, msg = RecordsService.update_record_logic(
+        db, current_user.user_id, db_record, data.dict(exclude_unset=True)
     )
-    if old_account:
-        if db_record.add_type is False:
-            old_account.current_balance += db_record.add_amount
-        else:
-            old_account.current_balance -= db_record.add_amount
-
-    # 2. 更新資料
-    update_data = data.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_record, key, value)
-
-    db_record.add_amount = Decimal(str(db_record.add_amount))
-
-    # 3. 套用新影響
-    new_account = (
-        db.query(Account).filter(Account.account_id == db_record.account_id).first()
-    )
-    if not new_account:
+    if not success:
         db.rollback()
-        raise HTTPException(status_code=404, detail="目標帳戶不存在")
-
-    if db_record.add_type is False:
-        new_account.current_balance -= db_record.add_amount
-
-        # 預算檢查邏輯 (修改後若為支出則觸發)
-        today = date.today()
-        first_day_of_this_month = today.replace(day=1)
-
-        # 只有當紀錄日期落在「本月」時才檢查預算
-        if db_record.add_date >= first_day_of_this_month:
-            budget = db.query(Budget).filter(
-                Budget.user_id == current_user.user_id,
-                Budget.category == db_record.add_class
-            ).first()
-
-            if budget and budget.amount > 0:
-                # 計算本月總支出 (確保只抓本月的 adds 表紀錄)
-                total_spent = db.query(func.sum(AddRecord.add_amount)).filter(
-                    AddRecord.user_id == current_user.user_id,
-                    AddRecord.add_class == db_record.add_class,
-                    AddRecord.add_type == False,
-                    AddRecord.add_date >= first_day_of_this_month
-                ).scalar() or Decimal(0)
-
-                usage_percent = (total_spent / budget.amount) * 100
-
-                if usage_percent >= 90:
-                    # 檢查今日是否已發過通知 (避免重複)
-                    existing_note = db.query(Notification).filter(
-                        Notification.user_id == current_user.user_id,
-                        Notification.category == "budget",
-                        Notification.reminder_title.like(f"%{db_record.add_class}%"),
-                        func.date(Notification.created_at) == date.today()
-                    ).first()
-
-                    if not existing_note:
-                        new_notification = Notification(
-                            user_id=current_user.user_id,
-                            reminder_title=f"⚠️ 預算警報：{db_record.add_class} 已達 {usage_percent:.0f}%",
-                            category="budget",
-                            description=f"修改紀錄後，您本月在「{db_record.add_class}」的支出已達 {total_spent:,.0f} 元，接近預算上限 {budget.amount:,.0f} 元。",
-                            reminder_date_start=date.today(),
-                            reminder_time=datetime.now().time(),
-                            is_active=True,
-                            is_read=False
-                        )
-                        db.add(new_notification)
-            elif budget and budget.amount == 0:
-                # 如果預算為 0 代表「禁止支出」，則任何一筆支出都發警告
-                if db_record.add_amount > 0:
-                    # 檢查今天是否已發過「禁止支出」警告
-                    new_notification = Notification(
-                        user_id=current_user.user_id,
-                        reminder_title=f"🚫 超額警報：{data.add_class} 已超出預算",
-                        category="budget",
-                        description=f"您在「{data.add_class}」並未編列預算，但已有支出 {db_record.add_amount:,.0f} 元。",
-                        reminder_date_start=date.today(),
-                        reminder_time=datetime.now().time(),
-                        is_active=True,
-                        is_read=False
-                    )
-                    db.add(new_notification)
-    else:
-        new_account.current_balance += db_record.add_amount
-
-        # 尋找與此帳戶關聯且進行中的儲蓄目標
-        goal = db.query(SavingsGoal).filter(
-            SavingsGoal.account_id == data.account_id,
-            SavingsGoal.user_id == current_user.user_id,
-            SavingsGoal.status == "active"
-        ).first()
-
-        if goal:
-            # 更新目標目前的金額
-            goal.current_amount += db_record.add_amount
-
-            # 檢查是否達標
-            if goal.current_amount >= goal.target_amount:
-                # 檢查是否已發過「達成通知」(避免重複發送)
-                existing_note = db.query(Notification).filter(
-                    Notification.user_id == current_user.user_id,
-                    Notification.category == "savings",
-                    Notification.reminder_title.like(f"%{goal.goal_name}%")
-                ).first()
-
-                if not existing_note:
-                    # 建立賀報通知
-                    new_notification = Notification(
-                        user_id=current_user.user_id,
-                        reminder_title=f"🎉 恭喜！儲蓄目標「{goal.goal_name}」已達成！",
-                        category="savings",
-                        description=f"太棒了！您已成功存下 {goal.current_amount:,.0f} 元，完成了「{goal.goal_name}」的目標。繼續保持優良的理財習慣！",
-                        reminder_date_start=date.today(),
-                        reminder_time=datetime.now().time(),
-                        is_active=True,
-                        is_read=False
-                    )
-                    db.add(new_notification)
-                    # 同時將目標狀態改為已完成
-                    goal.status = "completed"
-
-    db.commit()
-    db.refresh(db_record)
-    # 🌟 這裡加入全域掃描器：觸發「除錯大師」
-    # 只要成功執行 Patch 請求，就視為完成一次除錯
-    GameService.update_mission_progress(
-        db,
-        user_id=current_user.user_id,
-        category='記帳', # 因為除錯大師的 category 是記帳
-        increment=1
-    )
-
+        raise HTTPException(status_code=404, detail=msg)
 
     return db_record
 
@@ -551,6 +302,7 @@ async def delete_record(
     if record is None:
         raise HTTPException(status_code=404, detail="紀錄不存在或無權限刪除")
 
+    # 1. 處理帳戶餘額與儲蓄目標還原 (保留你原本的完美邏輯)
     account = db.query(Account).filter(Account.account_id == record.account_id).first()
     if account:
         if record.add_type is False:
@@ -558,22 +310,241 @@ async def delete_record(
         else:
             account.current_balance -= record.add_amount
 
-            # 儲蓄目標同步還原
-            # 只有刪除「收入」時，才需要扣除對應儲蓄目標的進度
-            goal = db.query(SavingsGoal).filter(
-                SavingsGoal.account_id == record.account_id,
-                SavingsGoal.user_id == current_user.user_id
-            ).first()
+        # 儲蓄目標同步還原
+        # 只有刪除「收入」時，才需要扣除對應儲蓄目標的進度
+        goal = db.query(SavingsGoal).filter(
+            SavingsGoal.account_id == record.account_id,
+            SavingsGoal.user_id == current_user.user_id
+        ).first()
 
-            if goal:
-                # 扣除進度
-                goal.current_amount -= record.add_amount
+        if goal:
+            # 扣除進度
+            goal.current_amount -= record.add_amount
 
-                # 狀態判定：如果扣除後低於目標，且原本狀態是已完成 (completed)
-                if goal.current_amount < goal.target_amount and goal.status == "completed":
-                    goal.status = "active"  # 改回進行中
+            # 狀態判定：如果扣除後低於目標，且原本狀態是已完成 (completed)
+            if goal.current_amount < goal.target_amount and goal.status == "completed":
+                goal.status = "active"  # 改回進行中
 
+    # 🚀 關鍵新增：2. 先刪除關聯的「訂單明細」子項目
+    db.query(AddItem).filter(AddItem.add_id == record_id).delete(synchronize_session=False)
 
+    # 3. 再刪除主紀錄
     db.delete(record)
+    
+    # 4. 最後一次提交所有變更
     db.commit()
-    return {"msg": "紀錄已成功刪除，帳戶餘額已同步更新"}
+    
+    return {"msg": "紀錄與明細已成功刪除，帳戶餘額已同步更新"}
+
+
+
+#---------add_item表格相關路由
+@router.get("/{record_id}/items")
+async def get_record_items(
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+    record = db.query(AddRecord).filter(
+        AddRecord.add_id == record_id,
+        AddRecord.user_id == current_user.user_id
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="找不到該筆紀錄")
+
+    items = db.query(AddItem).filter(
+        AddItem.add_id == record_id
+    ).order_by(AddItem.sort_order).all()
+
+    return {"add_id": record_id, "items": items}
+
+
+
+# --- 這是你想要的 AI 快速記帳路由 ---
+
+@router.post("/ai-add")
+async def ai_create_record(
+    files: List[UploadFile] = File(...),  # ← file 改成 files
+    account_name: str = Form(default="現金"),
+    platform: str = Form(default="foodpanda"),
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+    """
+    接收截圖 → Gemini解析 → 寫入 adds + add_items
+    """
+
+    images_bytes = [await f.read() for f in files]  
+    parsed = await GeminiService.parse_receipt_images(images_bytes, platform)
+    parsed["add_class"] = "訂單"
+    print("🔥 parsed:", parsed)
+
+    if "error" in parsed:
+        raise HTTPException(status_code=422, detail=parsed["error"])
+
+    # 3. 補上使用者相關欄位
+    parsed["account_name"] = account_name
+    parsed.setdefault("add_member", "自己")
+    parsed.setdefault("add_tag", "需要")
+
+    items = parsed.pop("items", [])
+
+    parsed["store_name"] = parsed.pop("store", None)
+
+    parsed["order_number"] = (
+        parsed.get("order_number") 
+        or parsed.pop("order_id", None)
+    )
+
+    # 4. 建立主記帳
+    try:
+        RecordsService.create_add_record(db, current_user.user_id, parsed)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 5. 取得剛建立的紀錄
+    new_record = db.query(AddRecord).filter(
+        AddRecord.user_id == current_user.user_id
+    ).order_by(AddRecord.add_id.desc()).first()
+
+    # 6. 寫入品項明細
+    if items and new_record:
+        RecordsService.create_add_record_with_items(
+            db, current_user.user_id, new_record, items
+        )
+        db.commit()
+
+    return {
+        "success": True,
+        "add_id": new_record.add_id if new_record else None,
+        "store": parsed.get("store", ""),
+        "total_amount": parsed.get("add_amount", 0),
+        "items_count": len(items),
+        "items": items,
+        "msg": f"已為您將訂單拆分為 {len(items)} 筆明細並記帳成功！"
+    }
+    
+
+# 純解析，不存 DB
+@router.post("/ai-parse")
+async def ai_parse_receipt(
+    files: List[UploadFile] = File(...),  # ← 改成 List
+    platform: str = Form(default="foodpanda"),  # ← 加這行
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+
+    images_bytes = [await f.read() for f in files]
+    parsed = await GeminiService.parse_receipt_images(images_bytes, platform)  
+
+    if "error" in parsed:
+        raise HTTPException(status_code=422, detail=parsed["error"])
+
+    return {
+        "success": True,
+        "data": parsed  # 只回傳解析結果，不碰 DB
+    }
+
+
+# 使用者確認後才存 DB
+@router.post("/ai-confirm")
+async def ai_confirm_record(
+    payload: dict,  # 前端把修改後的資料送過來
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+    items = payload.pop("items", [])
+    payload.setdefault("store_name", payload.pop("store", None))  # ← 把 store 對應到 store_name
+    payload.setdefault("order_number", None)
+
+    try:
+        RecordsService.create_add_record(db, current_user.user_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    new_record = db.query(AddRecord).filter(
+        AddRecord.user_id == current_user.user_id
+    ).order_by(AddRecord.add_id.desc()).first()
+
+    if items and new_record:
+        RecordsService.create_add_record_with_items(
+            db, current_user.user_id, new_record, items
+        )
+        db.commit()
+
+    return {
+        "success": True,
+        "add_id": new_record.add_id if new_record else None,
+        "msg": f"記帳成功！共 {len(items)} 項明細"
+    }
+    
+    
+
+@router.get("/orders")
+async def get_order_list(
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Member = Depends(get_current_user),
+):
+    """取得有品項明細的訂單列表"""
+    query = db.query(AddRecord).filter(
+        AddRecord.user_id == current_user.user_id,
+        AddRecord.store_name != None  # 只撈有 store_name 的（訂單掃描產生的）
+    )
+    if search:
+        query = query.filter(
+            or_(
+                AddRecord.store_name.ilike(f"%{search}%"),
+                AddRecord.order_number.ilike(f"%{search}%"),
+                AddRecord.add_note.ilike(f"%{search}%"),
+            )
+        )
+
+    total_count = query.count()
+    records = (
+        query.order_by(AddRecord.add_date.desc(), AddRecord.add_id.desc())
+        .limit(page_size).offset((page - 1) * page_size).all()
+    )
+
+    result = []
+    for record in records:
+        items = db.query(AddItem).filter(
+            AddItem.add_id == record.add_id
+        ).order_by(AddItem.sort_order).all()
+
+        # 取帳戶名
+        account = db.query(Account).filter(
+            Account.account_id == record.account_id
+        ).first()
+
+        result.append({
+            "add_id": record.add_id,
+            "store_name": record.store_name,
+            "order_number": record.order_number,
+            "add_date": str(record.add_date),
+            "add_amount": float(record.add_amount),
+            "add_note": record.add_note,
+            "account_name": account.account_name if account else "未知帳戶",
+            "items": [
+                {
+                    "item_name": item.item_name,
+                    "item_amount": float(item.item_amount),
+                    "item_class": item.item_class,
+                    "quantity": item.quantity if hasattr(item, 'quantity') else 1,
+                }
+                for item in items
+            ]
+        })
+
+    return {
+        "success": True,
+        "data": result,
+        "pagination": {
+            "current_page": page,
+            "page_size": page_size,
+            "total_rows": total_count,
+            "total_pages": math.ceil(total_count / page_size) if total_count > 0 else 1,
+        }
+    }
