@@ -16,10 +16,10 @@ load_dotenv(override=True)
 
 # 測試看看是否讀到正確的 Key (啟動時會印在終端機)
 api_key_check = os.getenv('GEMINI_API_KEY')
-if api_key_check:
-    print(f"DEBUG: 目前使用的 Key 前五碼是 {api_key_check[:5]}")
-else:
-    print("DEBUG: 警告！完全沒讀到 GEMINI_API_KEY，請檢查 .env 檔案內容與位置")
+# if api_key_check:
+#     print(f"DEBUG: 目前使用的 Key 前五碼是 {api_key_check[:5]}")
+# else:
+#     print("DEBUG: 警告！完全沒讀到 GEMINI_API_KEY，請檢查 .env 檔案內容與位置")
     
 class AIAnalysisError(Exception):
     """AI 辨識失敗時拋出，附帶原始回覆供 debug"""

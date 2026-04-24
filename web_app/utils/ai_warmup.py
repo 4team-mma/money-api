@@ -1,6 +1,7 @@
 # web_app/utils/ai_warmup.py
 import logging
 import httpx
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -16,15 +17,16 @@ async def warmup_ai_systems():
     except Exception as e:
         logger.warning(f"⚠️ 意圖分類器預熱失敗: {e}")
 
-    # 2. 預熱 RAG 向量引擎 (改為預熱 FastEmbed 地端模型)
-    try:
-        from web_app.services.vector_db_tools import VectorDBTools
-        # 隨便搜一個詞觸發 FastEmbed 模型的載入
-        # 這會確保模型檔案從磁碟讀取到記憶體中
-        VectorDBTools.search_manual("預熱")
-        logger.info("✅ [預熱完成] FastEmbed 地端向量搜尋引擎已載入")
-    except Exception as e:
-        logger.warning(f"⚠️ RAG 引擎預熱失敗: {e}")
+    # 2. 2. 預熱 RAG 向量引擎（雲端跳過，讓模型在第一次請求時懶載入）
+    if os.getenv("IS_CLOUD", "false").lower() != "true":
+        try:
+            from web_app.services.vector_db_tools import VectorDBTools
+            VectorDBTools.search_manual("預熱")
+            logger.info("✅ [預熱完成] FastEmbed 地端向量搜尋引擎已載入")
+        except Exception as e:
+            logger.warning(f"⚠️ RAG 引擎預熱失敗: {e}")
+    else:
+        logger.info("⏭️ [預熱跳過] 雲端環境，FastEmbed 將在首次請求時懶載入")
 
     # 3. 預熱地端 LLM (只針對 Ollama)
     try:
