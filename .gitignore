@@ -25,4 +25,6 @@ clean_env/
 **/qwen_lora/
 **/qwen_lora_new/
 
+
+# FastEmbed 模型 cache（全部讓 Render build time 下載）
 **/fastembed_cache/
