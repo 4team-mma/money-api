@@ -1,3 +1,4 @@
+## records.py
 from fastapi import APIRouter, Depends, HTTPException, Query,UploadFile,File,Form
 from sqlalchemy.orm import Session
 from ..database import get_db
@@ -374,6 +375,13 @@ async def ai_create_record(
     接收截圖 → Gemini解析 → 寫入 adds + add_items
     """
 
+    # 取得歷史分類
+    history_classes = db.query(AddRecord.add_class).filter(
+        AddRecord.user_id == current_user.user_id
+    ).distinct().all()
+    history_classes = [c[0] for c in history_classes]
+
+
     images_bytes = [await f.read() for f in files]  
     parsed = await GeminiService.parse_receipt_images(images_bytes, platform)
     parsed["add_class"] = "訂單"
@@ -453,10 +461,22 @@ async def ai_confirm_record(
     db: Session = Depends(get_db),
     current_user: Member = Depends(get_current_user),
 ):
+    print("🔍 收到 payload:", payload.get("account_name"))  # ← 加這行確認
     items = payload.pop("items", [])
     payload.setdefault("store_name", payload.pop("store", None))  # ← 把 store 對應到 store_name
     payload.setdefault("order_number", None)
 
+    # ← 改這裡：get 不移除，讓 payload 保留 account_id
+    account_id = payload.get("account_id")  # pop 改 get
+    if account_id:
+        account = db.query(Account).filter(
+            Account.account_id == account_id,
+            Account.user_id == current_user.user_id
+        ).first()
+        if account:
+            payload["account_name"] = account.account_name
+    # account_id 還在 payload 裡，create_add_record 就能用它查帳戶了
+    
     try:
         RecordsService.create_add_record(db, current_user.user_id, payload)
     except ValueError as e:

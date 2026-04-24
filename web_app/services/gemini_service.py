@@ -233,13 +233,27 @@ class GeminiService:
     @staticmethod
     async def parse_receipt_images(
         image_bytes: list[bytes],       
-        platform: str = "foodpanda") -> dict:
+        platform: str = "foodpanda",
+        history_classes: Optional[List[str]] = None
+        ) -> dict:
         """專門解析外送訂單截圖"""
         import json, re
         api_key = os.getenv("GEMINI_API_KEY", "")
         platform_hint = f"這是來自【{platform}】平台的訂單截圖，共 {len(image_bytes)} 張。\n"  # ← 用 image_bytes
-    
-        receipt_prompt = platform_hint + """你是訂單 OCR 解析器，專門處理台灣電商/外送平台截圖。
+
+        history_classes_str = "、".join   (history_classes) if history_classes else "（尚無歷史分類）"
+        
+        receipt_prompt = platform_hint + f"""
+    你是訂單 OCR 解析器，專門處理台灣電商/外送平台截圖。
+
+    【使用者歷史分類參考】
+    {history_classes_str}
+
+    請優先從「使用者歷史分類」中選擇最相近的 add_class。
+    如果真的無法匹配，再使用預設分類規則。
+
+    ---
+    """ + """你是訂單 OCR 解析器，專門處理台灣電商/外送平台截圖。
     這些截圖來自同一張訂單，可能有重疊內容，請合併去重。
     只回傳合法 JSON，不能包含任何說明或 markdown。
     只回傳合法 JSON，不能包含任何說明或 markdown。
