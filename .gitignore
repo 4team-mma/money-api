@@ -28,3 +28,6 @@ clean_env/
 
 # FastEmbed 模型 cache（全部讓 Render build time 下載）
 **/fastembed_cache/
+
+
+models_antifraud.py
