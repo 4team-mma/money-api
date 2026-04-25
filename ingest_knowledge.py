@@ -20,8 +20,8 @@ def get_embeddings():
     """雲端用 Google API，地端用 FastEmbed"""
     if IS_CLOUD:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        print("🌐 [VectorDB] 雲端模式：使用 Google text-embedding-004")
-        return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+        print("🌐 [VectorDB] 雲端模式：使用 Google gemini-embedding-001")
+        return GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
     else:
         print("💻 [VectorDB] 地端模式：使用 FastEmbed bge-small-zh-v1.5")
         return FastEmbedEmbeddings(

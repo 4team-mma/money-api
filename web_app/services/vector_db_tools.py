@@ -15,8 +15,11 @@ def get_embeddings():
     """雲端用 Google API（零記憶體佔用），地端用 FastEmbed"""
     if IS_CLOUD:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        print("🌐 [VectorDB] 雲端模式：使用 Google text-embedding-004")
-        return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+        print("🌐 [VectorDB] 雲端模式：使用 gemini-embedding-001")
+        return GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001"
+            # GEMINI_API_KEY 會自動被偵測，不需要額外傳入
+        )
     else:
         print("💻 [VectorDB] 地端模式：使用 FastEmbed bge-small-zh-v1.5")
         return FastEmbedEmbeddings(
@@ -67,25 +70,9 @@ class VectorDBTools:
     @classmethod
     def _get_embeddings(cls):
         if cls._embeddings is None:
-            IS_CLOUD = os.getenv("IS_CLOUD", "false").lower() == "true"
-            
-            if IS_CLOUD:
-                # 雲端：用 HuggingFace API，不佔本機記憶體
-                from langchain_huggingface import HuggingFaceEmbeddings
-                cls._embeddings = HuggingFaceEmbeddings(
-                    model_name="BAAI/bge-small-zh-v1.5",
-                    model_kwargs={"device": "cpu"},
-                    encode_kwargs={"normalize_embeddings": True}
-                )
-                print("✅ HuggingFaceEmbeddings loaded (cloud mode)")
-            else:
-                # 地端：繼續用 FastEmbed
-                cls._embeddings = FastEmbedEmbeddings(
-                    model_name="BAAI/bge-small-zh-v1.5",
-                    cache_dir="./web_app/models/fastembed_cache"
-                )
-                print("✅ FastEmbed loaded (local mode)")
+            cls._embeddings = get_embeddings()  # 直接呼叫上面的函式，不重複寫邏輯
         return cls._embeddings
+
 
     @classmethod
     def _get_local_embeddings(cls):
