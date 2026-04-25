@@ -82,6 +82,8 @@ git clone https://github.com/4team-mma/money-api.git
 ->請重新執行rm -rf ./.chromadb (MacOS) ,win系列請執行rm -r -force .chromadb
 或者:Remove-Item -Recurse -Force .chromadb
 然後確認資料在不在要出現False，請輸入:Test-Path .chromadb
+2026.0425更新:
+- uv add "langchain-google-genai>=2.0.0"
 
 
 ## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):

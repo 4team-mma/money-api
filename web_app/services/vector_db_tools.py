@@ -11,8 +11,21 @@ CHROMA_PERSIST_DIR = "./.chromadb"
 IS_CLOUD = os.getenv("IS_CLOUD", "false").lower() == "true"
 
 
-class BaseVectorStore:
+def get_embeddings():
+    """雲端用 Google API（零記憶體佔用），地端用 FastEmbed"""
+    if IS_CLOUD:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        print("🌐 [VectorDB] 雲端模式：使用 Google text-embedding-004")
+        return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    else:
+        print("💻 [VectorDB] 地端模式：使用 FastEmbed bge-small-zh-v1.5")
+        return FastEmbedEmbeddings(
+            model_name="BAAI/bge-small-zh-v1.5",
+            cache_dir="./web_app/models/fastembed_cache"
+        )
 
+
+class BaseVectorStore:
     @staticmethod
     def create(client, name, embedding):
         return Chroma(
@@ -53,13 +66,25 @@ class VectorDBTools:
 
     @classmethod
     def _get_embeddings(cls):
-        """💻 強制地端模式：不論在何處，只讀取本地模型檔案"""
         if cls._embeddings is None:
-            cls._embeddings = FastEmbedEmbeddings(
-                model_name="BAAI/bge-small-zh-v1.5",
-                cache_dir="./web_app/models/fastembed_cache"
-            )
-            print("✅ FastEmbed loaded")
+            IS_CLOUD = os.getenv("IS_CLOUD", "false").lower() == "true"
+            
+            if IS_CLOUD:
+                # 雲端：用 HuggingFace API，不佔本機記憶體
+                from langchain_huggingface import HuggingFaceEmbeddings
+                cls._embeddings = HuggingFaceEmbeddings(
+                    model_name="BAAI/bge-small-zh-v1.5",
+                    model_kwargs={"device": "cpu"},
+                    encode_kwargs={"normalize_embeddings": True}
+                )
+                print("✅ HuggingFaceEmbeddings loaded (cloud mode)")
+            else:
+                # 地端：繼續用 FastEmbed
+                cls._embeddings = FastEmbedEmbeddings(
+                    model_name="BAAI/bge-small-zh-v1.5",
+                    cache_dir="./web_app/models/fastembed_cache"
+                )
+                print("✅ FastEmbed loaded (local mode)")
         return cls._embeddings
 
     @classmethod
