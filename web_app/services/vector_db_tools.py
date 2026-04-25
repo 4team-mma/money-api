@@ -44,7 +44,7 @@ class VectorDBTools:
     _embeddings = None # 💻 地端嵌入引擎 (使用 FastEmbed)
     _intent_store = None # 1F 意圖 Store
     _manual_store = None # 2F 手冊 Store
-    _codebase_store = None # B1 機房 Store
+    core = None # B1 機房 Store
     _local_embeddings = None # Ollama 引擎 (供 B1 使用)
     _reranker = None
 
