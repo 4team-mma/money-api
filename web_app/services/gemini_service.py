@@ -197,7 +197,8 @@ class GeminiService:
                 http_options={'api_version': 'v1'}
             )
             
-            target_model = 'gemini-2.5-flash' 
+            #target_model = 'gemini-2.5-flash' 
+            target_model = 'gemini-2.5-flash-lite'
             logger.info(f"📸 [Gemini Vision] 穩定協議連線中: {target_model}")
 
             image_part = types.Part.from_bytes(

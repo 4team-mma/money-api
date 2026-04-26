@@ -229,17 +229,22 @@ async def get_google_events(
         # 🌟 關鍵：將 Google 格式轉為隊友能讀取的「偽裝」格式
         formatted_events = []
         for item in items:
-            start_date = item.get('start', {}).get('dateTime', item.get('start', {}).get('date'))[:10]
+            start_dt = item.get('start', {}).get('dateTime', '')
+            end_dt = item.get('end', {}).get('dateTime', '')
+            start_date = start_dt[:10] if start_dt else item.get('start', {}).get('date', '')[:10]
+            
             formatted_events.append({
                 "add_id": item.get('id'),
                 "add_date": start_date,
-                "add_class": "📅 行程",
+                "add_class": item.get('summary', '未命名行程'),  # ← 用真實名稱
                 "add_class_icon": "🗓️",
                 "add_member": "Google Calendar",
-                "add_note": item.get('summary'),
-                "add_amount": 0,    # 行程沒有金額
-                "add_type": "event", # 🌟 新增一個 type
-                "currency": ""
+                "add_note": item.get('summary', ''),
+                "add_amount": 0,
+                "add_type": "event",
+                "currency": "",
+                "start": {"dateTime": start_dt},  # ← 補上，讓 store 能正確解析
+                "end": {"dateTime": end_dt},
             })
         return formatted_events
     
