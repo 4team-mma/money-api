@@ -365,6 +365,7 @@ async def chat_with_meow(
                         model_id=active_model,
                         prompt=req.message,
                         system_instruction=final_system_prompt
+                        # 💡 不用傳 timeout_sec，它會自動預設 60 秒！
                     )
 
         except Exception as e:

@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-# 🌟 導入地端 FastEmbed
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 import chromadb
 
@@ -14,12 +13,27 @@ load_dotenv()
 # 🌟 設定路徑
 DATA_DIR = "./web_app/data/manuals/"
 CHROMA_PERSIST_DIR = "./.chromadb"
+IS_CLOUD = os.getenv("IS_CLOUD", "false").lower() == "true"
+
+
+def get_embeddings():
+    """雲端用 Google API，地端用 FastEmbed"""
+    if IS_CLOUD:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        print("🌐 [VectorDB] 雲端模式：使用 Google gemini-embedding-001")
+        return GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    else:
+        print("💻 [VectorDB] 地端模式：使用 FastEmbed bge-small-zh-v1.5")
+        return FastEmbedEmbeddings(
+            model_name="BAAI/bge-small-zh-v1.5",
+            cache_dir="./web_app/models/fastembed_cache"
+        )
+
 
 def ingest_data():
-    """將手冊資料轉換為地端向量並存入 ChromaDB"""
-    
-    # 🧹 1. 清除舊的「系統手冊」房間 (system_manual)
-    # 因為維度從 MiniLM 換成了 bge-small-zh (維度 512)，一定要刪除重寫
+    """將手冊資料轉換為向量並存入 ChromaDB"""
+
+    # 🧹 1. 清除舊的「系統手冊」房間
     if os.path.exists(CHROMA_PERSIST_DIR):
         client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
         try:
@@ -28,7 +42,7 @@ def ingest_data():
         except (Exception, ValueError):
             print("✨ [清理] 未偵測到舊房間，將直接建立新的。")
 
-    # 📄 2. 自動掃描並讀取資料夾內所有的 .md 檔案
+    # 📄 2. 掃描讀取所有 .md 檔案
     all_documents = []
     md_files = glob.glob(os.path.join(DATA_DIR, "*.md"))
 
@@ -51,29 +65,24 @@ def ingest_data():
     chunks = text_splitter.split_documents(all_documents)
     print(f"✂️ [切割] 手冊已切割為 {len(chunks)} 個段落。")
 
-    # 🚀 4. 使用 FastEmbed 進行地端向量化 (與 VectorDBTools 保持一致)
-    print("🚀 [VectorDB] 正在加載 FastEmbed 地端模型 (BAAI/bge-small-zh-v1.5)...")
-    embeddings = FastEmbedEmbeddings(
-        model_name="BAAI/bge-small-zh-v1.5",
-        cache_dir="./web_app/models/fastembed_cache"
-    )
+    # 🚀 4. 初始化 Embedding 引擎
+    embeddings = get_embeddings()
 
     # 💾 5. 存入 ChromaDB
     print("💾 [儲存] 正在將向量存入 ChromaDB...")
     try:
-        # 使用 client 模式初始化，確保 Pylance 不會報紅線，且管理更統一
         client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-        
         Chroma.from_documents(
             documents=chunks,
             embedding=embeddings,
             collection_name="system_manual",
-            client=client, # 🌟 使用 client 模式，確保一致性
+            client=client,
             collection_metadata={"hnsw:space": "cosine"}
         )
         print("✅ [完成] 匯入成功！AI 喵喵現在已經學會所有手冊裡的知識了喵！")
     except Exception as e:
         print(f"❌ [錯誤] 存入 ChromaDB 失敗: {e}")
+
 
 if __name__ == "__main__":
     ingest_data()

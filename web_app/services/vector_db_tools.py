@@ -11,8 +11,24 @@ CHROMA_PERSIST_DIR = "./.chromadb"
 IS_CLOUD = os.getenv("IS_CLOUD", "false").lower() == "true"
 
 
-class BaseVectorStore:
+def get_embeddings():
+    """雲端用 Google API（零記憶體佔用），地端用 FastEmbed"""
+    if IS_CLOUD:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        print("🌐 [VectorDB] 雲端模式：使用 gemini-embedding-001")
+        return GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001"
+            # GEMINI_API_KEY 會自動被偵測，不需要額外傳入
+        )
+    else:
+        print("💻 [VectorDB] 地端模式：使用 FastEmbed bge-small-zh-v1.5")
+        return FastEmbedEmbeddings(
+            model_name="BAAI/bge-small-zh-v1.5",
+            cache_dir="./web_app/models/fastembed_cache"
+        )
 
+
+class BaseVectorStore:
     @staticmethod
     def create(client, name, embedding):
         return Chroma(
@@ -28,7 +44,7 @@ class VectorDBTools:
     _embeddings = None # 💻 地端嵌入引擎 (使用 FastEmbed)
     _intent_store = None # 1F 意圖 Store
     _manual_store = None # 2F 手冊 Store
-    _codebase_store = None # B1 機房 Store
+    _codebase_store: Optional[Chroma] = None  # B1 機房 Store
     _local_embeddings = None # Ollama 引擎 (供 B1 使用)
     _reranker = None
 
@@ -53,14 +69,10 @@ class VectorDBTools:
 
     @classmethod
     def _get_embeddings(cls):
-        """💻 強制地端模式：不論在何處，只讀取本地模型檔案"""
         if cls._embeddings is None:
-            cls._embeddings = FastEmbedEmbeddings(
-                model_name="BAAI/bge-small-zh-v1.5",
-                cache_dir="./web_app/models/fastembed_cache"
-            )
-            print("✅ FastEmbed loaded")
+            cls._embeddings = get_embeddings()  # 直接呼叫上面的函式，不重複寫邏輯
         return cls._embeddings
+
 
     @classmethod
     def _get_local_embeddings(cls):

@@ -1,3 +1,4 @@
+# main.py
 from dotenv import load_dotenv
 import os
 import httpx
@@ -274,6 +275,14 @@ origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
 # 掛載安檢門！
 app.add_middleware(SecurityAuditMiddleware)
+
+# 加 COOP header
+@app.middleware("http")
+async def add_coop_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+    return response
+
 
 # --- 中間件設定 (Middleware) ---
 app.add_middleware(

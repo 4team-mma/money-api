@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 class OllamaService:
     @staticmethod
-    async def chat_async(base_url: str, model_id: str, prompt: str, system_instruction: str):
+    async def chat_async(base_url: str, model_id: str, prompt: str, system_instruction: str,timeout_sec: float = 60.0):
         """處理 Ollama 本地模型對話"""
         try:
             async with httpx.AsyncClient() as client:
@@ -28,9 +28,8 @@ class OllamaService:
                 res = await client.post(
                     f"{base_url}/api/chat",
                     json=payload,
-                    # 原本120.0
-                    #timeout=300.0
-                    timeout=httpx.Timeout(60.0, connect=5.0)
+                    # 🌟 這裡原本是 60.0，換成剛剛傳進來的變數
+                    timeout=httpx.Timeout(timeout_sec, connect=5.0)
                 )
 
                 if res.status_code == 200:

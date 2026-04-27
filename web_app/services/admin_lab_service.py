@@ -28,7 +28,8 @@ class AdminLabService:
             base_url="http://localhost:11434", # 🌟 補齊參數
             model_id="gemma4:e4b",
             prompt=f"【參考代碼】:\n{context}\n\n【問題】: {query}",
-            system_instruction="你是一個資深的系統架構師，請根據代碼回答問題。"
+            system_instruction="你是一個資深的系統架構師，請根據代碼回答問題。",
+            timeout_sec=300.0  # 🌟 補上這個！給沙盒 5 分鐘的推論時間
         )
         llm_duration_s = time.time() - llm_start
         

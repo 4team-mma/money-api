@@ -1,3 +1,4 @@
+# integrations.py 行事曆路由
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body,Query
 from ..dependencies import get_current_user
 from ..models import Member
@@ -228,16 +229,131 @@ async def get_google_events(
         # 🌟 關鍵：將 Google 格式轉為隊友能讀取的「偽裝」格式
         formatted_events = []
         for item in items:
-            start_date = item.get('start', {}).get('dateTime', item.get('start', {}).get('date'))[:10]
+            start_dt = item.get('start', {}).get('dateTime', '')
+            end_dt = item.get('end', {}).get('dateTime', '')
+            start_date = start_dt[:10] if start_dt else item.get('start', {}).get('date', '')[:10]
+            
             formatted_events.append({
                 "add_id": item.get('id'),
                 "add_date": start_date,
-                "add_class": "📅 行程",
+                "add_class": item.get('summary', '未命名行程'),  # ← 用真實名稱
                 "add_class_icon": "🗓️",
                 "add_member": "Google Calendar",
-                "add_note": item.get('summary'),
-                "add_amount": 0,    # 行程沒有金額
-                "add_type": "event", # 🌟 新增一個 type
-                "currency": ""
+                "add_note": item.get('summary', ''),
+                "add_amount": 0,
+                "add_type": "event",
+                "currency": "",
+                "start": {"dateTime": start_dt},  # ← 補上，讓 store 能正確解析
+                "end": {"dateTime": end_dt},
             })
         return formatted_events
+    
+    
+# =====================================================
+# ✏️ 更新單一行程（PUT）
+# =====================================================
+@router.put("/calendar/events/{event_id}")
+async def update_google_event(
+    event_id: str,
+    event_data: dict = Body(...),
+    google_token: str = Query(...),
+    current_user: Member = Depends(get_current_user)
+):
+    """更新 Google Calendar 單一行程"""
+    url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
+    headers = {
+        "Authorization": f"Bearer {google_token}",
+        "Content-Type": "application/json"
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.put(url, headers=headers, json=event_data)
+        if resp.status_code not in [200, 201]:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Google API 更新失敗: {resp.text[:200]}"
+            )
+    return {"success": True, "data": resp.json()}
+
+
+# =====================================================
+# 🗑️ 刪除單一行程（DELETE）
+# =====================================================
+@router.delete("/calendar/events/{event_id}")
+async def delete_google_event(
+    event_id: str,
+    google_token: str = Query(...),
+    current_user: Member = Depends(get_current_user)
+):
+    """刪除 Google Calendar 單一行程"""
+    url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
+    headers = {"Authorization": f"Bearer {google_token}"}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.delete(url, headers=headers)
+        # Google 刪除成功回傳 204 No Content
+        if resp.status_code not in [200, 204]:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail="Google Calendar 刪除失敗，請確認 Token 是否有效"
+            )
+    return {"success": True, "message": "行程已刪除"}
+
+
+# =====================================================
+# 🧹 批次刪除指定月份的 App 匯入行程（DELETE）
+# 注意：路由名稱用 events-by-month 避免與 {event_id} 衝突
+# =====================================================
+@router.delete("/calendar/events-by-month")
+async def delete_month_events(
+    google_token: str = Query(...),
+    time_min: str = Query(..., description="月份起始 ISO 時間，例：2026-04-01T00:00:00+08:00"),
+    time_max: str = Query(..., description="月份結束 ISO 時間，例：2026-04-30T23:59:59+08:00"),
+    current_user: Member = Depends(get_current_user)
+):
+    """
+    刪除指定月份內，由本 App 匯入的行程（帶有 app_source_id 標記的）。
+    手動建立的 Google Calendar 行程不受影響。
+    """
+    list_url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    headers = {"Authorization": f"Bearer {google_token}"}
+    params = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "singleEvents": True,
+        "maxResults": 250,
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # 1. 取得指定月份行程
+        resp = await client.get(list_url, headers=headers, params=params)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail="無法取得 Google 行程列表，請確認 Token 是否有效"
+            )
+
+        items = resp.json().get("items", [])
+        total_in_month = len(items)
+
+        # 2. 只刪除由本 App 上傳的行程（有 app_source_id 標記）
+        app_events = [
+            item for item in items
+            if 'app_source_id' in item.get('extendedProperties', {}).get('private', {})
+        ]
+
+        # 3. 批次刪除
+        deleted = 0
+        for item in app_events:
+            del_url = f"{list_url}/{item['id']}"
+            del_resp = await client.delete(del_url, headers=headers)
+            if del_resp.status_code in [200, 204]:
+                deleted += 1
+            else:
+                logger.warning(f"刪除行程 {item['id']} 失敗: {del_resp.status_code}")
+
+    return {
+        "success": True,
+        "deleted": deleted,
+        "skipped": len(app_events) - deleted,
+        "total_in_month": total_in_month,
+        "message": f"已清除 {deleted} 筆 App 匯入行程（共 {total_in_month} 筆行程在該月份）"
+    }
