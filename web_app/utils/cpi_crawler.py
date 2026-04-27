@@ -1,3 +1,4 @@
+# cpi_crawler.py
 import requests
 import xmltodict
 import urllib3
@@ -6,7 +7,6 @@ from datetime import datetime,timedelta
 from decimal import Decimal
 from ..models import CpiData
 from ..database import SessionLocal
-from sqlalchemy import desc
 import logging
 
 logger = logging.getLogger("app_logger")

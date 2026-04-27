@@ -1,10 +1,10 @@
+# salary_crawler.py
 import requests
 import xmltodict
 import urllib3
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from sqlalchemy import desc
 from ..database import SessionLocal
 from ..models import SalaryBenchmark
 import re

@@ -26,8 +26,8 @@ from ..schemas.bot_schema import RecordResponseSchema
 # 🚀 引入妳新定義的兩顆大腦與 V2 需要的 NLP 引擎
 from .finance_agent_v1_service import FinanceAgentV1Service
 from .finance_agent_mixai_service import FinanceAgentMixAIService
-from ..services.nlp.context import IntentContext
-from ..services.nlp.engine import RuleEngine
+# from ..services.nlp.context import IntentContext
+# from ..services.nlp.engine import RuleEngine
 
 class FinanceAgentService:
 

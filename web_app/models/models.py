@@ -789,3 +789,19 @@ class AddItem(Base):
     # 建立與主記帳表 (AddRecord) 的關聯，方便查詢時一併撈出明細
     # 這裡的 "AddRecord" 對應到你上面第 3 點的 class 名稱
     add_record = relationship("AddRecord", backref="items")
+    
+    
+    
+# 25. 歷史執行紀錄
+class TaskRunLog(Base):
+    __tablename__ = "task_run_logs"
+
+    log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_name: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # ok / skip / fail
+    status: Mapped[str] = mapped_column(String(10), nullable=False)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rows_added: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rows_updated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    message: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    ran_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

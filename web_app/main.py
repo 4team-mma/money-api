@@ -27,7 +27,8 @@ from web_app.routes import (
     ws,
     integrations,
     admin_ai_helper,
-    chat_langgraph_test
+    chat_langgraph_test,
+    monitor
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -221,7 +222,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="daily_login_activity_cleanup",
         replace_existing=True
     )
-
+    app.state.scheduler = scheduler   # ← 新增這行
     #  CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄
     scheduler.start()
     logging.info("🚀 APScheduler 已啟動 - 各項爬蟲與清理任務自動更新中")
@@ -468,6 +469,8 @@ app.include_router(ai.router,
 app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
 
 app.include_router(chat_langgraph_test.router, prefix="/api/langgraph", tags=["laghGraph測試"])
+
+app.include_router(monitor.router, prefix="/api/monitor", tags=["監控中心"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():
