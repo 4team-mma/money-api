@@ -7,7 +7,7 @@ from ..dependencies import admin_required, get_current_user
 from ..models import Member,RagPerformanceLog
 #from langchain_chroma import Chroma
 from ..services.vector_db_tools import VectorDBTools
-from ..services.admin_lab_service import AdminLabService
+from ..services.admin_lab_service import AdminLabService # 引用~
 import os
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session # 🌟 解決 Undefined name `Session`
@@ -114,7 +114,7 @@ async def generate_code(request: DevRequest, current_admin: Member = Depends(lab
         # 🌟 這裡：取代原本單一的 prompt 設定，加入動態判斷！
         if request.mode == "dataset_gen":
             # 把前端傳來的任何需求，加上最後的強迫啟動指令 (Pre-fill)
-            prompt = f"【使用者需求與資料格式定義】\n{request.context}\n\n請嚴格依照上述的欄位要求，立刻開始輸出 JSONL，不要廢話，第一個字元必須是：\n{{"
+            prompt = f"【使用者需求與資料格式定義】\n{request.context}\n\n請嚴格依照上述的欄位要求，立刻開始輸出 JSONL，不要廢話，第一個字元必須是：\n"
         else:
             prompt = f"使用者的需求：\n{request.context}"
     
