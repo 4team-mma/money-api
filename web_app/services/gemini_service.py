@@ -25,13 +25,14 @@ class GeminiService:
                     system_instruction=system_instruction,
                     temperature=0.15,
                     top_p=0.15,
-                    tools=tools
+                    tools=tools  # type: ignore[arg-type]
                 )
             else:
                 config = types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     temperature=0.15,
-                    top_p=0.15
+                    top_p=0.15,
+                    tools=tools  # type: ignore[arg-type]
                 )
 
             try:

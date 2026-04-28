@@ -332,11 +332,21 @@ async def chat_with_meow(
                 if not f_key: raise Exception("Missing Key")
 
                 from ..services.finance_tools import get_budget_tool, search_manual_tool
+                
+                # 🌟新增引入 Notion 工具
+                from ..services.notion_mcp_service import create_notion_tool
+                # 用閉包工廠建立有 db/user 的版本
+                notion_tool = create_notion_tool(db, current_user)
+                
                 res = await GeminiService.chat_async(
                     api_key=str(f_key), model_id=active_model,
                     prompt=f"【機密 user_id: {current_user.user_id}】\n問題：{req.message}",
                     system_instruction=final_system_prompt,
-                    tools=[get_budget_tool, search_manual_tool]
+                    tools=[get_budget_tool, search_manual_tool,
+                        
+                        # 把 add_expense_to_notion 加進 Gemini
+                        notion_tool
+                    ]
                 )
                 reply, actual_model_used = res["text"], res["actual_model"]
 
