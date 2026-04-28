@@ -116,6 +116,7 @@
   <button class="tab" onclick="sw(1)">外部 API 健康</button>
   <button class="tab" onclick="sw(2)">路由清單</button>
   <button class="tab" onclick="sw(3)">資料爬蟲狀態</button>
+  <button class="tab" onclick="sw(4)">系統狀態</button>
 </div>
 
 <!-- ── Panel 0: 排程任務 ── -->
@@ -195,6 +196,39 @@
   </div>
 </div>
 
+<!-- ── Panel 4: 系統狀態 ── -->
+<div class="panel" id="p4">
+  <div class="stats" id="sys-stats">
+    <div class="stat"><div class="stat-lbl">資料庫</div><div class="stat-val" id="db-stat">—</div></div>
+    <div class="stat"><div class="stat-lbl">今日 ERROR</div><div class="stat-val" id="log-error">—</div></div>
+    <div class="stat"><div class="stat-lbl">今日 CRITICAL</div><div class="stat-val" id="log-critical">—</div></div>
+    <div class="stat"><div class="stat-lbl">今日 WARNING</div><div class="stat-val" id="log-warn">—</div></div>
+  </div>
+
+  <!-- ChromaDB -->
+  <div class="section-hdr" style="margin-top:8px">
+    <span class="section-title">ChromaDB 向量庫</span>
+    <button class="btn-refresh" onclick="loadSysStatus()">重新整理</button>
+  </div>
+  <div id="vectordb-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div class="loading">載入中...</div>
+  </div>
+
+  <!-- Ollama -->
+  <div class="section-title" style="margin-bottom:10px">Ollama 地端模型</div>
+  <div id="ollama-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div class="loading">載入中...</div>
+  </div>
+
+  <!-- Schema 對照 -->
+  <div class="section-title" style="margin-bottom:10px">ORM 資料表清單</div>
+  <div id="schema-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">
+    <div class="loading">載入中...</div>
+  </div>
+</div>
+
+
+
 
 
 <script>
@@ -208,6 +242,9 @@ function sw(i) {
   if (i === 0) loadJobs();
   if (i === 1) loadHealth(false);
   if (i === 2) loadRoutes();
+  if (i === 3) loadCrawlers();
+  if (i === 4) loadSysStatus();
+
 }
 
 // ── 更新頁頭時間 ──
@@ -410,6 +447,90 @@ async function triggerCrawl(task) {
     btn.disabled = false;
     btn.textContent = `執行 ${task.toUpperCase()} 爬蟲`;
   }
+}
+
+async function loadSysStatus() {
+  // DB 狀態
+  try {
+    const r = await fetch(BASE + '/api/monitor/db-status');
+    const d = await r.json();
+    const el = document.getElementById('db-stat');
+    el.textContent = d.status === 'ok' ? d.ms + 'ms' : '異常';
+    el.style.color = d.status === 'ok' ? 'var(--green)' : 'var(--red)';
+  } catch { document.getElementById('db-stat').textContent = '連線失敗'; }
+
+  // Log 摘要
+  try {
+    const r = await fetch(BASE + '/api/monitor/log-summary');
+    const d = await r.json();
+    document.getElementById('log-error').textContent = d.ERROR;
+    document.getElementById('log-error').style.color = d.ERROR > 0 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('log-critical').textContent = d.CRITICAL;
+    document.getElementById('log-critical').style.color = d.CRITICAL > 0 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('log-warn').textContent = d.WARNING;
+    document.getElementById('log-warn').style.color = d.WARNING > 0 ? 'var(--yellow)' : 'var(--tx2)';
+  } catch { }
+
+  // ChromaDB
+  try {
+    const r = await fetch(BASE + '/api/monitor/vectordb-stats');
+    const d = await r.json();
+    if (d.status === 'ok') {
+      const rows = Object.entries(d.collections).map(([name, count]) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;
+                    border-bottom:1px solid var(--bd);font-size:12px">
+          <span style="font-family:monospace;color:var(--blue)">${name}</span>
+          <span>${count.toLocaleString()} 筆</span>
+        </div>`).join('');
+      document.getElementById('vectordb-card').innerHTML = rows || '<div style="color:var(--tx2)">尚無 collection</div>';
+    } else {
+      document.getElementById('vectordb-card').innerHTML = `<div style="color:var(--red)">${d.error}</div>`;
+    }
+  } catch(e) {
+    document.getElementById('vectordb-card').innerHTML = `<div style="color:var(--red)">載入失敗: ${e.message}</div>`;
+  }
+
+  // Ollama
+  try {
+    const r = await fetch(BASE + '/api/monitor/ollama-status');
+    const d = await r.json();
+    if (d.status === 'ok') {
+      document.getElementById('ollama-card').innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="job-dot dot-ok"></span>
+          <span style="font-weight:500">正常運作</span>
+          <span style="font-size:11px;color:var(--tx2);margin-left:auto">${d.ms}ms</span>
+        </div>
+        <div style="font-size:12px;color:var(--tx2)">${d.count} 個模型：${d.models.join('、') || '無'}</div>`;
+    } else {
+      document.getElementById('ollama-card').innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="job-dot dot-fail"></span>
+          <span style="color:var(--tx2)">Ollama 未運行或不在本機</span>
+        </div>`;
+    }
+  } catch(e) {
+    document.getElementById('ollama-card').innerHTML = `<div style="color:var(--tx2)">Ollama 未啟動</div>`;
+  }
+
+  // Schema 清單
+  try {
+    const r = await fetch(BASE + '/api/monitor/schema-checklist');
+    const d = await r.json();
+    document.getElementById('schema-card').innerHTML = `
+      <div style="font-size:11px;color:var(--yellow);margin-bottom:10px">⚠️ ${d.reminder}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${d.tables.map(t => `
+          <span style="font-size:11px;font-family:monospace;padding:2px 8px;
+                      background:var(--bg3);border-radius:4px;color:var(--blue)">${t}</span>
+        `).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:10px">共 ${d.total} 張資料表</div>`;
+  } catch(e) {
+    document.getElementById('schema-card').innerHTML = `<div style="color:var(--red)">載入失敗</div>`;
+  }
+
+  updateTime();
 }
 
 

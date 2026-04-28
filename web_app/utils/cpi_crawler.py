@@ -1,107 +1,114 @@
-# cpi_crawler.py
 import requests
 import xmltodict
 import urllib3
 import re
-from datetime import datetime,timedelta
+import time
+from datetime import datetime, timedelta
 from decimal import Decimal
-from ..models import CpiData
+from ..models import CpiData, TaskRunLog
 from ..database import SessionLocal
 import logging
 
 logger = logging.getLogger("app_logger")
 
-# 屏蔽安全警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 政府 CPI 月資料連結
 CPI_URL = "https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230555/pr0101a1m.xml"
+TASK_NAME = "cpi"
 
 
+# ── 工具：寫入一筆執行紀錄 ──────────────────────────────────────
+def _write_log(status: str, duration_ms: int = 0,
+               rows_added: int = 0, rows_updated: int = 0,
+               message: str = ""):
+    """獨立 session 寫入，不受主程式 rollback 影響"""
+    try:
+        with SessionLocal() as log_db:
+            log_db.add(TaskRunLog(
+                task_name=TASK_NAME,
+                status=status,
+                duration_ms=duration_ms,
+                rows_added=rows_added,
+                rows_updated=rows_updated,
+                message=message[:200] if message else "",
+            ))
+            log_db.commit()
+    except Exception as log_err:
+        logger.error(f"[CPI] 寫入 task_run_log 失敗: {log_err}")
+
+
+# ── XML 結構搜尋（不動原本邏輯）────────────────────────────────
 def find_data_items(obj):
-    """💡 強效搜尋：自動在 XML 字典結構中尋找資料列表"""
-    # 情況 A: 物件是列表
+    """強效搜尋：自動在 XML 字典結構中尋找資料列表"""
     if isinstance(obj, list):
-        # 啟發式判斷：如果列表第一個元素就是目標欄位，直接回傳
         if len(obj) > 0 and isinstance(obj[0], dict) and "Item" in obj[0]:
             return obj
-
-        # 否則遞迴搜尋子項
         for item in obj:
             res = find_data_items(item)
             if res:
                 return res
 
-    # 情況 B: 物件是字典
     if isinstance(obj, dict):
-        # 1. 優先匹配已知標籤 (優先度排序)
-        # 2026 建議：將常用的標籤抽離成常量或配置
         targets = ["pr0101a1m", "Row", "pr0101a1", "Data"]
         for target in targets:
             if target in obj:
                 val = obj[target]
-                # 確保回傳格式統一為 list，簡化後續 for 迴圈
                 return val if isinstance(val, list) else [val]
-
-        # 2. 深度優先搜尋其餘鍵值
         for k, v in obj.items():
-            # 跳過屬性標籤 (xmltodict 以 @ 開頭的內容)
             if k.startswith("@"):
                 continue
-
             res = find_data_items(v)
             if res:
                 return res
 
-    return None  # 改為返回 None 以便外部判斷 if not items
+    return None
 
 
+# ── 主程式 ──────────────────────────────────────────────────────
 def fetch_and_update_cpi():
     """
     抓取 CPI 指數並存入資料庫，僅保留最近 6 年數據。
     包含智慧跳過機制：若資料庫已有最新月份資料，則不進行爬取。
+    每次執行結果都會寫入 task_run_logs 方便監控。
     """
     logger.info("--- [CPI 檢查程序啟動] ---")
+    start_time = time.time()
 
     current_date = datetime.now()
     current_year = current_date.year
     min_save_year = current_year - 5
 
     with SessionLocal() as db:
-        # ---------------------------------------------------------
-        # 🧠 智慧判斷邏輯 (Smart Check)
-        # ---------------------------------------------------------
-        # 1. 計算「理論上應該有的最新資料」是哪個月？
-        #    規則：如果是每個月 5 號前，最新資料應該是「上上個月」
-        #    規則：如果是每個月 6 號後，最新資料應該是「上個月」
-        #    (這裡簡化處理：直接檢查資料庫最新的那筆，是否為「上個月」或「本月」)
 
-        # 取得「上個月」的年份與月份 (例如現在 2月，上個月就是 1月)
+        # ── 智慧跳過邏輯 ────────────────────────────────────────
         last_month_date = current_date.replace(day=1) - timedelta(days=1)
-        target_period_str = last_month_date.strftime("%YM%m") # 格式：2026M01
+        target_period_str = last_month_date.strftime("%YM%m")
 
-        # 2. 查詢資料庫目前「最新」的一筆資料是什麼時候
         latest_record = (
             db.query(CpiData)
-            .order_by(CpiData.period.desc()) # 用月份倒序
+            .order_by(CpiData.period.desc())
             .first()
         )
 
         if latest_record:
-            logger.info(f"🔍 資料庫目前最新資料為: {latest_record.period} (目標: {target_period_str})")
-
-            # 如果資料庫已經有「上個月」的資料 (或者因為某些原因已經有本月的)
-            # 或者是 5 號以前，資料庫有「上上個月」的其實也算最新，但為了保險，
-            # 我們只要判斷：如果 Database 的最新月份 >= 上個月，就代表已經更新過了。
+            logger.info(
+                f"🔍 資料庫目前最新資料為: {latest_record.period} "
+                f"(目標: {target_period_str})"
+            )
             if latest_record.period >= target_period_str:
-                msg = "✅ [CPI 爬蟲] 檢測到資料已是最新，跳過本次爬蟲任務。"
-                logger.info("✅ 檢測到資料已是最新，跳過本次爬蟲任務。")
-                print(msg)
-                return # <--- 直接結束，不再發送 Request 也不跑迴圈
+                msg = f"資料已是最新 ({latest_record.period})，跳過爬取"
+                logger.info(f"✅ [CPI 爬蟲] {msg}")
+                print(f"✅ [CPI 爬蟲] {msg}")
 
-        # ---------------------------------------------------------
-        # 以下為原本的爬蟲邏輯 (只有當上面檢查沒過時才會執行)
-        # ---------------------------------------------------------
+                # ★ 寫入 skip 紀錄
+                _write_log(
+                    status="skip",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    message=msg,
+                )
+                return
+
+        # ── 正式爬蟲邏輯 ────────────────────────────────────────
         logger.info("🚀 資料庫落後或無資料，開始執行爬蟲更新...")
 
         try:
@@ -113,19 +120,22 @@ def fetch_and_update_cpi():
             items = find_data_items(data_dict)
 
             if not items:
-                logger.warning("❌ 錯誤：無法在 XML 結構中找到資料節點。")
+                msg = "無法在 XML 結構中找到資料節點"
+                logger.warning(f"❌ {msg}")
+
+                # ★ 寫入 fail 紀錄
+                _write_log(
+                    status="fail",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    message=msg,
+                )
                 return
 
             new_count = 0
             update_count = 0
             skip_count = 0
 
-            # 預先抓出資料庫現有的所有 (Category, Period, Type) 組合，避免迴圈內 N+1 查詢
-            # 這能解決你看到的那堆 "SELECT ..." 洗版問題
-            # 但因為你的資料量不大，Smart Check 已經能解決 99% 的情況，這邊維持原樣即可。
-
             for item in items:
-                # ... (原本的中間邏輯保持不變) ...
                 category_name = item.get("Item")
                 raw_period = item.get("TIME_PERIOD")
                 type_val = item.get("TYPE")
@@ -151,34 +161,54 @@ def fetch_and_update_cpi():
                     .first()
                 )
 
-                val_float = Decimal(value)
+                val_decimal = Decimal(value)
 
                 if not existing:
-                    db.add(
-                        CpiData(
-                            category=category_name,
-                            period=period_str,
-                            data_type=type_val,
-                            val=val_float,
-                        )
-                    )
+                    db.add(CpiData(
+                        category=category_name,
+                        period=period_str,
+                        data_type=type_val,
+                        val=val_decimal,
+                    ))
                     new_count += 1
                 else:
-                    if existing.val != val_float:
-                        existing.val = val_float
+                    if existing.val != val_decimal:
+                        existing.val = val_decimal
                         update_count += 1
 
                 if (new_count + update_count) % 500 == 0:
                     db.flush()
 
             db.commit()
-            success_msg = f"✅ [CPI 任務結束] 新增: {new_count} 筆, 更新: {update_count} 筆"
-            logger.info(
-                success_msg
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            success_msg = (
+                f"新增: {new_count} 筆, "
+                f"更新: {update_count} 筆, "
+                f"略過舊資料: {skip_count} 筆"
             )
-            print(success_msg) # 顯示在終端機
+            logger.info(f"✅ [CPI 任務結束] {success_msg} ({duration_ms}ms)")
+            print(f"✅ [CPI 任務結束] {success_msg}")
+
+            # ★ 寫入 ok 紀錄
+            _write_log(
+                status="ok",
+                duration_ms=duration_ms,
+                rows_added=new_count,
+                rows_updated=update_count,
+                message=success_msg,
+            )
 
         except Exception as e:
             db.rollback()
-            logger.error(f"❌ CPI 抓取程序崩潰: {str(e)}", exc_info=True)
+            duration_ms = int((time.time() - start_time) * 1000)
+            err_msg = str(e)[:200]
+            logger.error(f"❌ CPI 抓取程序崩潰: {err_msg}", exc_info=True)
+
+            # ★ 寫入 fail 紀錄
+            _write_log(
+                status="fail",
+                duration_ms=duration_ms,
+                message=err_msg,
+            )
             raise e

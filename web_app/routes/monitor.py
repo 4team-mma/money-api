@@ -11,6 +11,7 @@ from sqlalchemy import func
 # 薪資發布通常比 CPI 晚，允許落後 1 個月不算異常
 #from datetime import datetime, timedelta
 import os
+from sqlalchemy import text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -279,3 +280,95 @@ async def check_ollama_status():
             return {"status": "fail", "ms": ms, "code": r.status_code}
     except Exception as e:
         return {"status": "fail", "ms": int((time.time() - start)*1000), "error": str(e)[:80]}
+    
+
+@router.get("/task-history")
+def get_task_history(task: str = "cpi", limit: int = 20):
+    """查看爬蟲歷史執行紀錄"""
+    from ..models import TaskRunLog
+    with SessionLocal() as db:
+        logs = (
+            db.query(TaskRunLog)
+            .filter(TaskRunLog.task_name == task)
+            .order_by(TaskRunLog.ran_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return {
+            "task": task,
+            "logs": [
+                {
+                    "status": l.status,
+                    "rows_added": l.rows_added,
+                    "rows_updated": l.rows_updated,
+                    "message": l.message,
+                    "ran_at": str(l.ran_at),
+                }
+                for l in logs
+            ]
+        }
+        
+# ChromaDB 向量庫統計
+@router.get("/vectordb-stats")
+def get_vectordb_stats():
+    """查看 ChromaDB 各 collection 的文件數量"""
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(path="./.chromadb")
+        collections = client.list_collections()
+        result = {}
+        for col in collections:
+            result[col.name] = col.count()
+        return {"status": "ok", "collections": result}
+    except Exception as e:
+        return {"status": "fail", "error": str(e)[:100]}
+
+
+# 資料庫連線狀態
+@router.get("/db-status")
+def get_db_status():
+    start = time.time()
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        ms = int((time.time() - start) * 1000)
+        return {"status": "ok", "ms": ms}
+    except Exception as e:
+        return {"status": "fail", "error": str(e)[:100]}
+
+
+
+@router.get("/schema-checklist")
+def get_schema_checklist():
+    """列出所有 ORM 模型的資料表名稱，方便對照 schema_collection.md 是否同步"""
+    from ..database import Base
+    tables = sorted(Base.metadata.tables.keys())
+    return {
+        "total": len(tables),
+        "tables": tables,
+        "reminder": "請確認以上所有表格都已更新到 web_app/data/secret/schema_collection.md"
+    }
+
+    
+# 統計摘要:錯跟警告
+@router.get("/log-summary")
+def get_log_summary():
+    """統計今日錯誤與警告數量，不暴露原始 log 內容"""
+    from datetime import date
+    log_path = os.getenv("LOG_FILE", "logs/app.log")
+    today_str = date.today().strftime("%Y-%m-%d")
+    
+    counts = {"ERROR": 0, "CRITICAL": 0, "WARNING": 0}
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if today_str not in line:
+                    continue
+                for level in counts:
+                    if level in line:
+                        counts[level] += 1
+    except FileNotFoundError:
+        pass
+    
+    return {"date": today_str, **counts,
+            "has_critical": counts["CRITICAL"] > 0}
