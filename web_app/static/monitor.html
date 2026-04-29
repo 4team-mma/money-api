@@ -203,6 +203,17 @@
     <div class="stat"><div class="stat-lbl">今日 ERROR</div><div class="stat-val" id="log-error">—</div></div>
     <div class="stat"><div class="stat-lbl">今日 CRITICAL</div><div class="stat-val" id="log-critical">—</div></div>
     <div class="stat"><div class="stat-lbl">今日 WARNING</div><div class="stat-val" id="log-warn">—</div></div>
+
+    <div class="stat" style="border-color: var(--purple);">
+        <div class="stat-lbl">Siri 活躍通話數</div>
+        <div class="stat-val" style="color: var(--purple);" id="siri-active">—</div>
+    </div>
+    <div class="stat">
+        <div class="stat-lbl">Siri 待確認任務</div>
+        <div class="stat-val" id="siri-pending">—</div>
+    </div>
+
+
   </div>
 
   <!-- ChromaDB -->
@@ -471,6 +482,18 @@ async function loadSysStatus() {
     document.getElementById('log-warn').style.color = d.WARNING > 0 ? 'var(--yellow)' : 'var(--tx2)';
   } catch { }
 
+  // 🌟 新增：Siri 狀態
+  try {
+    const r = await fetch(BASE + '/api/monitor/siri-status');
+    const d = await r.json();
+    document.getElementById('siri-active').textContent = d.active_sessions + ' 人';
+    document.getElementById('siri-pending').textContent = d.pending_confirmations + ' 筆';
+  } catch(e) {
+    document.getElementById('siri-active').textContent = '異常';
+    document.getElementById('siri-pending').textContent = '異常';
+  }
+
+
   // ChromaDB
   try {
     const r = await fetch(BASE + '/api/monitor/vectordb-stats');
@@ -529,6 +552,10 @@ async function loadSysStatus() {
   } catch(e) {
     document.getElementById('schema-card').innerHTML = `<div style="color:var(--red)">載入失敗</div>`;
   }
+
+
+
+
 
   updateTime();
 }
