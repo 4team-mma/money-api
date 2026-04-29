@@ -13,7 +13,13 @@ async def websocket_chat_endpoint(
 ):
     """前端一登入就會連上這支 API，保持連線不斷開"""
     user_id = current_user.user_id
-    await manager.connect(websocket, user_id)
+    
+    # 🌟 使用 getattr 安全取值，避免 Pylance 報錯，預設值給 None
+    accepted_subprotocol = getattr(websocket.state, "ws_token", None)
+    
+    # 🌟 現在 manager.connect 可以合法接收三個參數了，紅線會消失
+    await manager.connect(websocket, user_id, accepted_subprotocol)
+    
     try:
         while True:
             # 這裡只是為了保持連線，收到什麼都不用特別處理
