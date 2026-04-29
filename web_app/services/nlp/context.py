@@ -4,6 +4,10 @@
 from .patterns import INTENT_PATTERNS
 
 class IntentContext:
+    
+    
+    
+    
     def __init__(self, text: str, initial_intent: str, initial_confidence: float = 1.0):
         self.text = text
         self.initial_intent = initial_intent

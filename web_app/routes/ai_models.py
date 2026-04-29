@@ -250,10 +250,14 @@ async def chat_with_meow(
     parsed_action = None
     reply = "喵喵不知道該說什麼..."
     actual_model_used = config.model_version
+    
+
 
     # ==========================================
     # 5. 意圖分流處理
     # ==========================================
+    
+    
     if current_intent in ["RECORD", "MULTI_RECORD"]:
         
         # 🌟🌟🌟 全面升級：動態注入分類、標籤、成員 🌟🌟🌟
@@ -332,11 +336,21 @@ async def chat_with_meow(
                 if not f_key: raise Exception("Missing Key")
 
                 from ..services.finance_tools import get_budget_tool, search_manual_tool
+                
+                # 🌟新增引入 Notion 工具
+                from ..services.notion_mcp_service import create_notion_tool
+                # 用閉包工廠建立有 db/user 的版本
+                notion_tool = create_notion_tool(db, current_user)
+                
                 res = await GeminiService.chat_async(
                     api_key=str(f_key), model_id=active_model,
                     prompt=f"【機密 user_id: {current_user.user_id}】\n問題：{req.message}",
                     system_instruction=final_system_prompt,
-                    tools=[get_budget_tool, search_manual_tool]
+                    tools=[get_budget_tool, search_manual_tool,
+                        
+                        # 把 add_expense_to_notion 加進 Gemini
+                        notion_tool
+                    ]
                 )
                 reply, actual_model_used = res["text"], res["actual_model"]
 
@@ -359,13 +373,21 @@ async def chat_with_meow(
                 if is_on_render:
                     reply = "雲端環境暫不支援 Ollama，請手動切換至 Gemini 或 Groq 喵。"
                 else:
-                    # 這裡加上 str() 包裝 config.base_url 消除紅線
+                    # 🌟 1. 引入需要的工具 (與 Gemini 相同)
+                    from ..services.finance_tools import get_budget_tool, search_manual_tool
+                    from ..services.notion_mcp_service import create_notion_tool
+                    
+                    # 🌟 2. 建立 Notion 工具並綁定 db 與 user
+                    notion_tool = create_notion_tool(db, current_user)
+                    
+                    
                     reply = await OllamaService.chat_async(
                         base_url=str(config.base_url or "http://localhost:11434"),
                         model_id=active_model,
                         prompt=req.message,
-                        system_instruction=final_system_prompt
+                        system_instruction=final_system_prompt,
                         # 💡 不用傳 timeout_sec，它會自動預設 60 秒！
+                        tools=[get_budget_tool, search_manual_tool, notion_tool]
                     )
 
         except Exception as e:

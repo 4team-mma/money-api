@@ -1,7 +1,7 @@
 # web_app/schemas/analysis.py
 from pydantic import BaseModel, Field, ConfigDict
 from decimal import Decimal
-from typing import List, Optional
+
 from datetime import datetime
 
 class SalaryBenchmarkResponse(BaseModel):

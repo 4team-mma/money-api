@@ -84,6 +84,8 @@ git clone https://github.com/4team-mma/money-api.git
 然後確認資料在不在要出現False，請輸入:Test-Path .chromadb
 2026.0425更新:
 - uv add "langchain-google-genai>=2.0.0"
+2026.0428更新：
+- uv add mcp
 
 
 ## 非共用套件(改成開發環境安裝,就不會被部屬到雲端):

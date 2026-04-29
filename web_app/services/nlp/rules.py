@@ -3,8 +3,16 @@
 # Declarative Rule System
 
 INTENT_RULES = [
+{
+    "name": "NOTION_WRITE_DETECT",
+    "priority": 120,
+    "type": "hard",
+    "when": lambda c: c.has("notion_trigger") and (
+        "寫入" in c.text or "存到" in c.text or "notion" in c.text.lower()
+    ),
+    "target": "NOTION_WRITE"
+},
     # 🔴 Hard Rules (第一優先：絕對法則，命中即強制決定)
-    
     {
         "name": "ADVISOR_HARD_PROTECT",
         "priority": 110,
@@ -30,6 +38,8 @@ INTENT_RULES = [
         "target": "CHAT"
     },
 
+    
+    
     # 🟡 Soft Rules (第二優先：加分制)
     
     {

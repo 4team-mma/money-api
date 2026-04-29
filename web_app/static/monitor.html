@@ -1,0 +1,539 @@
+<!-- 排程/外部API/路由清單/資料爬蟲狀態 監控儀表板 -->
+<!-- http://localhost:8000/static/monitor.html -->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoneyMMA 監控中心</title>
+<style>
+  :root {
+    --bg: #0f1117; --bg2: #1a1d26; --bg3: #22263a;
+    --bd: #2e3348; --tx: #e2e4ef; --tx2: #8892b0; --tx3: #4a5380;
+    --green: #3dd68c; --red: #f87171; --yellow: #fbbf24;
+    --blue: #60a5fa; --purple: #a78bfa;
+    --green-bg: rgba(61,214,140,.12); --red-bg: rgba(248,113,113,.12); --yellow-bg: rgba(251,191,36,.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  body { background: var(--bg); color: var(--tx); font-family: system-ui, sans-serif; font-size: 14px }
+  a { color: var(--blue) }
+
+  /* ── 頂部 header ── */
+  .hdr { padding: 16px 24px; border-bottom: 1px solid var(--bd); display: flex; align-items: center; gap: 12px }
+  .hdr-logo { font-size: 20px }
+  .hdr-title { font-size: 16px; font-weight: 600 }
+  .hdr-sub { font-size: 12px; color: var(--tx2); margin-top: 2px }
+  .hdr-status { margin-left: auto; font-size: 12px; padding: 4px 12px; border-radius: 20px }
+  .hdr-status.ok { background: var(--green-bg); color: var(--green) }
+  .hdr-status.warn { background: var(--yellow-bg); color: var(--yellow) }
+
+  /* ── tabs ── */
+  .tabs { display: flex; border-bottom: 1px solid var(--bd); padding: 0 24px; gap: 4px; overflow-x: auto }
+  .tab { padding: 10px 16px; font-size: 13px; cursor: pointer; border: none; background: none;
+         color: var(--tx2); border-bottom: 2px solid transparent; transition: color .15s; white-space: nowrap }
+  .tab:hover { color: var(--tx) }
+  .tab.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500 }
+
+  /* ── panels ── */
+  .panel { padding: 20px 24px; display: none }
+  .panel.on { display: block }
+
+  /* ── stat cards ── */
+  .stats { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap }
+  .stat { background: var(--bg2); border: 1px solid var(--bd); border-radius: 10px;
+          padding: 14px 18px; flex: 1; min-width: 120px }
+  .stat-lbl { font-size: 11px; color: var(--tx2) }
+  .stat-val { font-size: 24px; font-weight: 600; margin-top: 4px }
+
+  /* ── 任務卡片 ── */
+  .job-card { background: var(--bg2); border: 1px solid var(--bd); border-radius: 10px;
+              padding: 12px 16px; margin-bottom: 8px; display: flex; align-items: center;
+              gap: 12px; cursor: pointer; transition: border-color .15s }
+  .job-card:hover { border-color: var(--blue) }
+  .job-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0 }
+  .job-ic { width: 36px; height: 36px; border-radius: 8px; display: flex;
+            align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0 }
+  .job-name { font-size: 13px; font-weight: 500 }
+  .job-meta { font-size: 11px; color: var(--tx2); margin-top: 2px }
+  .job-next { font-size: 11px; color: var(--tx2); margin-left: auto; text-align: right; min-width: 80px }
+
+  /* ── API 健康 ── */
+  .api-card { background: var(--bg2); border: 1px solid var(--bd); border-radius: 10px;
+              padding: 12px 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px }
+  .api-info { flex: 1 }
+  .api-name { font-size: 13px; font-weight: 500 }
+  .api-desc { font-size: 11px; color: var(--tx2); margin-top: 2px }
+  .api-badge { font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 500 }
+  .badge-ok   { background: var(--green-bg);  color: var(--green)  }
+  .badge-warn { background: var(--yellow-bg); color: var(--yellow) }
+  .badge-fail { background: var(--red-bg);    color: var(--red)    }
+  .api-ms { font-size: 11px; color: var(--tx2); min-width: 52px; text-align: right }
+  .dot-ok   { background: var(--green) }
+  .dot-warn { background: var(--yellow) }
+  .dot-fail { background: var(--red) }
+
+  /* ── 路由表格 ── */
+  .route-table { width: 100%; border-collapse: collapse; font-size: 12px }
+  .route-table th { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--bd);
+                    color: var(--tx2); font-weight: 500 }
+  .route-table td { padding: 7px 12px; border-bottom: 1px solid var(--bd) }
+  .route-table tr:hover td { background: var(--bg2) }
+  .method { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px;
+            font-weight: 600; margin-right: 3px }
+  .m-get  { background: rgba(96,165,250,.15); color: var(--blue) }
+  .m-post { background: rgba(61,214,140,.15); color: var(--green) }
+  .m-put  { background: rgba(251,191,36,.15); color: var(--yellow) }
+  .m-del  { background: rgba(248,113,113,.15); color: var(--red) }
+
+  /* ── 共用 ── */
+  .section-hdr { display: flex; align-items: center; justify-content: space-between;
+                 margin-bottom: 14px }
+  .section-title { font-size: 14px; font-weight: 600 }
+  .btn-refresh { font-size: 12px; padding: 5px 12px; border-radius: 6px;
+                 border: 1px solid var(--bd); background: none; color: var(--tx2);
+                 cursor: pointer; transition: all .15s }
+  .btn-refresh:hover { background: var(--bg3); color: var(--tx) }
+  .loading { color: var(--tx2); font-size: 13px; padding: 20px 0 }
+  .search { background: var(--bg2); border: 1px solid var(--bd); border-radius: 8px;
+            color: var(--tx); padding: 7px 12px; font-size: 13px; width: 240px;
+            outline: none; transition: border-color .15s }
+  .search:focus { border-color: var(--blue) }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <span class="hdr-logo">🐱</span>
+  <div>
+    <div class="hdr-title">MoneyMMA 監控中心</div>
+    <div class="hdr-sub" id="hdr-time">載入中...</div>
+  </div>
+  <span class="hdr-status ok" id="overall-status">系統正常</span>
+</div>
+
+<div class="tabs">
+  <button class="tab on" onclick="sw(0)">任務排程</button>
+  <button class="tab" onclick="sw(1)">外部 API 健康</button>
+  <button class="tab" onclick="sw(2)">路由清單</button>
+  <button class="tab" onclick="sw(3)">資料爬蟲狀態</button>
+  <button class="tab" onclick="sw(4)">系統狀態</button>
+</div>
+
+<!-- ── Panel 0: 排程任務 ── -->
+<div class="panel on" id="p0">
+  <div class="stats">
+    <div class="stat"><div class="stat-lbl">排程任務數</div><div class="stat-val" id="job-total">—</div></div>
+    <div class="stat"><div class="stat-lbl">下次執行</div><div class="stat-val" style="font-size:16px" id="job-next-global">—</div></div>
+  </div>
+  <div class="section-hdr">
+    <span class="section-title">APScheduler 任務一覽</span>
+    <button class="btn-refresh" onclick="loadJobs()">重新整理</button>
+  </div>
+  <div id="job-list"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- ── Panel 1: API 健康 ── -->
+<div class="panel" id="p1">
+  <div class="stats">
+    <div class="stat"><div class="stat-lbl">綠燈</div><div class="stat-val" style="color:var(--green)" id="api-ok">—</div></div>
+    <div class="stat"><div class="stat-lbl">黃燈</div><div class="stat-val" style="color:var(--yellow)" id="api-warn">—</div></div>
+    <div class="stat"><div class="stat-lbl">紅燈</div><div class="stat-val" style="color:var(--red)" id="api-fail">—</div></div>
+    <div class="stat"><div class="stat-lbl">平均回應</div><div class="stat-val" id="api-avg">—</div></div>
+  </div>
+  <div class="section-hdr">
+    <span class="section-title">外部金融 API 狀態</span>
+    <button class="btn-refresh" onclick="loadHealth(true)">立即掃描</button>
+  </div>
+  <div id="api-list"><div class="loading">掃描中（約 5–10 秒）...</div></div>
+</div>
+
+<!-- ── Panel 2: 路由清單 ── -->
+<div class="panel" id="p2">
+  <div class="section-hdr">
+    <span class="section-title">FastAPI 路由清單</span>
+    <input class="search" type="text" placeholder="搜尋路由..." oninput="filterRoutes(this.value)">
+  </div>
+  <div style="overflow-x:auto">
+    <table class="route-table">
+      <thead><tr><th>路徑</th><th>方法</th><th>名稱</th></tr></thead>
+      <tbody id="route-body"><tr><td colspan="3" class="loading">載入中...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Panel 3: 爬蟲狀態 ── -->
+<div class="panel" id="p3">
+  <div class="section-hdr">
+    <span class="section-title">資料來源狀態</span>
+    <button class="btn-refresh" onclick="loadCrawlers()">重新整理</button>
+  </div>
+
+  <!-- CPI 卡片 -->
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px" id="cpi-card">
+    <div class="loading">載入中...</div>
+  </div>
+
+  <!-- 薪資卡片 -->
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px" id="salary-card">
+    <div class="loading">載入中...</div>
+  </div>
+
+  <!-- 手動觸發 -->
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">
+    <div class="section-title" style="margin-bottom:12px">手動觸發爬蟲</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn-refresh" onclick="triggerCrawl('cpi')" id="btn-cpi">
+        執行 CPI 爬蟲
+      </button>
+      <button class="btn-refresh" onclick="triggerCrawl('salary')" id="btn-salary">
+        執行薪資爬蟲
+      </button>
+      <span style="font-size:12px;color:var(--tx2)">
+        ⚠️ 爬蟲有內建智慧跳過，資料已最新時不會重複寫入
+      </span>
+    </div>
+    <div id="trigger-result" style="margin-top:10px;font-size:12px;color:var(--tx2)"></div>
+  </div>
+</div>
+
+<!-- ── Panel 4: 系統狀態 ── -->
+<div class="panel" id="p4">
+  <div class="stats" id="sys-stats">
+    <div class="stat"><div class="stat-lbl">資料庫</div><div class="stat-val" id="db-stat">—</div></div>
+    <div class="stat"><div class="stat-lbl">今日 ERROR</div><div class="stat-val" id="log-error">—</div></div>
+    <div class="stat"><div class="stat-lbl">今日 CRITICAL</div><div class="stat-val" id="log-critical">—</div></div>
+    <div class="stat"><div class="stat-lbl">今日 WARNING</div><div class="stat-val" id="log-warn">—</div></div>
+  </div>
+
+  <!-- ChromaDB -->
+  <div class="section-hdr" style="margin-top:8px">
+    <span class="section-title">ChromaDB 向量庫</span>
+    <button class="btn-refresh" onclick="loadSysStatus()">重新整理</button>
+  </div>
+  <div id="vectordb-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div class="loading">載入中...</div>
+  </div>
+
+  <!-- Ollama -->
+  <div class="section-title" style="margin-bottom:10px">Ollama 地端模型</div>
+  <div id="ollama-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px">
+    <div class="loading">載入中...</div>
+  </div>
+
+  <!-- Schema 對照 -->
+  <div class="section-title" style="margin-bottom:10px">ORM 資料表清單</div>
+  <div id="schema-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">
+    <div class="loading">載入中...</div>
+  </div>
+</div>
+
+
+
+
+
+<script>
+const BASE = '';   // 同源：空字串即可。跨域請改成 'http://localhost:8000'
+let allRoutes = [];
+
+// ── tab 切換 ──
+function sw(i) {
+  document.querySelectorAll('.tab').forEach((t, j) => t.classList.toggle('on', i === j));
+  document.querySelectorAll('.panel').forEach((p, j) => p.classList.toggle('on', i === j));
+  if (i === 0) loadJobs();
+  if (i === 1) loadHealth(false);
+  if (i === 2) loadRoutes();
+  if (i === 3) loadCrawlers();
+  if (i === 4) loadSysStatus();
+
+}
+
+// ── 更新頁頭時間 ──
+function updateTime() {
+  document.getElementById('hdr-time').textContent =
+    '上次更新: ' + new Date().toLocaleString('zh-TW');
+}
+
+// ── 任務排程 ──
+async function loadJobs() {
+  try {
+    const r = await fetch(BASE + '/api/monitor/jobs');
+    const d = await r.json();
+    document.getElementById('job-total').textContent = d.total;
+    const icons = {
+      cpi: '📊', salary: '💰', notification: '🔔',
+      login: '🔐', security: '🛡️', vector: '🧠', warmup: '🔥',
+    };
+    function getIcon(id) {
+      for (const k in icons) if (id.includes(k)) return icons[k];
+      return '⚙️';
+    }
+    document.getElementById('job-list').innerHTML = d.jobs.length === 0
+      ? '<div class="loading">目前沒有任務（排程器可能未啟動）</div>'
+      : d.jobs.map(j => `
+        <div class="job-card">
+          <span class="job-dot dot-ok"></span>
+          <div class="job-ic" style="background:rgba(96,165,250,.1)">${getIcon(j.id)}</div>
+          <div>
+            <div class="job-name">${j.name}</div>
+            <div class="job-meta">${j.trigger}</div>
+          </div>
+          <div class="job-next">${j.next_run}</div>
+        </div>`).join('');
+    updateTime();
+  } catch (e) {
+    document.getElementById('job-list').innerHTML =
+      `<div class="loading" style="color:var(--red)">無法連線 API：${e.message}</div>`;
+  }
+}
+
+// ── API 健康 ──
+async function loadHealth(force = false) {
+  document.getElementById('api-list').innerHTML =
+    '<div class="loading">掃描外部 API 中（約 5–10 秒）...</div>';
+  try {
+    const r = await fetch(BASE + '/api/monitor/api-health' + (force ? '?force=true' : ''));
+    const d = await r.json();
+    const ok   = d.apis.filter(a => a.status === 'ok').length;
+    const warn = d.apis.filter(a => a.status === 'warn').length;
+    const fail = d.apis.filter(a => a.status === 'fail').length;
+    const avgMs = Math.round(d.apis.filter(a => a.ms).reduce((s, a) => s + a.ms, 0) / d.apis.length);
+    document.getElementById('api-ok').textContent   = ok;
+    document.getElementById('api-warn').textContent = warn;
+    document.getElementById('api-fail').textContent = fail;
+    document.getElementById('api-avg').textContent  = avgMs + 'ms';
+    // 更新整體狀態
+    const overall = document.getElementById('overall-status');
+    if (fail > 0) { overall.textContent = '有 API 異常'; overall.className = 'hdr-status warn'; }
+    else           { overall.textContent = '系統正常';   overall.className = 'hdr-status ok'; }
+
+    document.getElementById('api-list').innerHTML = d.apis.map(a => `
+      <div class="api-card">
+        <span class="job-dot dot-${a.status}"></span>
+        <div class="api-info">
+          <div class="api-name">${a.name}</div>
+          <div class="api-desc">${a.desc}</div>
+        </div>
+        <span class="api-badge badge-${a.status}">
+          ${{ ok: '正常', warn: '緩慢/授權', fail: '離線' }[a.status]}
+        </span>
+        <span class="api-ms">${a.ms ? a.ms + 'ms' : '—'}</span>
+      </div>`).join('');
+    updateTime();
+  } catch (e) {
+    document.getElementById('api-list').innerHTML =
+      `<div class="loading" style="color:var(--red)">無法連線 API：${e.message}</div>`;
+  }
+}
+
+// ── 路由清單 ──
+const methodClass = { GET:'m-get', POST:'m-post', PUT:'m-put', PATCH:'m-put', DELETE:'m-del' };
+async function loadRoutes() {
+  try {
+    const r = await fetch(BASE + '/api/monitor/routes');
+    const d = await r.json();
+    allRoutes = d.routes;
+    renderRoutes(allRoutes);
+  } catch (e) {
+    document.getElementById('route-body').innerHTML =
+      `<tr><td colspan="3" style="color:var(--red)">無法載入：${e.message}</td></tr>`;
+  }
+}
+function renderRoutes(routes) {
+  document.getElementById('route-body').innerHTML = routes.map(r => `
+    <tr>
+      <td style="font-family:monospace">${r.path}</td>
+      <td>${r.methods.map(m =>
+        `<span class="method ${methodClass[m]||''}">${m}</span>`).join('')}</td>
+      <td style="color:var(--tx2)">${r.name}</td>
+    </tr>`).join('');
+}
+function filterRoutes(q) {
+  renderRoutes(allRoutes.filter(r =>
+    r.path.includes(q) || r.name.toLowerCase().includes(q.toLowerCase())));
+}
+
+// ── 初始化 ──
+loadJobs();
+setInterval(() => {
+  const active = document.querySelector('.tab.on');
+  if (active) {
+    const i = [...document.querySelectorAll('.tab')].indexOf(active);
+    if (i === 0) loadJobs();
+    if (i === 1) loadHealth(false);
+  }
+}, 60000);
+
+
+// ── 爬蟲狀態 ──
+async function loadCrawlers() {
+  await Promise.all([loadCpiStatus(), loadSalaryStatus()]);
+}
+
+async function loadCpiStatus() {
+  try {
+    const r = await fetch(BASE + '/api/monitor/cpi-status');
+    const d = await r.json();
+    const color = d.status === 'ok' ? 'var(--green)' : 'var(--yellow)';
+    document.getElementById('cpi-card').innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="job-dot" style="background:${color}"></span>
+        <span style="font-weight:600">CPI 物價指數</span>
+        <span class="api-badge badge-${d.status}" style="margin-left:auto">
+          ${d.is_fresh ? '資料最新' : '可能落後'}
+        </span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+        <div style="color:var(--tx2)">資料庫最新月份</div>
+        <div>${d.latest_period || '無資料'}</div>
+        <div style="color:var(--tx2)">預期應有月份</div>
+        <div>${d.expected_period}</div>
+        <div style="color:var(--tx2)">總資料筆數</div>
+        <div>${d.total_rows?.toLocaleString()} 筆</div>
+        <div style="color:var(--tx2)">類別數</div>
+        <div>${d.category_count} 個類別</div>
+        <div style="color:var(--tx2)">資料來源</div>
+        <div><a href="${d.source_url}" target="_blank">${d.source_name}</a></div>
+      </div>`;
+  } catch(e) {
+    document.getElementById('cpi-card').innerHTML =
+      `<div style="color:var(--red)">載入失敗: ${e.message}</div>`;
+  }
+}
+
+async function loadSalaryStatus() {
+  try {
+    const r = await fetch(BASE + '/api/monitor/salary-status');
+    const d = await r.json();
+    const color = d.overall_status === 'ok' ? 'var(--green)' : 'var(--yellow)';
+    document.getElementById('salary-card').innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="job-dot" style="background:${color}"></span>
+        <span style="font-weight:600">薪資統計</span>
+        <span class="api-badge badge-${d.overall_status}" style="margin-left:auto">
+          ${d.overall_status === 'ok' ? '資料最新' : '可能落後'}
+        </span>
+      </div>
+      ${d.types.map(t => `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;
+                    margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--bd)">
+          <div style="color:var(--tx2);font-weight:500" colspan="2">${t.salary_type}</div>
+          <div style="color:var(--tx2)">最新月份</div><div>${t.latest_period || '無資料'}</div>
+          <div style="color:var(--tx2)">預期月份</div><div>${t.expected_period}</div>
+          <div style="color:var(--tx2)">總筆數</div><div>${t.total_rows?.toLocaleString()} 筆</div>
+        </div>`).join('')}`;
+  } catch(e) {
+    document.getElementById('salary-card').innerHTML =
+      `<div style="color:var(--red)">載入失敗: ${e.message}</div>`;
+  }
+}
+
+async function triggerCrawl(task) {
+  const btn = document.getElementById(`btn-${task}`);
+  const result = document.getElementById('trigger-result');
+  btn.disabled = true;
+  btn.textContent = '執行中...';
+  result.style.color = 'var(--tx2)';
+  result.textContent = `${task.toUpperCase()} 爬蟲執行中，請稍候...`;
+  try {
+    const r = await fetch(BASE + `/api/monitor/trigger-crawl?task=${task}`, { method: 'POST' });
+    const d = await r.json();
+    result.style.color = 'var(--green)';
+    result.textContent = d.message || d.error;
+    loadCrawlers(); // 執行完自動刷新狀態
+  } catch(e) {
+    result.style.color = 'var(--red)';
+    result.textContent = `失敗: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = `執行 ${task.toUpperCase()} 爬蟲`;
+  }
+}
+
+async function loadSysStatus() {
+  // DB 狀態
+  try {
+    const r = await fetch(BASE + '/api/monitor/db-status');
+    const d = await r.json();
+    const el = document.getElementById('db-stat');
+    el.textContent = d.status === 'ok' ? d.ms + 'ms' : '異常';
+    el.style.color = d.status === 'ok' ? 'var(--green)' : 'var(--red)';
+  } catch { document.getElementById('db-stat').textContent = '連線失敗'; }
+
+  // Log 摘要
+  try {
+    const r = await fetch(BASE + '/api/monitor/log-summary');
+    const d = await r.json();
+    document.getElementById('log-error').textContent = d.ERROR;
+    document.getElementById('log-error').style.color = d.ERROR > 0 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('log-critical').textContent = d.CRITICAL;
+    document.getElementById('log-critical').style.color = d.CRITICAL > 0 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('log-warn').textContent = d.WARNING;
+    document.getElementById('log-warn').style.color = d.WARNING > 0 ? 'var(--yellow)' : 'var(--tx2)';
+  } catch { }
+
+  // ChromaDB
+  try {
+    const r = await fetch(BASE + '/api/monitor/vectordb-stats');
+    const d = await r.json();
+    if (d.status === 'ok') {
+      const rows = Object.entries(d.collections).map(([name, count]) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;
+                    border-bottom:1px solid var(--bd);font-size:12px">
+          <span style="font-family:monospace;color:var(--blue)">${name}</span>
+          <span>${count.toLocaleString()} 筆</span>
+        </div>`).join('');
+      document.getElementById('vectordb-card').innerHTML = rows || '<div style="color:var(--tx2)">尚無 collection</div>';
+    } else {
+      document.getElementById('vectordb-card').innerHTML = `<div style="color:var(--red)">${d.error}</div>`;
+    }
+  } catch(e) {
+    document.getElementById('vectordb-card').innerHTML = `<div style="color:var(--red)">載入失敗: ${e.message}</div>`;
+  }
+
+  // Ollama
+  try {
+    const r = await fetch(BASE + '/api/monitor/ollama-status');
+    const d = await r.json();
+    if (d.status === 'ok') {
+      document.getElementById('ollama-card').innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="job-dot dot-ok"></span>
+          <span style="font-weight:500">正常運作</span>
+          <span style="font-size:11px;color:var(--tx2);margin-left:auto">${d.ms}ms</span>
+        </div>
+        <div style="font-size:12px;color:var(--tx2)">${d.count} 個模型：${d.models.join('、') || '無'}</div>`;
+    } else {
+      document.getElementById('ollama-card').innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="job-dot dot-fail"></span>
+          <span style="color:var(--tx2)">Ollama 未運行或不在本機</span>
+        </div>`;
+    }
+  } catch(e) {
+    document.getElementById('ollama-card').innerHTML = `<div style="color:var(--tx2)">Ollama 未啟動</div>`;
+  }
+
+  // Schema 清單
+  try {
+    const r = await fetch(BASE + '/api/monitor/schema-checklist');
+    const d = await r.json();
+    document.getElementById('schema-card').innerHTML = `
+      <div style="font-size:11px;color:var(--yellow);margin-bottom:10px">⚠️ ${d.reminder}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${d.tables.map(t => `
+          <span style="font-size:11px;font-family:monospace;padding:2px 8px;
+                      background:var(--bg3);border-radius:4px;color:var(--blue)">${t}</span>
+        `).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:10px">共 ${d.total} 張資料表</div>`;
+  } catch(e) {
+    document.getElementById('schema-card').innerHTML = `<div style="color:var(--red)">載入失敗</div>`;
+  }
+
+  updateTime();
+}
+
+
+</script>
+</body>
+</html>
