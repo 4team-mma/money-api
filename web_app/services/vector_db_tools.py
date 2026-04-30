@@ -43,6 +43,7 @@ class VectorDBTools:
     _client = None  # 🌟 ChromaDB 原生客戶端 (地基
     _embeddings = None # 💻 地端嵌入引擎 (使用 FastEmbed)
     _intent_store = None # 1F 意圖 Store
+    _sql_cache_store = None # 🌟 1.5F SQL 快取金庫
     _manual_store = None # 2F 手冊 Store
     _codebase_store: Optional[Chroma] = None  # B1 機房 Store
     _local_embeddings = None # Ollama 引擎 (供 B1 使用)
@@ -60,6 +61,7 @@ class VectorDBTools:
     def clear_caches(cls):
         """🌟 徹底清空連線快取"""
         cls._intent_store = None
+        cls._sql_cache_store = None
         cls._manual_store = None
         cls._codebase_store = None
         cls._client = None
@@ -110,6 +112,22 @@ class VectorDBTools:
                 cls._get_embeddings()
             )
         return cls._intent_store
+
+
+
+    @classmethod
+    def get_sql_cache_store(cls):
+        """取得 1.5 樓：SQL 語意快取金庫"""
+        if cls._sql_cache_store is None:
+            print("🚀 loading 1.5F SQL Cache...")
+            cls._sql_cache_store = BaseVectorStore.create(
+                cls._get_client(),
+                "sql_cache",
+                cls._get_embeddings()
+            )
+        return cls._sql_cache_store
+
+
 
     @classmethod
     def get_codebase_store(cls):
@@ -184,3 +202,45 @@ class VectorDBTools:
         except Exception as e:
             print(f"ChromaDB 意圖查詢錯誤: {e}")
             return None
+        
+        
+# 快取的 儲存/讀取
+    @staticmethod
+    def get_cached_sql(query: str) -> Optional[str]:
+        """🔍 在 1.5 樓金庫中尋找 SQL 查詢 (已升級為絕對精準比對)"""
+        try:
+            vectorstore = VectorDBTools.get_sql_cache_store()
+            docs_and_scores = vectorstore.similarity_search_with_score(query, k=1)
+
+            if docs_and_scores:
+                doc, score = docs_and_scores[0]
+                
+                # 🌟 終極防護：使用者的問句必須「一模一樣」！
+                if doc.page_content.strip() == query.strip():
+                    # 💡 把 score 加回 Log 裡面印出來，Pylance 就不會亮黃線了！
+                    print(f"🎯 [SQL Cache Hit!] 精準命中快取 (距離分數:{score:.3f}): {doc.page_content}")
+                    return doc.metadata["sql_template"]
+                else:
+                    # 💡 這裡也把 score 印出來，方便你觀察 AI 判斷的數學距離
+                    print(f"👀 [SQL Cache Miss] 語意相似(分數:{score:.3f})但字面不同，放棄快取。({doc.page_content} != {query})")
+
+            return None
+        except Exception as e:
+            print(f"⚠️ SQL 快取查詢錯誤 (初次執行或資料庫為空是正常的): {e}")
+            return None
+
+    @staticmethod
+    def save_sql_to_cache(query: str, sql_template: str):
+        """💾 把 Groq 辛苦寫出來的 SQL 存進金庫"""
+        try:
+            vectorstore = VectorDBTools.get_sql_cache_store()
+            from langchain_core.documents import Document
+            
+            # 將問題當作向量內容，SQL 語法存進 metadata
+            doc = Document(page_content=query, metadata={"sql_template": sql_template})
+            vectorstore.add_documents([doc])
+            print(f"✅ [SQL Cache Saved] 已將查詢存入快取金庫！")
+        except Exception as e:
+            print(f"❌ SQL 快取儲存失敗: {e}")
+
+

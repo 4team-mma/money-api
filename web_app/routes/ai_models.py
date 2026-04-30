@@ -411,57 +411,67 @@ async def chat_with_meow(
             reply = f"連線失敗喵... ({str(e)})"
             
             
+
+# 🌟 核心新增：終極物理淨化器！強制消除小模型傲嬌的對話前綴
+    if isinstance(reply, str):
+        import re
+        # 這把正則手術刀，會把開頭所有的「喵喵：」、「喵喵：喵喵：」一次切除得乾乾淨淨
+        reply = re.sub(r"^((喵喵|小助手|Money\s*喵)[：:\s]*)+", "", reply).strip()
+
+
             
-# ==========================================
-    # 🌟 核心新增：將消耗數據寫入 Token 監測雷達
+    # ==========================================
+    # 🌟 核心新增：將消耗數據寫入 Token 監測雷達 (正義喵喵誠實版)
     # ==========================================
     try:
         from ..models import TokenUsageLog
         
-        # 1. 優先拿取真實的 API 數據
-        p_tokens = actual_usage.get("prompt_tokens", 0)
-        c_tokens = actual_usage.get("completion_tokens", 0)
-        t_tokens = actual_usage.get("total_tokens", 0)
+        # 1. 取得剛剛一路傳過來的快取狀態
+        is_sql_cached = agent_response.get("is_cached", False)
+        sql_usage = agent_response.get("sql_usage", {}) # 🌟 拿到 SQL 引擎傳過來的帳單！
         
-        # 2. 🛡️ 防呆降級：如果沒拿到真實數據，改用加權估算法
-        if t_tokens == 0:
-            safe_reply = str(reply) if reply else ""
-            safe_prompt = str(final_system_prompt) if final_system_prompt else ""
-            safe_msg = str(req.message) if req.message else ""
-            
-            p_tokens = int(len(safe_prompt) + len(safe_msg))
-            c_tokens = int(len(safe_reply))
-            
-            # 手動補上隱藏的 API 巨獸體重
-            if current_intent in ["RECORD", "MULTI_RECORD"]: p_tokens += 1200 
-            elif current_intent in ["QUERY", "MULTI_QUERY"]: p_tokens += 2500
-            elif current_intent == "ADVISOR": p_tokens += 1000
-                
-            t_tokens = p_tokens + c_tokens
+        # 2. 拿取絕對真實的 API 數據
+        p_tokens = actual_usage.get("prompt_tokens", 0) + sql_usage.get("prompt_tokens", 0)
+        c_tokens = actual_usage.get("completion_tokens", 0) + sql_usage.get("completion_tokens", 0)
+        t_tokens = actual_usage.get("total_tokens", 0) + sql_usage.get("total_tokens", 0)
+        
+        # 3. 🌟 正義審判：徹底刪除造假邏輯！是 0 就是 0！
+        # 並且在 Snippet 前面加上誠實的標籤，讓小主人一眼看穿真相
+        snippet_prefix = ""
+        model_display = actual_model_used or "unknown"
 
-        # 🌟 3. 核心分離：這段只會影響 Token Radar 資料庫，絕對不影響 Vue 前端！
+        # 👇 核心補回：就是這兩行被我誤刪了！把背後代工的高難度任務帳單，強制寄給 Groq！
         if current_intent in ["RECORD", "MULTI_RECORD", "ADVISOR", "QUERY", "MULTI_QUERY"]:
             actual_provider_used = "groq"
 
-        # 4. 寫入資料庫
+        if is_sql_cached:
+            # 真實的快取命中：保證 0 消耗
+            p_tokens, c_tokens, t_tokens = 0, 0, 0
+            snippet_prefix = "⚡[快取命中] "
+            model_display = "1.5F Semantic Cache" # 在雷達上自豪地秀出這是快取的功勞！
+        elif t_tokens == 0:
+            # 沒命中快取，但 Token 卻是 0：老實承認 API 沒回傳或斷線
+            snippet_prefix = "⚠️[API未回傳] "
+
+        # 4. 寫入資料庫 (絕無假帳)
         token_log = TokenUsageLog(
             user_id=current_user.user_id,
             provider=actual_provider_used,
-            model_version=actual_model_used or "unknown",
+            model_version=model_display,
             intent_type=current_intent,
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             total_tokens=t_tokens,
             latency_ms=int((time.time() - start_time) * 1000),
-            is_cached=False,
-            # 🌟 核心修正：只留 User ID + 最乾淨的對話指令
-            request_snippet=f"[User {current_user.user_id}] {latest_query}"[:500] 
+            is_cached=is_sql_cached,
+            request_snippet=f"{snippet_prefix}[User {current_user.user_id}] {latest_query}"[:500] 
         )
         db.add(token_log)
         db.commit()
     except Exception as e:
         logger.error(f"❌ Token 雷達紀錄失敗: {str(e)}")
         db.rollback()
+    # ==========================================
     # ==========================================
 
     # ==========================================

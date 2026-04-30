@@ -17,7 +17,8 @@ INTENT_RULES = [
         "name": "ADVISOR_HARD_PROTECT",
         "priority": 110,
         "type": "hard",
-        "when": lambda c: c.has("advisor_trigger"), 
+        # 🌟 核心修正：如果小主人問「什麼是」、「解釋」、「意思」，代表在問知識，不准攔截！
+        "when": lambda c: c.has("advisor_trigger") and not any(kw in c.text for kw in ["什麼是", "解釋", "意思", "定義"]), 
         "target": "ADVISOR"
     },
     {

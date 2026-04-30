@@ -135,10 +135,12 @@ class FinanceAgentService:
             from ..database import SessionLocal
             sql_data_found = False
             precise_val = 0
+            is_sql_cached = False  # 🌟 準備一個變數裝快取狀態
+            sql_usage = {} # 🌟 準備一個變數接帳單
 
             try:
                 # 呼叫重構後的 SQL 引擎
-                generated_sql = await SQLGeneratorService.generate_sql(clean_query, user_id)
+                generated_sql, is_sql_cached, sql_usage = await SQLGeneratorService.generate_sql(clean_query, user_id)
                 print(f"🕵️‍♂️ [SQL 引擎啟動]：{generated_sql}")
 
                 if generated_sql and generated_sql.lower().startswith("select"):
@@ -177,8 +179,9 @@ class FinanceAgentService:
                     "【最高回答準則 - 嚴格遵守】\n"
                     "1. 【唯一真理】：請『絕對無視』對話紀錄中出現過的所有數字！你的答案『只能』是上方資料庫剛剛查出的數字。\n"
                     "2. 嚴禁重複上一題的答案！不要自己通靈！\n"
-                    "3. 請用符合角色的口吻，自然地把數字講出來。嚴禁直接輸出「【資料庫精確查詢結果】」或「答案：」這種機器人標籤。\n"
-                    "4. 請全程使用「正體中文」回答，禁止使用簡體字。\n"
+                    "3. 請用符合角色的口吻，自然地把數字講出來。\n"
+                    "4. ⚠️ 絕對禁止在回答開頭加上「喵喵：」、「小助手：」或任何角色對話標籤，請直接輸出台詞內容！\n"
+                    "5. 請全程使用「正體中文」回答，禁止使用簡體字。\n"
                 )
             elif not sql_data_found:
                 instruction_rule = (
@@ -199,7 +202,8 @@ class FinanceAgentService:
             {BASE_RULES}
             {instruction_rule}
             """
-            return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
+            # 🌟 修正：把 sql_usage 加進回傳的字典裡，送去給水表雷達！
+            return {"intent": intent, "system_prompt": prompt, "confidence": confidence, "is_cached": is_sql_cached, "sql_usage": sql_usage}
 
         # 最終保底
         return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES), "confidence": confidence}

@@ -80,67 +80,121 @@ class SQLGeneratorService:
     """
 
     @classmethod
-    async def generate_sql(cls, user_query: str, user_id: int) -> str:
+    async def generate_sql(cls, user_query: str, user_id: int) -> tuple[str, bool, dict]:
         api_key_str = os.getenv("GROQ_API_KEY")
-        if not api_key_str: return ""
+        if not api_key_str: 
+            return "", False, {} # 🌟 沒給鑰匙就回傳空帳單
 
-        # 🌟 核心修正：動態計算所有時間邊界
         from datetime import datetime, timedelta
         import calendar
+        from .vector_db_tools import VectorDBTools
 
         now = datetime.now()
-        today_str = now.strftime('%Y-%m-%d')
-        weekday_str = calendar.day_name[now.weekday()] # 取得星期幾
-        this_year_start = now.replace(month=1, day=1).strftime('%Y-%m-%d')
+        # 🌟 time_vars 是準備在「最後一刻」才注入模板的真實變數
+        time_vars = {
+            "today_str": now.strftime('%Y-%m-%d'),
+            "this_year_start": now.replace(month=1, day=1).strftime('%Y-%m-%d'),
+            "this_month_start": now.replace(day=1).strftime('%Y-%m-%d'),
+            "user_id": user_id
+        }
         
-        # 本月
-        this_month_start = now.replace(day=1).strftime('%Y-%m-%d')
-        # 找出下個月的第一天，再減一天就是本月最後一天
         next_month = now.replace(day=28) + timedelta(days=4)
-        this_month_end = (next_month - timedelta(days=next_month.day)).strftime('%Y-%m-%d')
+        time_vars["this_month_end"] = (next_month - timedelta(days=next_month.day)).strftime('%Y-%m-%d')
         
-        # 上個月
         last_month_end = (now.replace(day=1) - timedelta(days=1))
-        last_month_start = last_month_end.replace(day=1).strftime('%Y-%m-%d')
-        last_month_end_str = last_month_end.strftime('%Y-%m-%d')
+        time_vars["last_month_start"] = last_month_end.replace(day=1).strftime('%Y-%m-%d')
+        time_vars["last_month_end"] = last_month_end.strftime('%Y-%m-%d')
         
-        # 本週 (週一到週日)
         start_of_week = now - timedelta(days=now.weekday())
-        end_of_week = start_of_week + timedelta(days=6)
-        this_week_start = start_of_week.strftime('%Y-%m-%d')
-        this_week_end = end_of_week.strftime('%Y-%m-%d')
+        time_vars["this_week_start"] = start_of_week.strftime('%Y-%m-%d')
+        time_vars["this_week_end"] = (start_of_week + timedelta(days=6)).strftime('%Y-%m-%d')
 
+        # ==========================================
+        # 🌟 啟動快取攔截機制
+        # ==========================================
+        cached_sql_template = VectorDBTools.get_cached_sql(user_query)
+        if cached_sql_template:
+            try:
+                final_cached_sql = cached_sql_template.format(**time_vars)
+                final_sql = cls._self_correction(final_cached_sql, user_id)
+                print("⚡ [SQL 快取加速] 省下了 3500 Token 和 3 秒的等待時間！")
+                # 🌟 修正 2：快取命中，回傳真實的 0 Token 帳單！
+                return final_sql, True, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            except Exception as e:
+                print(f"⚠️ 快取模板注入失敗... ({e})")
+
+        # ==========================================
+        # 去問 Groq
+        # ==========================================
         schema_context = cls._load_schema_context()
-
         secure_key = SecretStr(api_key_str)
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_key)
 
+        # 🌟 核心防護 1：在 Prompt 中使用雙大括號 {{}}，確保 LangChain 不會提早把變數解開！
+        # 這樣 Groq 產出的 SQL 才會乖乖帶著 {user_id} 這幾個英文字母，而不是具體的數字。
+        SCHEMA_PROMPT_TEMPLATE = """
+        你是一個專業的 MySQL 專家。你唯一的工作是將使用者的問題轉化為精確的 SQL 語句。
+        
+        【🚨 極度重要：時間與身分變數模板規則】
+        你產出的 SQL 絕對不可寫死具體的日期字串或 user_id 數字！必須原封不動地使用以下「大括號變數」：
+        - 若查「今天」，日期請寫 `'{{today_str}}'`
+        - 若查「本月」，日期請寫 `BETWEEN '{{this_month_start}}' AND '{{this_month_end}}'`
+        - 若查「上個月」，日期請寫 `BETWEEN '{{last_month_start}}' AND '{{last_month_end}}'`
+        - 若查「本週」，日期請寫 `BETWEEN '{{this_week_start}}' AND '{{this_week_end}}'`
+        - 若查「今年」，日期請寫 `BETWEEN '{{this_year_start}}' AND '{{today_str}}'`
+        - 會員隔離：必須包含 `user_id = {{user_id}}`
+        
+        【現在日曆參考 (僅供理解語意，請勿寫死在 SQL 中)】
+        今天是 {current_date} ({current_weekday})。
+
+        【🛡️ 絕對安全禁令】
+        1. 只有「讀取」權限！必須以 `SELECT` 開頭。
+        2. 絕對禁止 `INSERT`, `UPDATE`, `DELETE`, `DROP` 等。
+
+        【📚 資料庫架構地圖】
+        {dynamic_schema}
+        
+        【⚠️ 執行準則】
+        1. 僅輸出 SQL，嚴禁解釋。
+        2. 收支判定：支出 add_type = 0，收入 add_type = 1。
+        """
+
         prompt = ChatPromptTemplate.from_messages([
-            ("system", cls.SCHEMA_PROMPT_TEMPLATE),
+            ("system", SCHEMA_PROMPT_TEMPLATE),
             ("human", "問題：{query}")
         ])
 
         chain = prompt | llm
         try:
-            # 🌟 將所有算好的動態時間注入 Prompt
-            response = await chain.ainvoke({
-                "today_str": today_str,
-                "weekday_str": weekday_str,
-                "this_month_start": this_month_start,
-                "this_month_end": this_month_end,
-                "last_month_start": last_month_start,
-                "last_month_end": last_month_end_str,
-                "this_week_start": this_week_start,
-                "this_week_end": this_week_end,
-                "this_year_start": this_year_start,
-                "dynamic_schema": schema_context,
-                "user_id": user_id,
+            # 這裡只傳遞給 Prompt 幫助理解的日曆，不再傳入具體變數
+            invoke_args = {
+                "current_date": now.strftime('%Y-%m-%d'),
+                "current_weekday": calendar.day_name[now.weekday()],
+                "dynamic_schema": schema_context, 
                 "query": user_query
-            })
+            }
+            response = await chain.ainvoke(invoke_args)
+
+            # 🌟 修正 3：從 Groq 的回應裡，把真實的 Token 帳單挖出來！
+            sql_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                sql_usage["prompt_tokens"] = response.usage_metadata.get("input_tokens", 0)
+                sql_usage["completion_tokens"] = response.usage_metadata.get("output_tokens", 0)
+                sql_usage["total_tokens"] = response.usage_metadata.get("total_tokens", 0)
 
             raw_sql = str(response.content)
-            final_sql = cls._self_correction(raw_sql, user_id)
-            return final_sql
+            clean_template = raw_sql.replace("```sql", "").replace("```", "").replace("\n", " ").strip()
+            clean_template = re.sub(r'\s+', ' ', clean_template)
+            clean_template = re.sub(r"user_id\s*=\s*\d+", "user_id = {user_id}", clean_template, flags=re.IGNORECASE)
+            
+            if clean_template.lower().startswith("select"):
+                VectorDBTools.save_sql_to_cache(user_query, clean_template)
+
+            final_sql = clean_template.format(**time_vars)
+            final_sql = cls._self_correction(final_sql, user_id)
+            
+            # 🌟 修正 4：把挖出來的 sql_usage 一併回傳！
+            return final_sql, False, sql_usage
         except Exception as e:
             print(f"❌ SQL Generator 致命錯誤: {e}")
-            return ""
+            return "", False, {}
