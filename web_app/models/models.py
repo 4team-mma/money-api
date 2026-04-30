@@ -805,3 +805,39 @@ class TaskRunLog(Base):
     rows_updated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     message: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     ran_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+# 26.育育的表格(他自己會補)
+
+
+# 27. Token 流量監測表 (Token Radar Lab)
+class TokenUsageLog(Base):
+    __tablename__ = "token_usage_logs"
+
+    log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
+    # 廠商與模型
+    provider: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    model_version: Mapped[str] = mapped_column(String(80), nullable=False)
+
+    # 意圖分類
+    intent_type: Mapped[str] = mapped_column(
+        String(20), server_default="UNKNOWN", index=True,
+        comment="QUERY / SUGGESTION / RECORD / CHAT / UNKNOWN"
+    )
+    # Token 細項
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 效能
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # 除錯輔助
+    is_cached: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    request_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+    user = relationship("Member")

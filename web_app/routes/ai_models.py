@@ -249,8 +249,10 @@ async def chat_with_meow(
     is_json_command = False
     parsed_action = None
     reply = "喵喵不知道該說什麼..."
+    actual_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     actual_model_used = config.model_version
     
+    actual_provider_used = config.provider
 
 
     # ==========================================
@@ -267,7 +269,9 @@ async def chat_with_meow(
             f"1. [專屬分類庫]：{user_history['categories']}\n"
             f"2. [常用標籤庫]：{user_history['tags']} (若有多個請用 '/' 分隔，如 '需要/爬山')\n"
             f"3. [常用成員庫]：{user_history['members']}\n"
-            f"請務必優先從上述清單挑選。請留意小主人對『標籤(想要/需要等)』與『成員(幫誰花錢)』的明確指示！"
+            f"4. [常用帳戶庫]：{user_history['accounts']}\n"
+            f"5. [預設帳戶]：{user_history['default_account']}\n"
+            f"請務必優先從上述清單挑選。若對話未指定帳戶，請一律填入 [預設帳戶] 的名稱！\n"
         )
         record_system_prompt = final_system_prompt + dynamic_rule
         # 🌟🌟🌟 新增結束 🌟🌟🌟
@@ -275,12 +279,16 @@ async def chat_with_meow(
         
         # 🚀 通道 A：記帳 (強制走 Groq)
         try:
-            # ⚠️ 注意這裡：把 final_system_prompt 換成剛組裝好的 record_system_prompt
             groq_result = FinanceAgentService.execute_record_chain(record_system_prompt, latest_query)
             is_json_command = True
             parsed_action = groq_result.get("action_data", {})
             reply = groq_result.get("reply_text", "已記好囉喵！")
+            
             actual_model_used = "Groq (Llama-Record)"
+            actual_provider_used = "groq"  # 🌟 補上這行：強制標記為 groq
+            # token
+            actual_usage = groq_result.get("usage", actual_usage)
+            
         except Exception as e:
             logger.error(f"Groq 解析 JSON 失敗: {str(e)}")
             reply = "喵喵聽不懂這筆帳，請換個方式說喵！"
@@ -299,6 +307,8 @@ async def chat_with_meow(
             #print(f"✅ [DEBUG] LangGraph 回傳成功: {reply[:50]}")
             is_json_command = False
             actual_model_used = "Groq (LangGraph-Advisor)"
+            actual_provider_used = "groq"  # 🌟 補上這行：強制標記為 groq
+            
         except Exception as e:
             #print(f"❌ [DEBUG] LangGraph 炸了: {str(e)}")
             import traceback
@@ -326,73 +336,133 @@ async def chat_with_meow(
                 # 🌟 致命修復：既然強制換腦，就必須強制從環境變數拿 Groq 的鑰匙！
                 override_api_key = os.getenv("GROQ_API_KEY") 
                 print(f"🚀 [雲端優化] QUERY 自動切換至 Groq 70B")
+                
+                
+            # ==========================================
+            # 🌟 終極防護：根據「意圖」嚴格派發工具 (動態掛載)
+            # ==========================================
+            from ..services.finance_tools import get_budget_tool, search_manual_tool
+            from ..services.notion_mcp_service import create_notion_tool
+            notion_tool = create_notion_tool(db, current_user)
+            
+            active_tools = [] # 預設空手，什麼工具都不給！
+            
+            # 只有知識查詢，才給手冊工具
+            if current_intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
+                active_tools.append(search_manual_tool)
+                
+            # 只有財務查詢，才給預算工具
+            elif current_intent in ["QUERY", "MULTI_QUERY"]:
+                active_tools.append(get_budget_tool)
+
+            # 外部 MCP 工具獨立判斷
+            if "notion" in latest_query.lower() or "同步" in latest_query:
+                active_tools.append(notion_tool)
+            # ==========================================
 
             # A. Gemini 處理
             if active_provider == "gemini":
                 env_key = os.getenv("GEMINI_API_KEY") 
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
-                # 如果有 override_api_key 就用它的，不然才用資料庫或環境變數的
                 f_key = override_api_key or db_key or env_key
                 if not f_key: raise Exception("Missing Key")
 
-                from ..services.finance_tools import get_budget_tool, search_manual_tool
-                
-                # 🌟新增引入 Notion 工具
-                from ..services.notion_mcp_service import create_notion_tool
-                # 用閉包工廠建立有 db/user 的版本
-                notion_tool = create_notion_tool(db, current_user)
-                
                 res = await GeminiService.chat_async(
                     api_key=str(f_key), model_id=active_model,
                     prompt=f"【機密 user_id: {current_user.user_id}】\n問題：{req.message}",
                     system_instruction=final_system_prompt,
-                    tools=[get_budget_tool, search_manual_tool,
-                        
-                        # 把 add_expense_to_notion 加進 Gemini
-                        notion_tool
-                    ]
+                    # 🌟 這裡修改：如果陣列是空的，就傳 None，直接沒收工具！
+                    tools=active_tools if active_tools else None 
                 )
                 reply, actual_model_used = res["text"], res["actual_model"]
 
             # B. Groq 處理
+            # B. Groq 處理
             elif active_provider == "groq":
                 env_key = os.getenv("GROQ_API_KEY")
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
-                # 🌟 這裡最關鍵：override_api_key 優先權最高！
                 f_key = override_api_key or db_key or env_key
                 if not f_key: raise Exception("Missing Key")
 
-                reply = await GroqService.chat_async(
+                # 🌟 核心修正：用 res 接住字典，並把真實 token 數據挖出來
+                res = await GroqService.chat_async(
                     api_key=str(f_key), model_id=active_model,
                     prompt=req.message, system_instruction=final_system_prompt
                 )
+                reply = res["text"]
                 actual_model_used = active_model
+                actual_usage = res.get("usage", actual_usage)
 
             # C. Ollama 處理
             elif active_provider == "ollama":
                 if is_on_render:
                     reply = "雲端環境暫不支援 Ollama，請手動切換至 Gemini 或 Groq 喵。"
                 else:
-                    # 🌟 1. 引入需要的工具 (與 Gemini 相同)
-                    from ..services.finance_tools import get_budget_tool, search_manual_tool
-                    from ..services.notion_mcp_service import create_notion_tool
-                    
-                    # 🌟 2. 建立 Notion 工具並綁定 db 與 user
-                    notion_tool = create_notion_tool(db, current_user)
-                    
-                    
                     reply = await OllamaService.chat_async(
                         base_url=str(config.base_url or "http://localhost:11434"),
                         model_id=active_model,
                         prompt=req.message,
                         system_instruction=final_system_prompt,
-                        # 💡 不用傳 timeout_sec，它會自動預設 60 秒！
-                        tools=[get_budget_tool, search_manual_tool, notion_tool]
+                        tools=None
                     )
 
         except Exception as e:
             logger.error(f"AI Chat Error: {str(e)}", exc_info=True)
             reply = f"連線失敗喵... ({str(e)})"
+            
+            
+            
+# ==========================================
+    # 🌟 核心新增：將消耗數據寫入 Token 監測雷達
+    # ==========================================
+    try:
+        from ..models import TokenUsageLog
+        
+        # 1. 優先拿取真實的 API 數據
+        p_tokens = actual_usage.get("prompt_tokens", 0)
+        c_tokens = actual_usage.get("completion_tokens", 0)
+        t_tokens = actual_usage.get("total_tokens", 0)
+        
+        # 2. 🛡️ 防呆降級：如果沒拿到真實數據，改用加權估算法
+        if t_tokens == 0:
+            safe_reply = str(reply) if reply else ""
+            safe_prompt = str(final_system_prompt) if final_system_prompt else ""
+            safe_msg = str(req.message) if req.message else ""
+            
+            p_tokens = int(len(safe_prompt) + len(safe_msg))
+            c_tokens = int(len(safe_reply))
+            
+            # 手動補上隱藏的 API 巨獸體重
+            if current_intent in ["RECORD", "MULTI_RECORD"]: p_tokens += 1200 
+            elif current_intent in ["QUERY", "MULTI_QUERY"]: p_tokens += 2500
+            elif current_intent == "ADVISOR": p_tokens += 1000
+                
+            t_tokens = p_tokens + c_tokens
+
+        # 🌟 3. 核心分離：這段只會影響 Token Radar 資料庫，絕對不影響 Vue 前端！
+        if current_intent in ["RECORD", "MULTI_RECORD", "ADVISOR", "QUERY", "MULTI_QUERY"]:
+            actual_provider_used = "groq"
+
+        # 4. 寫入資料庫
+        token_log = TokenUsageLog(
+            user_id=current_user.user_id,
+            provider=actual_provider_used,
+            model_version=actual_model_used or "unknown",
+            intent_type=current_intent,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=t_tokens,
+            latency_ms=int((time.time() - start_time) * 1000),
+            is_cached=False,
+            # 🌟 核心修正：只留 User ID + 最乾淨的對話指令
+            request_snippet=f"[User {current_user.user_id}] {latest_query}"[:500] 
+        )
+        db.add(token_log)
+        db.commit()
+    except Exception as e:
+        logger.error(f"❌ Token 雷達紀錄失敗: {str(e)}")
+        db.rollback()
+    # ==========================================
 
     # ==========================================
     # 5. 收尾工作：更新任務與回傳
@@ -440,7 +510,7 @@ async def chat_with_meow(
     return {
         "reply": reply,
         "duration": duration,
-        "provider": provider_display,
+        "provider": provider_display, # 👈 這裡依然回傳原本的設定給 Vue
         "is_command": is_json_command,
         "action_data": parsed_action,
         "intent": current_intent,  # 🌟 新增：傳給前端

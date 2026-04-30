@@ -206,38 +206,137 @@ class FinanceAgentService:
 
     @staticmethod
     def execute_record_chain(system_prompt: str, user_message: str) -> dict:
-        """此方法維持原樣，處理 Llama 3 的 JSON 解析"""
+        """重構版：使用 8B 小模型 + 動態範例注入 + 陣列暴力淨化器"""
+        import json
+        import re
+        import os
         from pydantic import SecretStr
-        from langchain_core.output_parsers import PydanticOutputParser
+        from langchain_groq import ChatGroq
         from ..schemas.bot_schema import RecordResponseSchema
 
         groq_api_key = os.getenv("GROQ_API_KEY")
         if not groq_api_key:
             raise ValueError("找不到 GROQ_API_KEY，請確認 .env 檔案設定喵！")
 
-        secure_api_key = SecretStr(groq_api_key)
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_api_key)
-        parser = PydanticOutputParser(pydantic_object=RecordResponseSchema)
+        llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=SecretStr(groq_api_key))
 
-        strict_json_rules = (
-            "【最高指令：絕對禁止任何廢話】\n"
-            "請你扮演一個無情的資料轉換機，你唯一的任務就是輸出符合格式的 JSON 字典。\n"
-            "1. 絕對不允許在 JSON 之前或之後加上任何文字。\n"
-            "2. 請直接以 `{` 開頭，並以 `}` 結尾。\n"
-            "3. 不要使用 ```json 的 Markdown 標籤，只輸出純文字格式的 JSON。\n"
-            "4. ⚠️ 【日期格式強制規定】：如果小主人提到「今天」或沒有明確指明日期，請一律使用系統時間的日期！且格式必須嚴格為 YYYY-MM-DD（例如：2026-04-17），絕對不可包含具體時間（HH:MM:SS）或中文字！\n"
-        )
+        db_context_match = re.search(r'【極度重要：小主人的專屬資料庫】[\s\S]*', system_prompt)
+        user_db_context = db_context_match.group(0) if db_context_match else ""
 
-        final_prompt = PromptTemplate(
-            template="{strict_json_rules}\n{system_prompt}\n\n[小主人的話]：{user_message}",
-            input_variables=["strict_json_rules", "system_prompt", "user_message"]
-        )
+        # 🌟 核心修正 1：用 Regex 從 prompt 裡挖出「真正的預設帳戶名稱」
+        default_acc_match = re.search(r'\[預設帳戶\]：(.*)', system_prompt)
+        default_acc = default_acc_match.group(1).strip() if default_acc_match else "現金"
 
-        chain = final_prompt | llm | parser
-        result = chain.invoke({
-            "strict_json_rules": strict_json_rules,
-            "system_prompt": system_prompt,
-            "user_message": user_message
-        })
+        # 🌟 核心修正 2：直接把 {default_acc} 寫死在範例裡面，讓 AI 連想都不用想，照抄就對了！
+        few_shot_prompt = f"""
+你是一個無情的 JSON 轉換機。請將使用者的話轉換為記帳 JSON 格式。
+絕對不要輸出任何解釋或 Markdown 標記。只能輸出 `[` 開頭並以 `]` 結尾的 JSON 陣列。
+如果有多筆記帳，請放在同一個陣列中。日期未指定請用今天。
 
-        return result.model_dump()
+{user_db_context}
+
+【轉換範例 1：單筆支出】
+[小主人的話]：我今天吃麥當勞花了 150 元
+[
+  {{
+    "record_type": "expense",
+    "add_note": "麥當勞",
+    "add_amount": 150,
+    "record_date": "2026-04-30",
+    "add_class": "飲食",
+    "add_class_icon": "🍔",
+    "account_name": "{default_acc}",
+    "add_member": "自己",
+    "add_tag": "需要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }}
+]
+
+【轉換範例 2：多筆支出】
+[小主人的話]：搭高鐵花 300，然後買書花 400
+[
+  {{
+    "record_type": "expense",
+    "add_note": "高鐵",
+    "add_amount": 300,
+    "record_date": "2026-04-30",
+    "add_class": "交通",
+    "add_class_icon": "🚗",
+    "account_name": "{default_acc}",
+    "add_member": "自己",
+    "add_tag": "需要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }},
+  {{
+    "record_type": "expense",
+    "add_note": "書",
+    "add_amount": 400,
+    "record_date": "2026-04-30",
+    "add_class": "學習",
+    "add_class_icon": "📚",
+    "account_name": "{default_acc}",
+    "add_member": "自己",
+    "add_tag": "想要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }}
+]
+
+【轉換範例 3：收入與家庭成員】
+[小主人的話]：我媽今天給我 200 元零用錢
+[
+  {{
+    "record_type": "income",
+    "add_note": "零用錢",
+    "add_amount": 200,
+    "record_date": "2026-04-30",
+    "add_class": "其他",
+    "add_class_icon": "💰",
+    "account_name": "{default_acc}",
+    "add_member": "父母",
+    "add_tag": "想要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }}
+]
+
+【現在換你】
+[小主人的話]：{user_message}
+"""
+        response = llm.invoke(few_shot_prompt)
+        
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            usage["prompt_tokens"] = response.usage_metadata.get("input_tokens", 0)
+            usage["completion_tokens"] = response.usage_metadata.get("output_tokens", 0)
+            usage["total_tokens"] = response.usage_metadata.get("total_tokens", 0)
+
+        raw_text = str(response.content)
+        print(f"🤖 [Groq 8B 原始輸出]:\n{raw_text}")
+        
+        match = re.search(r"(\[[\s\S]+\])", raw_text)
+        clean_json_str = match.group(1) if match else raw_text
+
+        try:
+            parsed_data_list = json.loads(clean_json_str)
+            if not isinstance(parsed_data_list, list):
+                parsed_data_list = [parsed_data_list]
+
+            wrapper_payload = {
+                "reply_text": "已幫你記好囉喵！",
+                "action_data": parsed_data_list 
+            }
+            
+            validated = RecordResponseSchema(**wrapper_payload)
+            dumped_data = validated.model_dump()
+            
+            return {
+                "action_data": dumped_data["action_data"],
+                "reply_text": dumped_data["reply_text"],
+                "usage": usage 
+            }
+        except Exception as e:
+            print(f"❌ JSON 解析失敗: {e}")
+            raise e

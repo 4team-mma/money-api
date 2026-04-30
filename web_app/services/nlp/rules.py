@@ -28,6 +28,21 @@ INTENT_RULES = [
         "target": "KNOWLEDGE"
     },
     {
+        "name": "ABSOLUTE_RECORD_PROTECT",
+        "priority": 98,  # 🌟 優先級極高，幾乎凌駕所有猜測
+        "type": "hard",
+        # 🛡️ 鐵律：只要有「數字」+「動作(吃/買/花)」+「金額單位(元/塊)」
+        # 且沒有明確的查詢動詞(查/多少)，就絕對是記帳！
+        "when": lambda c: (
+            c.has("number") and 
+            c.has("record_action") and 
+            c.has("money_unit") and 
+            "多少" not in c.text and 
+            "查" not in c.text
+        ),
+        "target": "RECORD"
+    },
+    {
         "name": "RECORD_VIOLENT_INTERCEPT", # 🌟 妳的核心進化邏輯：暴力攔截
         "priority": 95,
         "type": "hard",
@@ -46,8 +61,15 @@ INTENT_RULES = [
         "name": "SOCIAL_GREETING_RESCUE",
         "priority": 90,
         "type": "soft",
-        # 只有在「不是標準記帳(動詞+數字)」的情況下，招呼語才出來救援 CHAT
-        "when": lambda c: c.has("social_greeting") and not (c.has("record_action") and c.has("number")),
+        # 修改前：只排除了記帳(數字+動詞)，卻忘記排除查詢(多少/有沒有)
+        # "when": lambda c: c.has("social_greeting") and not (c.has("record_action") and c.has("number")),
+        
+        # 🌟 修改後：如果句子有明確的「查詢觸發詞」或「疑問詞」，招呼語就不能加分！
+        "when": lambda c: c.has("social_greeting") and not (
+            (c.has("record_action") and c.has("number")) or 
+            c.has("query_trigger") or 
+            c.has("doubt_trigger")
+        ),
         "target": "CHAT",
         "weight": 2.5
     },

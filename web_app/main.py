@@ -28,7 +28,8 @@ from web_app.routes import (
     integrations,
     admin_ai_helper,
     chat_langgraph_test,
-    monitor
+    monitor,
+    token_radar
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -490,6 +491,8 @@ app.include_router(ai.router,
 app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
 
 app.include_router(chat_langgraph_test.router, prefix="/api/langgraph", tags=["laghGraph測試"])
+
+app.include_router(token_radar.router, prefix="/api/token-radar", tags=["Token 檢測"])
 
 app.include_router(monitor.router, prefix="/api/monitor", tags=["監控中心"])
 
