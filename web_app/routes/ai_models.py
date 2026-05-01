@@ -442,7 +442,7 @@ async def chat_with_meow(
                         model_id=active_model,
                         prompt=req.message,
                         system_instruction=final_system_prompt,
-                        tools=None
+                        tools=active_tools if active_tools else None
                     )
 
         except Exception as e:
