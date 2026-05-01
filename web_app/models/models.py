@@ -55,8 +55,10 @@ class Member(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)
     points: Mapped[int] = mapped_column(Integer, default=0)
     job: Mapped[str] = mapped_column(String(100), default="一般民眾")
-    # --- 新增這個欄位 ---
+    # --- 新增欄位 ---
     line_user_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, unique=True)
+    notion_api_key: Mapped[Optional[str]] = mapped_column(String(500),nullable=True)
+    notion_page_id: Mapped[Optional[str]] = mapped_column(String(100),nullable=True)
     # ------------------
     #記錄登入失敗次數與鎖定時間
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)

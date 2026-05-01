@@ -289,13 +289,23 @@ async def chat_with_meow(
         # 🌟🌟🌟 全面升級：動態注入分類、標籤、成員 🌟🌟🌟
         user_history = get_user_history_for_prompt(db, current_user.user_id)
         dynamic_rule = (
-            f"\n\n【極度重要：小主人的專屬資料庫】\n"
+            f"\n\n【🚨 極度重要：小主人的專屬資料庫】\n"
             f"1. [專屬分類庫]：{user_history['categories']}\n"
-            f"2. [常用標籤庫]：{user_history['tags']} (若有多個請用 '/' 分隔，如 '需要/爬山')\n"
+            f"2. [常用標籤庫]：{user_history['tags']} (若有多個請用 '/' 分隔)\n"
             f"3. [常用成員庫]：{user_history['members']}\n"
             f"4. [常用帳戶庫]：{user_history['accounts']}\n"
             f"5. [預設帳戶]：{user_history['default_account']}\n"
-            f"請務必優先從上述清單挑選。若對話未指定帳戶，請一律填入 [預設帳戶] 的名稱！\n"
+            
+            f"\n⚠️ [帳戶提取鐵律]：\n"
+            f"- 若對話提到 [常用帳戶庫] 中的任何名稱（如：存入國泰、用中信付），\n"
+            f"  [account_name] 必須強制填入該帳戶名稱！不可使用預設帳戶！\n"
+            f"- 只有當對話完全沒提到任何帳戶時，[account_name] 才可填入「{user_history['default_account']}」。\n"
+            
+            f"\n⚠️ [標籤提取鐵律]：\n"
+            f"- 除非小主人明確說出標籤名稱（如：標記為想要、這筆是旅遊），\n"
+            f"- 否則 [add_tag] 必須保持空字串 \"\"，絕對禁止自行猜測情緒！\n"
+            
+            f"\n請務必優先從清單挑選正確名稱，並僅輸出 JSON 陣列喵！\n"
         )
         record_system_prompt = final_system_prompt + dynamic_rule
         # 🌟🌟🌟 新增結束 🌟🌟🌟
@@ -305,6 +315,40 @@ async def chat_with_meow(
         try:
             groq_result = FinanceAgentService.execute_record_chain(record_system_prompt, latest_query)
             is_json_command = True
+            
+            raw_action_data = groq_result.get("action_data", [])
+            # 建立一個「名字 -> ID」的對照表，方便等等快速轉換
+            user_accounts = db.query(Account).filter(Account.user_id == current_user.user_id).all()
+            account_map = {acc.account_name: acc.account_id for acc in user_accounts}
+            
+            # 取得預設帳戶 ID (保底用)
+            default_acc_id = None
+            if user_accounts:
+                # 拿第一個帳戶當預設 (對應你 get_user_history_for_prompt 的邏輯)
+                default_acc_id = user_accounts[0].account_id
+
+            # 🌟 進行資料補強 (Data Enrichment)
+            for record in raw_action_data:
+                
+                if record.get("record_type") == "income" and record.get("to_account"):
+                    if record["to_account"] in account_map:
+                        record["account_name"] = record["to_account"]
+                
+                # 1. 帳戶轉換：名字變 ID
+                acc_name = record.get("account_name")
+                if acc_name in account_map:
+                    record["account_id"] = account_map[acc_name]
+                else:
+                    record["account_id"] = default_acc_id  # 找不到就用預設
+                
+                # 2. 標籤補強：如果 AI 給空字串或沒給，補上「需要」
+                if not record.get("add_tag") or record["add_tag"].strip() == "":
+                    record["add_tag"] = "需要"
+                
+                # 3. 成員補強：如果沒抓到，補上「自己」
+                if not record.get("add_member"):
+                    record["add_member"] = "自己"
+            
             parsed_action = groq_result.get("action_data", {})
             reply = groq_result.get("reply_text", "已記好囉喵！")
             
@@ -413,9 +457,12 @@ async def chat_with_meow(
                     # 🌟 這裡修改：如果陣列是空的，就傳 None，直接沒收工具！
                     tools=active_tools if active_tools else None 
                 )
-                reply, actual_model_used = res["text"], res["actual_model"]
+                reply = res["text"]
+                actual_model_used = res["actual_model"]
+                # 🌟 關鍵：把 Gemini 的帳單交給你的 Token Radar 變數
+                actual_usage = res.get("usage", actual_usage)
 
-            # B. Groq 處理
+
             # B. Groq 處理
             elif active_provider == "groq":
                 env_key = os.getenv("GROQ_API_KEY")
