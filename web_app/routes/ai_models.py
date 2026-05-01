@@ -33,6 +33,9 @@ SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma4:e4b")
 SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
 AI_BRAIN_VERSION = os.getenv("AI_BRAIN_VERSION", "v1")
 
+# 🌟 全域變數：輕量級對話狀態鎖 (Format: {user_id: expire_timestamp})
+ADVISOR_STATE_LOCKS = {}
+
 
 def get_sys_default_model(provider: str) -> str:
     """根據 Provider 決定預設模型名稱"""
@@ -228,21 +231,42 @@ async def chat_with_meow(
 
     # 3. 提取指令：只拿最後一句話
     latest_query = req.message.split("小主人：")[-1].strip() if "小主人：" in req.message else req.message
+    
+    
+    # ==========================================
+    # 🌟 狀態鎖檢測：如果被鎖定，直接強制進入 ADVISOR！
+    # ==========================================
+    is_locked = False
+    current_intent = None
+    
+    if current_user.user_id in ADVISOR_STATE_LOCKS:
+        # 檢查鎖是否過期 (設定 3 分鐘 = 180 秒)
+        if time.time() < ADVISOR_STATE_LOCKS[current_user.user_id]:
+            is_locked = True
+            current_intent = "ADVISOR"
+            financial_context_instruction = "【系統訊息】進入連續理財對話模式。"
+            agent_response = {"intent": "ADVISOR", "confidence": 1.0, "is_cached": False}
+            logger.info(f"🔒 [State Lock] 攔截成功！User {current_user.user_id} 強制進入 ADVISOR")
+        else:
+            # 鎖過期了，刪除並正常走意圖判斷
+            del ADVISOR_STATE_LOCKS[current_user.user_id]
+            logger.info(f"🔓 [State Lock] User {current_user.user_id} 鎖定超時，已解除。")
 
-    # 4. 判斷意圖
-    try:
-        agent_response = await FinanceAgentService.get_context(
-            db, current_user, latest_query, req.persona, version=config.brain_version
-        )
-        current_intent = agent_response["intent"]
-        financial_context_instruction = agent_response["system_prompt"]
-        print(f"🎯 [意圖偵測]: {current_intent}")
-    except Exception as e:
-        logger.error(f"FinanceAgent Error: {str(e)}")
-        current_intent = "CHAT"
-        agent_response = {"intent": "CHAT", "confidence": 0.0}
-        financial_context_instruction = "【系統訊息】暫時無法讀取財務資料。"
-
+    # 4. 如果沒有鎖定，才去跑原本的 VectorDB 與 ONNX
+    if not is_locked:
+        try:
+            agent_response = await FinanceAgentService.get_context(
+                db, current_user, latest_query, req.persona, version=config.brain_version
+            )
+            current_intent = agent_response["intent"]
+            financial_context_instruction = agent_response["system_prompt"]
+            print(f"🎯 [意圖偵測]: {current_intent}")
+        except Exception as e:
+            logger.error(f"FinanceAgent Error: {str(e)}")
+            current_intent = "CHAT"
+            agent_response = {"intent": "CHAT", "confidence": 0.0}
+            financial_context_instruction = "【系統訊息】暫時無法讀取財務資料。"
+    
     final_system_prompt = f"{config.system_prompt}\n\n{financial_context_instruction}"
 
     # 初始化回傳變數
@@ -295,26 +319,40 @@ async def chat_with_meow(
             
             
     
-    # 🌟🌟🌟 新增這一段：ADVISOR 專屬通道 🌟🌟🌟
+    # 🌟🌟🌟 ADVISOR 專屬通道 🌟🌟🌟
     elif current_intent == "ADVISOR":
-        #print(f"🚀 [DEBUG] ADVISOR elif 觸發！準備呼叫 LangGraph...")
         try:
-            reply = await analyze_finance_advice(
-                user_message=latest_query,   # ← 補回來
-                db=db,                        # ← 補回來
-                current_user=current_user     # ← 補回來
+            # 🌟 修正點 1：用 advisor_res 來接住字典！
+            advisor_res = await analyze_finance_advice(
+                user_message=latest_query,
+                db=db,
+                current_user=current_user
             )
-            #print(f"✅ [DEBUG] LangGraph 回傳成功: {reply[:50]}")
+            
+            # 🌟 修正點 2：從字典中拆解出對話內容與 Token 帳單
+            reply = advisor_res["content"]
+            actual_usage = advisor_res["usage"]
+            
             is_json_command = False
             actual_model_used = "Groq (LangGraph-Advisor)"
-            actual_provider_used = "groq"  # 🌟 補上這行：強制標記為 groq
+            actual_provider_used = "groq"
+            
+            # ==========================================
+            # 🌟 判斷是否需要「繼續上鎖」
+            # ==========================================
+            if any(q in reply for q in ["？", "?", "請問", "告訴我", "你的行業是"]):
+                ADVISOR_STATE_LOCKS[current_user.user_id] = time.time() + 180
+            else:
+                if current_user.user_id in ADVISOR_STATE_LOCKS:
+                    del ADVISOR_STATE_LOCKS[current_user.user_id]
             
         except Exception as e:
-            #print(f"❌ [DEBUG] LangGraph 炸了: {str(e)}")
             import traceback
             traceback.print_exc()
             reply = "喵喵的理財大腦暫時有點打結，請稍後再試喵！"
             actual_model_used = "Error"
+            if current_user.user_id in ADVISOR_STATE_LOCKS:
+                del ADVISOR_STATE_LOCKS[current_user.user_id]
     # 🌟🌟🌟 新增結束 🌟🌟🌟
     
     
@@ -332,7 +370,8 @@ async def chat_with_meow(
 
             if current_intent == "QUERY" and is_on_render:
                 active_provider = "groq"
-                active_model = "llama-3.3-70b-versatile"
+                # llama-3.3-70b-versatile
+                active_model = "meta-llama/llama-4-scout-17b-16e-instruct"
                 # 🌟 致命修復：既然強制換腦，就必須強制從環境變數拿 Groq 的鑰匙！
                 override_api_key = os.getenv("GROQ_API_KEY") 
                 print(f"🚀 [雲端優化] QUERY 自動切換至 Groq 70B")

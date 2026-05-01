@@ -128,7 +128,8 @@ class SQLGeneratorService:
         # ==========================================
         schema_context = cls._load_schema_context()
         secure_key = SecretStr(api_key_str)
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_key)
+        # llama-3.3-70b-versatile
+        llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0, api_key=secure_key)
 
         # 🌟 核心防護 1：在 Prompt 中使用雙大括號 {{}}，確保 LangChain 不會提早把變數解開！
         # 這樣 Groq 產出的 SQL 才會乖乖帶著 {user_id} 這幾個英文字母，而不是具體的數字。
@@ -154,9 +155,23 @@ class SQLGeneratorService:
         【📚 資料庫架構地圖】
         {dynamic_schema}
         
-        【⚠️ 執行準則】
-        1. 僅輸出 SQL，嚴禁解釋。
-        2. 收支判定：支出 add_type = 0，收入 add_type = 1。
+        【⚠️ 查詢鐵律 (IF-ELSE 分流)】
+        當判斷查詢為「支出 (add_type=0)」或「收入 (add_type=1)」時，請嚴格遵守以下互斥規則，僅輸出 SQL：
+
+        [情況 A：查詢大分類] (如：飲食、交通、居家、娛樂)
+        絕對禁止使用 LIKE！必須利用 LEFT JOIN 確保複合訂單被正確拆分：
+        SELECT SUM(COALESCE(add_items.item_amount, adds.add_amount))
+        FROM adds LEFT JOIN add_items ON adds.add_id = add_items.add_id
+        WHERE adds.user_id = {{user_id}} AND adds.add_type = 0
+        AND COALESCE(add_items.item_class, adds.add_class) = '目標分類'
+        AND adds.add_date BETWEEN '...' AND '...'
+
+        [情況 B：查詢具體物品/店家] (如：咖啡、便當、麥當勞)
+        不需要 JOIN！直接從主表用 LIKE 精準比對：
+        SELECT SUM(add_amount) FROM adds
+        WHERE user_id = {{user_id}} AND add_type = 0
+        AND (add_note LIKE '%關鍵字%' OR add_tag LIKE '%關鍵字%')
+        AND adds.add_date BETWEEN '...' AND '...'
         """
 
         prompt = ChatPromptTemplate.from_messages([

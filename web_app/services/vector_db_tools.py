@@ -142,7 +142,7 @@ class VectorDBTools:
 
     @staticmethod
     def search_manual(query: str, k: int = 3) -> str:
-        """在地端搜尋手冊知識 (移除會報 401 的 Cohere Rerank)"""
+        """在地端搜尋手冊知識2F (移除會報 401 的 Cohere Rerank)"""
         try:
             vectorstore = VectorDBTools.get_manual_store()
 
