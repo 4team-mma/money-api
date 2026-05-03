@@ -7,8 +7,9 @@ import re
 from datetime import datetime
 import pytz
 import os
-
-
+from .sql_generator_service import SQLGeneratorService
+from ..database import SessionLocal
+from .vector_db_tools import VectorDBTools
 
 # 🌟 引入所有需要的模板
 from ..prompts.system_prompts import (
@@ -19,8 +20,6 @@ from ..prompts.system_prompts import (
 
 # 🌟 引入 LangChain 與 Groq 需要的套件
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_groq import ChatGroq
 from ..schemas.bot_schema import RecordResponseSchema
 
 # 🚀 引入妳新定義的兩顆大腦與 V2 需要的 NLP 引擎
@@ -121,7 +120,7 @@ class FinanceAgentService:
 
         # D: 系統手冊 (KNOWLEDGE)
         elif intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
-            from .vector_db_tools import VectorDBTools
+            
             retrieved_docs = VectorDBTools.search_manual(clean_query)
             prompt = KNOWLEDGE_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES, retrieved_docs=retrieved_docs)
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
@@ -131,8 +130,6 @@ class FinanceAgentService:
             db_info = "【📁 帳本權限資訊】: 你擁有從 2026-01-01 至今的所有歷史明細權限。"
             context_parts = [f"[系統時間]: {today}", db_info]
 
-            from .sql_generator_service import SQLGeneratorService
-            from ..database import SessionLocal
             sql_data_found = False
             precise_val = 0
             is_sql_cached = False  # 🌟 準備一個變數裝快取狀態
@@ -140,7 +137,7 @@ class FinanceAgentService:
 
             try:
                 # 呼叫重構後的 SQL 引擎
-                generated_sql, is_sql_cached, sql_usage = await SQLGeneratorService.generate_sql(clean_query, user_id)
+                generated_sql, is_sql_cached, sql_usage, sql_template = await SQLGeneratorService.generate_sql(clean_query, user_id, db)
                 print(f"🕵️‍♂️ [SQL 引擎啟動]：{generated_sql}")
 
                 if generated_sql and generated_sql.lower().startswith("select"):
@@ -148,17 +145,46 @@ class FinanceAgentService:
                         result = db_session.execute(text(generated_sql))
                         sql_result = result.fetchall()
                         if sql_result:
-                            raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
-                            # 🛡️ 防呆：如果 SQL 沒有 SUM，多筆資料只取第一筆會造成幻覺
-                            # 應由 SQLGeneratorService 確保 aggregate query，這裡加上警告 log
-                            if len(sql_result) > 1:
-                                print(f"⚠️ [SQL 警告] 查詢回傳 {len(sql_result)} 筆，疑似缺少 SUM()，只取第一筆可能不準確")
-                            precise_val = int(round(float(raw_val)))
-                            context_parts.append(
-                                f"【📊 資料庫精確查詢結果】：\n"
-                                f"針對小主人的提問「{clean_query}」，系統查出的精準總金額為：「{precise_val}」元。"
-                            )
+                            if len(sql_result) == 1:
+                                # 單筆：原本邏輯
+                                raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
+                                try:
+                                    precise_val = int(round(float(raw_val)))
+                                    context_parts.append(
+                                        f"【📊 資料庫精確查詢結果】：\n"
+                                        f"針對小主人的提問「{clean_query}」，系統查出的精準數值為：「{precise_val}」元。"
+                                    )
+                                except (ValueError, TypeError):
+                                    # 第一欄是字串（如 b.category），改走多筆格式
+                                    rows_text = "\n".join(
+                                        [f"- {' | '.join(str(v) for v in row)}" for row in sql_result]
+                                    )
+                                    context_parts.append(
+                                        f"【📊 資料庫精確查詢結果】：\n"
+                                        f"針對小主人的提問「{clean_query}」，查詢結果如下：\n{rows_text}"
+                                    )
+                            else:
+                                # 多筆：格式化成表格給 AI 讀
+                                print(f"📋 [多筆結果] 共 {len(sql_result)} 筆，格式化後傳給 AI")
+                                # 取得欄位名稱
+                                col_names = list(result.keys())
+                                rows_text = "\n".join([
+                                    f"- {' | '.join(f'{col_names[i]}={str(v) if v is not None else 0}' for i, v in enumerate(row))}"
+                                    for row in sql_result
+                                ])
+                                context_parts.append(
+                                    f"【📊 資料庫精確查詢結果】：\n"
+                                    f"欄位說明：{' | '.join(col_names)}\n"
+                                    f"各項數據如下：\n{rows_text}"
+                                )
+                            
                             sql_data_found = True
+                            # ✅ 執行成功且有結果，才存快取
+                            if sql_template and not is_sql_cached:
+                                VectorDBTools.save_sql_to_cache(clean_query, sql_template)
+                                
+                            
+                            
                         else:
                             context_parts.append(f"【⚠️ 查詢結果】: 資料庫搜尋回報，找不到關於「{clean_query}」的紀錄。")
                             sql_data_found = True 
@@ -203,7 +229,12 @@ class FinanceAgentService:
             {instruction_rule}
             """
             # 🌟 修正：把 sql_usage 加進回傳的字典裡，送去給水表雷達！
-            return {"intent": intent, "system_prompt": prompt, "confidence": confidence, "is_cached": is_sql_cached, "sql_usage": sql_usage}
+            return {"intent": intent, 
+                    "system_prompt": prompt, 
+                    "confidence": confidence, 
+                    "is_cached": is_sql_cached, 
+                    "sql_usage": sql_usage,
+                    }
 
         # 最終保底
         return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES), "confidence": confidence}

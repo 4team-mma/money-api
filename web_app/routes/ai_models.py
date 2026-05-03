@@ -412,13 +412,11 @@ async def chat_with_meow(
             # 🌟 新增：準備一把專用的備用鑰匙
             override_api_key = None 
 
-            if current_intent == "QUERY" and is_on_render:
+            if current_intent in ["QUERY", "MULTI_QUERY"]:
                 active_provider = "groq"
-                # llama-3.3-70b-versatile
                 active_model = "meta-llama/llama-4-scout-17b-16e-instruct"
-                # 🌟 致命修復：既然強制換腦，就必須強制從環境變數拿 Groq 的鑰匙！
-                override_api_key = os.getenv("GROQ_API_KEY") 
-                print(f"🚀 [雲端優化] QUERY 自動切換至 Groq 70B")
+                override_api_key = os.getenv("GROQ_API_KEY")
+                print(f"🚀 [速度優化] QUERY 強制切換至 Groq")
                 
                 
             # ==========================================

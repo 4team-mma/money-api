@@ -244,3 +244,59 @@ class VectorDBTools:
             print(f"❌ SQL 快取儲存失敗: {e}")
 
 
+
+##################sql快取相關設定:#######################
+
+    @classmethod
+    def _get_sql_cache_collection(cls):
+        """取得原生 ChromaDB collection（供 list/clear 使用）"""
+        return cls._get_client().get_or_create_collection("sql_cache")
+
+    @classmethod
+    def delete_cached_sql(cls, user_query: str) -> bool:
+        """刪除單筆語意相似的 SQL 快取"""
+        try:
+            # ✅ 用 LangChain store 搜尋，embedding 才會跟存入時一致
+            vectorstore = cls.get_sql_cache_store()
+            docs_and_scores = vectorstore.similarity_search_with_score(user_query, k=1)
+
+            if not docs_and_scores:
+                return False
+
+            doc, score = docs_and_scores[0]
+            print(f"🔍 [快取搜尋] 最近距離: {score:.4f}，內容: {doc.page_content}")
+
+            # 分數門檻放寬到 0.3（LangChain cosine 距離跟原生不同）
+            if score < 0.3:
+                # 用頁面內容當 ID 去原生 collection 刪除
+                raw_collection = cls._get_sql_cache_collection()
+                # 找到對應的原生 ID
+                results = raw_collection.get(where_document={"$contains": doc.page_content[:50]})
+                if results["ids"]:
+                    raw_collection.delete(ids=[results["ids"][0]])
+                    print(f"🗑️ [SQL 快取] 已刪除：{doc.page_content}")
+                    # ✅ 清掉 LangChain store 的記憶體快取，讓下次重新載入
+                    cls._sql_cache_store = None
+                    return True
+
+            return False
+        except Exception as e:
+            print(f"❌ 快取刪除失敗: {e}")
+            return False
+
+    @classmethod
+    def clear_all_sql_cache(cls) -> int:
+        """清空全部 SQL 快取，回傳刪除筆數"""
+        try:
+            collection = cls._get_sql_cache_collection()
+            all_items = collection.get()
+            count = len(all_items["ids"])
+            if count > 0:
+                collection.delete(ids=all_items["ids"])
+            print(f"🗑️ [SQL 快取] 已清空 {count} 筆")
+            return count
+        except Exception as e:
+            print(f"❌ 快取清空失敗: {e}")
+            return 0
+
+

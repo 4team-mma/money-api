@@ -4,12 +4,17 @@ import re
 from pydantic import SecretStr
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+from sqlalchemy.orm import Session
+from ..models import AddRecord
+from datetime import datetime, timedelta
+import calendar
+from .vector_db_tools import VectorDBTools
+
 
 class SQLGeneratorService:
-    
+
     @classmethod
     def _load_schema_context(cls) -> str:
-        """從資料夾讀取資料庫地圖 (Schema Collection)"""
         schema_path = "./web_app/data/secret/schema_collection.md"
         try:
             with open(schema_path, "r", encoding="utf-8") as f:
@@ -19,13 +24,18 @@ class SQLGeneratorService:
 
     @classmethod
     def _self_correction(cls, sql: str, user_id: int) -> str:
-        """
-        反思機制 (Self-Correction)：以最嚴格的規則校查生成的 SQL。
-        如果發現致命錯誤，直接在此進行字符串修復。
-        """
         sql = sql.strip()
-        
-        # 1. 強制檢查 WHERE user_id 隔離性
+
+        # 1. 先清 SQL 單行註解 -- (會把後面條件整行吃掉)
+        sql = re.sub(r'--[^\n]*', ' ', sql)
+
+        # 2. 清 Markdown 說明文字 (### 之後全部丟掉)
+        sql = re.sub(r'###.*', '', sql, flags=re.DOTALL)
+
+        # 3. 清多行註解 /* */
+        sql = re.sub(r'/\*.*?\*/', ' ', sql, flags=re.DOTALL)
+
+        # 4. 強制檢查 WHERE user_id 隔離性
         user_clause = f"user_id = {user_id}"
         if user_clause not in sql:
             if "WHERE" in sql.upper():
@@ -33,145 +43,131 @@ class SQLGeneratorService:
             else:
                 sql += f" WHERE {user_clause}"
 
-        # 2. 強制清理所有 Markdown 標籤與換行
+        # 5. 清 Markdown 標籤與換行
         sql = sql.replace("```sql", "").replace("```", "").replace("\n", " ")
         sql = re.sub(r'\s+', ' ', sql).strip()
 
-        # 3. LIKE 語法精確化：拔除百分比符號內的異常空格
+        # 6. LIKE 語法精確化
         sql = re.sub(r"LIKE\s+'%\s+", "LIKE '%", sql, flags=re.IGNORECASE)
         sql = re.sub(r"\s+%'", "%'", sql, flags=re.IGNORECASE)
 
         return sql
 
-    SCHEMA_PROMPT_TEMPLATE = """
-    你是一個專業的 MySQL 專家。你唯一的工作是將使用者的問題轉化為精確的 SQL 語句。
-
-    【重要時間指引】
-    [日曆資訊]：今天是 {today_str} ({weekday_str})。
-    - 如果問「本月」或「這個月」，範圍是 {this_month_start} 到 {this_month_end}。
-    - 如果問「上個月」，範圍是 {last_month_start} 到 {last_month_end}。
-    - 如果問「本週」或「這週」，範圍是 {this_week_start} 到 {this_week_end}。
-    - 如果問「今年以來」，範圍是 {this_year_start} 到 {today_str}。
-    - 你擁有查詢過去 6 個月所有帳務的權限。
-    
-    【🛡️ 絕對安全禁令】
-    1. 你只有「讀取」資料庫的權限！
-    2. 你的輸出必須永遠以 `SELECT` 開頭。
-    3. 絕對禁止生成 `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER` 等任何會修改資料庫的語法，違者將受嚴厲懲罰！
-
-    【📚 第三層：資料庫架構地圖】
-    {dynamic_schema}
-    
-    【⚠️ 執行準則 - 違者懲罰】
-    1. 僅輸出 SQL，嚴禁任何解釋。
-    2. 收支判定：支出 add_type = 0，收入 add_type = 1。
-    3. 項目查詢：如果小主人提到具體活動、物品或店家，【絕對禁止】只用 add_class 查詢，必須強制加上 `add_note LIKE '%關鍵字%'` 來精準比對！
-    4. 時間範圍：本月為 `add_date BETWEEN '{this_month_start}' AND '{this_month_end}'`。
-    5. 會員隔離：必須包含 `user_id = {user_id}`。
-
-    【🚨 轉帳查詢特別規定】
-    - 如果使用者問的是「轉帳」，請務必檢查轉帳資料表的正確名稱與欄位！
-    - 嚴禁把記帳表的 `add_date` 拿到轉帳表去用！
-
-    【⚠️ 搜尋鐵律】
-    1. 必須包含 `WHERE user_id = {user_id}`。
-    2. 收入 add_type=1, 支出 add_type=0。
-    3. 日期篩選必須精確到天（BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'）。
-    """
-
     @classmethod
-    async def generate_sql(cls, user_query: str, user_id: int) -> tuple[str, bool, dict]:
+    async def generate_sql(cls, user_query: str, user_id: int, db: Session) -> tuple[str, bool, dict, str]:
         api_key_str = os.getenv("GROQ_API_KEY")
-        if not api_key_str: 
-            return "", False, {} # 🌟 沒給鑰匙就回傳空帳單
+        if not api_key_str:
+            return "", False, {}, ""
 
-        from datetime import datetime, timedelta
-        import calendar
-        from .vector_db_tools import VectorDBTools
+        # 動態撈取該使用者的合法分類清單
+        user_classes_raw = db.query(AddRecord.add_class).filter(
+            AddRecord.user_id == user_id
+        ).distinct().all()
+        valid_classes = [c[0] for c in user_classes_raw if c[0]]
+        valid_classes_str = "、".join(valid_classes) if valid_classes else "目前尚無分類"
 
         now = datetime.now()
-        # 🌟 time_vars 是準備在「最後一刻」才注入模板的真實變數
         time_vars = {
             "today_str": now.strftime('%Y-%m-%d'),
             "this_year_start": now.replace(month=1, day=1).strftime('%Y-%m-%d'),
             "this_month_start": now.replace(day=1).strftime('%Y-%m-%d'),
             "user_id": user_id
         }
-        
         next_month = now.replace(day=28) + timedelta(days=4)
         time_vars["this_month_end"] = (next_month - timedelta(days=next_month.day)).strftime('%Y-%m-%d')
-        
         last_month_end = (now.replace(day=1) - timedelta(days=1))
         time_vars["last_month_start"] = last_month_end.replace(day=1).strftime('%Y-%m-%d')
         time_vars["last_month_end"] = last_month_end.strftime('%Y-%m-%d')
-        
         start_of_week = now - timedelta(days=now.weekday())
         time_vars["this_week_start"] = start_of_week.strftime('%Y-%m-%d')
         time_vars["this_week_end"] = (start_of_week + timedelta(days=6)).strftime('%Y-%m-%d')
 
-        # ==========================================
-        # 🌟 啟動快取攔截機制
-        # ==========================================
+        # 快取攔截
         cached_sql_template = VectorDBTools.get_cached_sql(user_query)
         if cached_sql_template:
             try:
                 final_cached_sql = cached_sql_template.format(**time_vars)
                 final_sql = cls._self_correction(final_cached_sql, user_id)
-                print("⚡ [SQL 快取加速] 省下了 3500 Token 和 3 秒的等待時間！")
-                # 🌟 修正 2：快取命中，回傳真實的 0 Token 帳單！
-                return final_sql, True, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                print("⚡ [SQL 快取加速] 命中！")
+                return final_sql, True, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},""
             except Exception as e:
                 print(f"⚠️ 快取模板注入失敗... ({e})")
 
-        # ==========================================
-        # 去問 Groq
-        # ==========================================
         schema_context = cls._load_schema_context()
         secure_key = SecretStr(api_key_str)
-        # llama-3.3-70b-versatile
         llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0, api_key=secure_key)
 
-        # 🌟 核心防護 1：在 Prompt 中使用雙大括號 {{}}，確保 LangChain 不會提早把變數解開！
-        # 這樣 Groq 產出的 SQL 才會乖乖帶著 {user_id} 這幾個英文字母，而不是具體的數字。
         SCHEMA_PROMPT_TEMPLATE = """
         你是一個專業的 MySQL 專家。你唯一的工作是將使用者的問題轉化為精確的 SQL 語句。
+
+        【🚨 輸出格式鐵律】
+        1. 只能輸出純 SQL 語句，從 SELECT 開始，到最後一個條件結束。
+        2. 絕對禁止輸出任何註解（-- 或 /* */）、Markdown、說明文字、換行。
+        3. 違反此規定將導致系統崩潰。
         
-        【🚨 極度重要：時間與身分變數模板規則】
-        你產出的 SQL 絕對不可寫死具體的日期字串或 user_id 數字！必須原封不動地使用以下「大括號變數」：
-        - 若查「今天」，日期請寫 `'{{today_str}}'`
-        - 若查「本月」，日期請寫 `BETWEEN '{{this_month_start}}' AND '{{this_month_end}}'`
-        - 若查「上個月」，日期請寫 `BETWEEN '{{last_month_start}}' AND '{{last_month_end}}'`
-        - 若查「本週」，日期請寫 `BETWEEN '{{this_week_start}}' AND '{{this_week_end}}'`
-        - 若查「今年」，日期請寫 `BETWEEN '{{this_year_start}}' AND '{{today_str}}'`
-        - 會員隔離：必須包含 `user_id = {{user_id}}`
-        
-        【現在日曆參考 (僅供理解語意，請勿寫死在 SQL 中)】
+
+        【🚨 時間與身分變數規則】
+        SQL 中絕對不可寫死日期或 user_id，必須使用以下變數：
+        - 查今天：'{{today_str}}'
+        - 查本月：BETWEEN '{{this_month_start}}' AND '{{this_month_end}}'
+        - 查上個月：BETWEEN '{{last_month_start}}' AND '{{last_month_end}}'
+        - 查本週：BETWEEN '{{this_week_start}}' AND '{{this_week_end}}'
+        - 查今年：BETWEEN '{{this_year_start}}' AND '{{today_str}}'
+        - 會員隔離：user_id = {{user_id}}
+
+        【現在日曆 (僅供語意理解，禁止寫死在 SQL)】
         今天是 {current_date} ({current_weekday})。
 
-        【🛡️ 絕對安全禁令】
-        1. 只有「讀取」權限！必須以 `SELECT` 開頭。
-        2. 絕對禁止 `INSERT`, `UPDATE`, `DELETE`, `DROP` 等。
-
-        【📚 資料庫架構地圖】
-        {dynamic_schema}
+        【🛡️ 類別與關鍵字鐵律：嚴禁自動歸類！！！】
+        合法大分類清單：[{valid_classes_list}]
         
-        【⚠️ 查詢鐵律 (IF-ELSE 分流)】
-        當判斷查詢為「支出 (add_type=0)」或「收入 (add_type=1)」時，請嚴格遵守以下互斥規則，僅輸出 SQL：
+        🚨 警告：你絕對不可以使用你的常識來幫物品分類！
+        如果小主人問的是「買衣服」、「咖啡」、「便當」，就算你覺得它屬於「購物」或「飲食」，你也絕對禁止把它擅自替換成 `add_class = '購物'`！
+        只要小主人的「原話」沒有一模一樣出現在合法清單中，就必須強制走 [情況 B]！
 
-        [情況 A：查詢大分類] (如：飲食、交通、居家、娛樂)
-        絕對禁止使用 LIKE！必須利用 LEFT JOIN 確保複合訂單被正確拆分：
-        SELECT SUM(COALESCE(add_items.item_amount, adds.add_amount))
-        FROM adds LEFT JOIN add_items ON adds.add_id = add_items.add_id
-        WHERE adds.user_id = {{user_id}} AND adds.add_type = 0
-        AND COALESCE(add_items.item_class, adds.add_class) = '目標分類'
-        AND adds.add_date BETWEEN '...' AND '...'
+        【⚠️ 查詢鐵律 — 嚴格二選一，絕對不可混用】
 
-        [情況 B：查詢具體物品/店家] (如：咖啡、便當、麥當勞)
-        不需要 JOIN！直接從主表用 LIKE 精準比對：
+        [情況 A] 小主人的「原話」完全等於合法清單中的詞 (例如他明確問「購物花了多少」)
+        → 只用 add_class，禁止加 LIKE
+        SELECT SUM(COALESCE(ai.item_amount, a.add_amount))
+        FROM adds a LEFT JOIN add_items ai ON a.add_id = ai.add_id
+        WHERE a.user_id = {{user_id}} AND a.add_type = 0
+        AND COALESCE(ai.item_class, a.add_class) = '目標分類'
+        AND a.add_date BETWEEN '...' AND '...'
+
+        [情況 B] 小主人問的是具體物品或行為 (目標不在清單內)
+        → 只用 LIKE 精準比對，絕對禁止擅自加上 add_class！
+        
+        【🚨 關鍵字萃取鐵律：去除動詞，保留核心名詞】
+        小主人說話時常帶有動詞（買、吃、喝、看、繳），但資料庫備註通常只記名詞。
+        請你務必聰明地「去除動詞」，只把「核心實體名詞」放進 LIKE 裡面！
+        - 錯誤示範：「買衣服」 -> LIKE '%買衣服%' (會漏掉只寫'衣服'的紀錄)
+        - 正確示範：「買衣服」 -> LIKE '%衣服%'
+        - 正確示範：「吃包子」 -> LIKE '%包子%'
+        - 正確示範：「繳電費」 -> LIKE '%電費%'
+        
         SELECT SUM(add_amount) FROM adds
         WHERE user_id = {{user_id}} AND add_type = 0
         AND (add_note LIKE '%關鍵字%' OR add_tag LIKE '%關鍵字%')
-        AND adds.add_date BETWEEN '...' AND '...'
+        AND add_date BETWEEN '...' AND '...'
+        (💡 提示：關鍵字請保留小主人的完整動名詞，例如 '%買衣服%')
+
+        【🚨 致命禁令】禁止把 add_class='...' 和 LIKE 用 AND 串在一起！
+
+        【🛡️ 安全禁令】只有 SELECT 權限，禁止 INSERT、UPDATE、DELETE、DROP、ALTER。
+
+        【🚨 轉帳查詢】問到轉帳請用 transactions 表，禁止用 adds 的 add_date。
+
+        【🚨 預算查詢鐵律】
+        當問題涉及「預算」、「還剩多少」、「預算夠嗎」時：
+        1. 必須查 budgets 表，絕對禁止只查 adds 表。
+        2. 絕對禁止 JOIN add_items 表。
+        3. JOIN 條件必須是 b.category = a.add_class，禁止出現 ai.item_class。
+        4. 只 SELECT remaining 一個欄位，正確結構：
+        SELECT b.amount - COALESCE(SUM(a.add_amount), 0) AS remaining FROM budgets b LEFT JOIN adds a ON b.user_id = a.user_id AND b.category = a.add_class AND a.add_type = 0 AND a.add_date BETWEEN '{{this_month_start}}' AND '{{this_month_end}}' WHERE b.user_id = {{user_id}} AND b.category = '類別' GROUP BY b.budget_id
+
+        【📚 資料庫架構】
+        {dynamic_schema}
         """
 
         prompt = ChatPromptTemplate.from_messages([
@@ -181,16 +177,15 @@ class SQLGeneratorService:
 
         chain = prompt | llm
         try:
-            # 這裡只傳遞給 Prompt 幫助理解的日曆，不再傳入具體變數
             invoke_args = {
                 "current_date": now.strftime('%Y-%m-%d'),
                 "current_weekday": calendar.day_name[now.weekday()],
-                "dynamic_schema": schema_context, 
+                "valid_classes_list": valid_classes_str,
+                "dynamic_schema": schema_context,
                 "query": user_query
             }
             response = await chain.ainvoke(invoke_args)
 
-            # 🌟 修正 3：從 Groq 的回應裡，把真實的 Token 帳單挖出來！
             sql_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             if hasattr(response, "usage_metadata") and response.usage_metadata:
                 sql_usage["prompt_tokens"] = response.usage_metadata.get("input_tokens", 0)
@@ -200,16 +195,43 @@ class SQLGeneratorService:
             raw_sql = str(response.content)
             clean_template = raw_sql.replace("```sql", "").replace("```", "").replace("\n", " ").strip()
             clean_template = re.sub(r'\s+', ' ', clean_template)
+
+            # LLM 前面加了中文解釋就強制只取 SELECT 之後的部分
+            select_match = re.search(r'(SELECT\s+.+)', clean_template, flags=re.IGNORECASE)
+            if select_match:
+                clean_template = select_match.group(1).strip()
+            else:
+                print("❌ [SQL Generator] LLM 沒有生成有效的 SELECT 語句")
+                return "", False, {},""
+
+            # user_id 和日期都模板化
             clean_template = re.sub(r"user_id\s*=\s*\d+", "user_id = {user_id}", clean_template, flags=re.IGNORECASE)
-            
-            if clean_template.lower().startswith("select"):
-                VectorDBTools.save_sql_to_cache(user_query, clean_template)
+            clean_template = re.sub(r"'" + now.replace(day=1).strftime('%Y-%m-%d') + r"'", "'{this_month_start}'", clean_template)
+            clean_template = re.sub(r"'" + time_vars["this_month_end"] + r"'", "'{this_month_end}'", clean_template)
+            clean_template = re.sub(r"'" + time_vars["last_month_start"] + r"'", "'{last_month_start}'", clean_template)
+            clean_template = re.sub(r"'" + time_vars["last_month_end"] + r"'", "'{last_month_end}'", clean_template)
+            clean_template = re.sub(r"'" + now.strftime('%Y-%m-%d') + r"'", "'{today_str}'", clean_template)
+            clean_template = re.sub(r"'" + time_vars["this_week_start"] + r"'", "'{this_week_start}'", clean_template)
+            clean_template = re.sub(r"'" + time_vars["this_week_end"] + r"'", "'{this_week_end}'", clean_template)
+
+            # if clean_template.lower().startswith("select") and cls._is_safe_to_cache(clean_template):
+            #     VectorDBTools.save_sql_to_cache(user_query, clean_template)
 
             final_sql = clean_template.format(**time_vars)
             final_sql = cls._self_correction(final_sql, user_id)
-            
-            # 🌟 修正 4：把挖出來的 sql_usage 一併回傳！
-            return final_sql, False, sql_usage
+
+            return final_sql, False, sql_usage, clean_template
         except Exception as e:
             print(f"❌ SQL Generator 致命錯誤: {e}")
-            return "", False, {}
+            return "", False, {},""
+
+    # ✅ 放在 generate_sql 方法外，但在 class 內，加 @staticmethod
+    @staticmethod
+    def _is_safe_to_cache(sql: str) -> bool:
+        """防止含字串欄位的壞 SQL 被存入快取"""
+        if "budgets" in sql.lower():
+            select_part = re.search(r'SELECT\s+(.+?)\s+FROM', sql, re.IGNORECASE)
+            if select_part and "b.category" in select_part.group(1).lower():
+                print("⚠️ [快取防護] 含字串欄位的 budget SQL，跳過快取")
+                return False
+        return True

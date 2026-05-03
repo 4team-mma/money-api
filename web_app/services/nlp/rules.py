@@ -43,16 +43,32 @@ INTENT_RULES = [
         ),
         "target": "RECORD"
     },
+    # rules.py 節錄 (請替換原本的 RECORD_VIOLENT_INTERCEPT)
+
+    # ---------------------------------------------------------
+    # 🌟 核心進化：將暴力攔截拆分為兩道精密濾網 (Priority 96 與 95)
+    # ---------------------------------------------------------
+
     {
-        "name": "RECORD_VIOLENT_INTERCEPT", # 🌟 妳的核心進化邏輯：暴力攔截
-        "priority": 95,
+        "name": "RECORD_INTERCEPT_TO_QUERY",
+        "priority": 96,  # 優先級 96，比 95 先執行
         "type": "hard",
-        # 條件：如果 ONNX 猜記帳，但符合以下任一條件則降級：
-        # 1. 沒有動作動詞 (not c.has("record_action"))
-        # 2. 沒有具體金額數字 (not c.has("number"))
+        # 第一道濾網：ONNX 猜記帳，但沒數字。不過有「多少/查/有沒有」等疑問詞！
+        "when": lambda c: c.initial_intent in ["RECORD", "MULTI_RECORD"] and not c.has("number") and (
+            c.has("query_trigger") or c.has("doubt_trigger") or "多少" in c.text or "查" in c.text
+        ),
+        "target": "QUERY"
+    },
+    {
+        "name": "RECORD_INTERCEPT_TO_CHAT",
+        "priority": 95,  # 優先級 95，最後的保底防線
+        "type": "hard",
+        # 第二道濾網：ONNX 猜記帳，沒疑問詞，且 (沒動作 或 沒數字) -> 這才是真正的純閒聊或廢話
         "when": lambda c: c.initial_intent in ["RECORD", "MULTI_RECORD"] and (not c.has("record_action") or not c.has("number")),
         "target": "CHAT"
     },
+
+    # ---------------------------------------------------------
 
     
     
