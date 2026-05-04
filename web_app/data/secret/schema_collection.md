@@ -56,9 +56,19 @@
 - `repeat_cycle`: 週期 (none, daily, weekly, monthly)。
 
 ## 6. budgets (預算設定)
+- `budget_id`: 主鍵。
+- `user_id`: 所屬使用者。
 - `amount`: 預算限額。
-- `category`: 該預算所屬分類，若為空則代表月總預算。
-「當小主人問『剩下多少預算』或『預算足夠嗎』時，請務必先從 budgets 表查出 amount，再減去 adds 表中該分類的支出總額。」
+- `category`: 預算類別名稱，**對應 adds 表的 add_class 欄位**。若為 NULL 代表月總預算。
+- `tag`: 標籤型預算（對應 adds.add_tag）。
+- `category_icon`: 顯示用 icon。
+
+**⚠️ 預算查詢鐵律（違反會導致 SQL 錯誤）：**
+1. 禁止 JOIN add_items 表，預算查詢只需要 budgets + adds 兩張表。
+2. JOIN 條件只用 a.add_class，禁止使用 COALESCE(ai.item_class, a.add_class)。
+3. 只 SELECT remaining 一個欄位，避免 AI 讀錯欄位：
+
+SELECT b.amount - COALESCE(SUM(a.add_amount), 0) AS remaining FROM budgets b LEFT JOIN adds a ON b.user_id = a.user_id AND b.category = a.add_class AND a.add_type = 0 AND a.add_date BETWEEN '{this_month_start}' AND '{this_month_end}' WHERE b.user_id = {user_id} AND b.category = '目標類別' GROUP BY b.budget_id
 
 
 ## 7. cpi_data (物價指數)

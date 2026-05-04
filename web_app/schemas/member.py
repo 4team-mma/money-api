@@ -47,6 +47,8 @@ class MemberUpdate(BaseModel):
     name: Optional[str] = Field(None, description="新暱稱", examples=["新暱稱"])
     email: Optional[EmailStr] = Field(None, description="新電子郵件", examples=["new_email@example.com"])
     job: Optional[str] = Field(None, description="職稱", examples=["全端工程師"])
+    notion_api_key: Optional[str] = None
+    notion_page_id: Optional[str] = None
 
 # --- 回傳給前端用的規格 ---
 class MemberResponse(BaseModel):
@@ -59,6 +61,8 @@ class MemberResponse(BaseModel):
     xp: int = Field(0, examples=[100])
     level: int = Field(1, examples=[5])
     points: int = Field(0, examples=[500])
+    notion_api_key: Optional[str] = None
+    notion_page_id: Optional[str] = None
     created_at: Optional[datetime] = Field(None, examples=["2026-02-08T14:59:56.021Z"])
 
     model_config = ConfigDict(from_attributes=True)
@@ -71,3 +75,8 @@ class MemberPasswordChange(BaseModel):
     new_password: str = Field(
         ..., min_length=3, max_length=50, description="新密碼", examples=["new_secure_pass"]
     )
+
+
+class NotionConfigUpdate(BaseModel):
+    notion_api_key: Optional[str] = None   # None = 不改, "" or null = 清除
+    notion_page_id: Optional[str] = None

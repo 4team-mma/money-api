@@ -10,6 +10,7 @@ class GroqService:
     async def chat_async(api_key: str, model_id: str, prompt: str, system_instruction: str):
         """同步呼叫 Groq API 的非同步封裝"""
         try:
+            from groq import AsyncGroq
             client = AsyncGroq(api_key=api_key)
             response = await client.chat.completions.create(
                 messages=[
@@ -20,8 +21,26 @@ class GroqService:
                 temperature=0.7,
                 max_tokens=1024,
             )
-            return response.choices[0].message.content
+            
+            # 🌟 核心修改：加上安全檢查，徹底消滅 Pylance 紅線！
+            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+            completion_tokens = response.usage.completion_tokens if response.usage else 0
+            total_tokens = response.usage.total_tokens if response.usage else 0
+
+            usage_data = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
+            
+            # 改成回傳字典
+            return {
+                "text": response.choices[0].message.content,
+                "usage": usage_data
+            }
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
             logger.error(f"❌ Groq API Error: {str(e)}")
             raise e
         

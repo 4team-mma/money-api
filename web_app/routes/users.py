@@ -173,3 +173,7 @@ def get_member_by_id(
         raise HTTPException(status_code=404, detail="找不到該使用者")
 
     return user
+
+
+
+

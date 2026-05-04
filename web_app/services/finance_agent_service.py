@@ -7,8 +7,9 @@ import re
 from datetime import datetime
 import pytz
 import os
-
-
+from .sql_generator_service import SQLGeneratorService
+from ..database import SessionLocal
+from .vector_db_tools import VectorDBTools
 
 # 🌟 引入所有需要的模板
 from ..prompts.system_prompts import (
@@ -19,8 +20,6 @@ from ..prompts.system_prompts import (
 
 # 🌟 引入 LangChain 與 Groq 需要的套件
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_groq import ChatGroq
 from ..schemas.bot_schema import RecordResponseSchema
 
 # 🚀 引入妳新定義的兩顆大腦與 V2 需要的 NLP 引擎
@@ -121,7 +120,7 @@ class FinanceAgentService:
 
         # D: 系統手冊 (KNOWLEDGE)
         elif intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
-            from .vector_db_tools import VectorDBTools
+            
             retrieved_docs = VectorDBTools.search_manual(clean_query)
             prompt = KNOWLEDGE_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES, retrieved_docs=retrieved_docs)
             return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
@@ -131,14 +130,14 @@ class FinanceAgentService:
             db_info = "【📁 帳本權限資訊】: 你擁有從 2026-01-01 至今的所有歷史明細權限。"
             context_parts = [f"[系統時間]: {today}", db_info]
 
-            from .sql_generator_service import SQLGeneratorService
-            from ..database import SessionLocal
             sql_data_found = False
             precise_val = 0
+            is_sql_cached = False  # 🌟 準備一個變數裝快取狀態
+            sql_usage = {} # 🌟 準備一個變數接帳單
 
             try:
                 # 呼叫重構後的 SQL 引擎
-                generated_sql = await SQLGeneratorService.generate_sql(clean_query, user_id)
+                generated_sql, is_sql_cached, sql_usage, sql_template = await SQLGeneratorService.generate_sql(clean_query, user_id, db)
                 print(f"🕵️‍♂️ [SQL 引擎啟動]：{generated_sql}")
 
                 if generated_sql and generated_sql.lower().startswith("select"):
@@ -146,17 +145,46 @@ class FinanceAgentService:
                         result = db_session.execute(text(generated_sql))
                         sql_result = result.fetchall()
                         if sql_result:
-                            raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
-                            # 🛡️ 防呆：如果 SQL 沒有 SUM，多筆資料只取第一筆會造成幻覺
-                            # 應由 SQLGeneratorService 確保 aggregate query，這裡加上警告 log
-                            if len(sql_result) > 1:
-                                print(f"⚠️ [SQL 警告] 查詢回傳 {len(sql_result)} 筆，疑似缺少 SUM()，只取第一筆可能不準確")
-                            precise_val = int(round(float(raw_val)))
-                            context_parts.append(
-                                f"【📊 資料庫精確查詢結果】：\n"
-                                f"針對小主人的提問「{clean_query}」，系統查出的精準總金額為：「{precise_val}」元。"
-                            )
+                            if len(sql_result) == 1:
+                                # 單筆：原本邏輯
+                                raw_val = sql_result[0][0] if sql_result[0][0] is not None else 0
+                                try:
+                                    precise_val = int(round(float(raw_val)))
+                                    context_parts.append(
+                                        f"【📊 資料庫精確查詢結果】：\n"
+                                        f"針對小主人的提問「{clean_query}」，系統查出的精準數值為：「{precise_val}」元。"
+                                    )
+                                except (ValueError, TypeError):
+                                    # 第一欄是字串（如 b.category），改走多筆格式
+                                    rows_text = "\n".join(
+                                        [f"- {' | '.join(str(v) for v in row)}" for row in sql_result]
+                                    )
+                                    context_parts.append(
+                                        f"【📊 資料庫精確查詢結果】：\n"
+                                        f"針對小主人的提問「{clean_query}」，查詢結果如下：\n{rows_text}"
+                                    )
+                            else:
+                                # 多筆：格式化成表格給 AI 讀
+                                print(f"📋 [多筆結果] 共 {len(sql_result)} 筆，格式化後傳給 AI")
+                                # 取得欄位名稱
+                                col_names = list(result.keys())
+                                rows_text = "\n".join([
+                                    f"- {' | '.join(f'{col_names[i]}={str(v) if v is not None else 0}' for i, v in enumerate(row))}"
+                                    for row in sql_result
+                                ])
+                                context_parts.append(
+                                    f"【📊 資料庫精確查詢結果】：\n"
+                                    f"欄位說明：{' | '.join(col_names)}\n"
+                                    f"各項數據如下：\n{rows_text}"
+                                )
+                            
                             sql_data_found = True
+                            # ✅ 執行成功且有結果，才存快取
+                            if sql_template and not is_sql_cached:
+                                VectorDBTools.save_sql_to_cache(clean_query, sql_template)
+                                
+                            
+                            
                         else:
                             context_parts.append(f"【⚠️ 查詢結果】: 資料庫搜尋回報，找不到關於「{clean_query}」的紀錄。")
                             sql_data_found = True 
@@ -177,8 +205,9 @@ class FinanceAgentService:
                     "【最高回答準則 - 嚴格遵守】\n"
                     "1. 【唯一真理】：請『絕對無視』對話紀錄中出現過的所有數字！你的答案『只能』是上方資料庫剛剛查出的數字。\n"
                     "2. 嚴禁重複上一題的答案！不要自己通靈！\n"
-                    "3. 請用符合角色的口吻，自然地把數字講出來。嚴禁直接輸出「【資料庫精確查詢結果】」或「答案：」這種機器人標籤。\n"
-                    "4. 請全程使用「正體中文」回答，禁止使用簡體字。\n"
+                    "3. 請用符合角色的口吻，自然地把數字講出來。\n"
+                    "4. ⚠️ 絕對禁止在回答開頭加上「喵喵：」、「小助手：」或任何角色對話標籤，請直接輸出台詞內容！\n"
+                    "5. 請全程使用「正體中文」回答，禁止使用簡體字。\n"
                 )
             elif not sql_data_found:
                 instruction_rule = (
@@ -199,45 +228,150 @@ class FinanceAgentService:
             {BASE_RULES}
             {instruction_rule}
             """
-            return {"intent": intent, "system_prompt": prompt, "confidence": confidence}
+            # 🌟 修正：把 sql_usage 加進回傳的字典裡，送去給水表雷達！
+            return {"intent": intent, 
+                    "system_prompt": prompt, 
+                    "confidence": confidence, 
+                    "is_cached": is_sql_cached, 
+                    "sql_usage": sql_usage,
+                    }
 
         # 最終保底
         return {"intent": "CHAT", "system_prompt": CHAT_TEMPLATE.format(today=today, persona=current_persona, rules=BASE_RULES), "confidence": confidence}
 
     @staticmethod
     def execute_record_chain(system_prompt: str, user_message: str) -> dict:
-        """此方法維持原樣，處理 Llama 3 的 JSON 解析"""
+        """重構版：使用 8B 小模型 + 動態範例注入 + 陣列暴力淨化器"""
+        import json
+        import re
+        import os
         from pydantic import SecretStr
-        from langchain_core.output_parsers import PydanticOutputParser
+        from langchain_groq import ChatGroq
         from ..schemas.bot_schema import RecordResponseSchema
 
         groq_api_key = os.getenv("GROQ_API_KEY")
         if not groq_api_key:
             raise ValueError("找不到 GROQ_API_KEY，請確認 .env 檔案設定喵！")
 
-        secure_api_key = SecretStr(groq_api_key)
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=secure_api_key)
-        parser = PydanticOutputParser(pydantic_object=RecordResponseSchema)
+        llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=SecretStr(groq_api_key))
 
-        strict_json_rules = (
-            "【最高指令：絕對禁止任何廢話】\n"
-            "請你扮演一個無情的資料轉換機，你唯一的任務就是輸出符合格式的 JSON 字典。\n"
-            "1. 絕對不允許在 JSON 之前或之後加上任何文字。\n"
-            "2. 請直接以 `{` 開頭，並以 `}` 結尾。\n"
-            "3. 不要使用 ```json 的 Markdown 標籤，只輸出純文字格式的 JSON。\n"
-            "4. ⚠️ 【日期格式強制規定】：如果小主人提到「今天」或沒有明確指明日期，請一律使用系統時間的日期！且格式必須嚴格為 YYYY-MM-DD（例如：2026-04-17），絕對不可包含具體時間（HH:MM:SS）或中文字！\n"
-        )
+        db_context_match = re.search(r'【極度重要：小主人的專屬資料庫】[\s\S]*', system_prompt)
+        user_db_context = db_context_match.group(0) if db_context_match else ""
 
-        final_prompt = PromptTemplate(
-            template="{strict_json_rules}\n{system_prompt}\n\n[小主人的話]：{user_message}",
-            input_variables=["strict_json_rules", "system_prompt", "user_message"]
-        )
+        # 🌟 核心修正 1：用 Regex 從 prompt 裡挖出「真正的預設帳戶名稱」
+        default_acc_match = re.search(r'\[預設帳戶\]：(.*)', system_prompt)
+        default_acc = default_acc_match.group(1).strip() if default_acc_match else "現金"
 
-        chain = final_prompt | llm | parser
-        result = chain.invoke({
-            "strict_json_rules": strict_json_rules,
-            "system_prompt": system_prompt,
-            "user_message": user_message
-        })
+        # 🌟 核心修正 2：直接把 {default_acc} 寫死在範例裡面，讓 AI 連想都不用想，照抄就對了！
+        few_shot_prompt = f"""
+你是一個無情的 JSON 轉換機。請將使用者的話轉換為記帳 JSON 格式。
+絕對不要輸出任何解釋或 Markdown 標記。只能輸出 `[` 開頭並以 `]` 結尾的 JSON 陣列。
+如果有多筆記帳，請放在同一個陣列中。日期未指定請用今天。
 
-        return result.model_dump()
+{user_db_context}
+
+【轉換範例 1：單筆支出】
+[小主人的話]：我今天吃麥當勞花了 150 元
+[
+  {{
+    "record_type": "expense",
+    "add_note": "麥當勞",
+    "add_amount": 150,
+    "record_date": "2026-04-30",
+    "add_class": "飲食",
+    "add_class_icon": "🍔",
+    "account_name": "{default_acc}",
+    "add_member": "自己",
+    "add_tag": "需要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }}
+]
+
+【轉換範例 2：多筆支出】
+[小主人的話]：搭高鐵花 300，然後買書花 400
+[
+  {{
+    "record_type": "expense",
+    "add_note": "高鐵",
+    "add_amount": 300,
+    "record_date": "2026-04-30",
+    "add_class": "交通",
+    "add_class_icon": "🚗",
+    "account_name": "{default_acc}",
+    "add_member": "自己",
+    "add_tag": "需要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }},
+  {{
+    "record_type": "expense",
+    "add_note": "書",
+    "add_amount": 400,
+    "record_date": "2026-04-30",
+    "add_class": "學習",
+    "add_class_icon": "📚",
+    "account_name": "{default_acc}",
+    "add_member": "自己",
+    "add_tag": "想要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }}
+]
+
+【轉換範例 3：收入與家庭成員】
+[小主人的話]：我媽今天給我 200 元零用錢
+[
+  {{
+    "record_type": "income",
+    "add_note": "零用錢",
+    "add_amount": 200,
+    "record_date": "2026-04-30",
+    "add_class": "其他",
+    "add_class_icon": "💰",
+    "account_name": "{default_acc}",
+    "add_member": "父母",
+    "add_tag": "想要",
+    "from_account": "{default_acc}",
+    "to_account": "{default_acc}"
+  }}
+]
+
+【現在換你】
+[小主人的話]：{user_message}
+"""
+        response = llm.invoke(few_shot_prompt)
+        
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            usage["prompt_tokens"] = response.usage_metadata.get("input_tokens", 0)
+            usage["completion_tokens"] = response.usage_metadata.get("output_tokens", 0)
+            usage["total_tokens"] = response.usage_metadata.get("total_tokens", 0)
+
+        raw_text = str(response.content)
+        print(f"🤖 [Groq 8B 原始輸出]:\n{raw_text}")
+        
+        match = re.search(r"(\[[\s\S]+\])", raw_text)
+        clean_json_str = match.group(1) if match else raw_text
+
+        try:
+            parsed_data_list = json.loads(clean_json_str)
+            if not isinstance(parsed_data_list, list):
+                parsed_data_list = [parsed_data_list]
+
+            wrapper_payload = {
+                "reply_text": "已幫你記好囉喵！",
+                "action_data": parsed_data_list 
+            }
+            
+            validated = RecordResponseSchema(**wrapper_payload)
+            dumped_data = validated.model_dump()
+            
+            return {
+                "action_data": dumped_data["action_data"],
+                "reply_text": dumped_data["reply_text"],
+                "usage": usage 
+            }
+        except Exception as e:
+            print(f"❌ JSON 解析失敗: {e}")
+            raise e
