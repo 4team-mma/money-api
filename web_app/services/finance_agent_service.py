@@ -10,6 +10,11 @@ import os
 from .sql_generator_service import SQLGeneratorService
 from ..database import SessionLocal
 from .vector_db_tools import VectorDBTools
+import json
+from pydantic import SecretStr
+from ..schemas.bot_schema import RecordResponseSchema
+from datetime import datetime, timedelta
+
 
 # 🌟 引入所有需要的模板
 from ..prompts.system_prompts import (
@@ -21,7 +26,7 @@ from ..prompts.system_prompts import (
 # 🌟 引入 LangChain 與 Groq 需要的套件
 from langchain_core.output_parsers import PydanticOutputParser
 from ..schemas.bot_schema import RecordResponseSchema
-
+from langchain_groq import ChatGroq
 # 🚀 引入妳新定義的兩顆大腦與 V2 需要的 NLP 引擎
 from .finance_agent_v1_service import FinanceAgentV1Service
 from .finance_agent_mixai_service import FinanceAgentMixAIService
@@ -242,12 +247,6 @@ class FinanceAgentService:
     @staticmethod
     def execute_record_chain(system_prompt: str, user_message: str) -> dict:
         """重構版：使用 8B 小模型 + 動態範例注入 + 陣列暴力淨化器"""
-        import json
-        import re
-        import os
-        from pydantic import SecretStr
-        from langchain_groq import ChatGroq
-        from ..schemas.bot_schema import RecordResponseSchema
 
         groq_api_key = os.getenv("GROQ_API_KEY")
         if not groq_api_key:
@@ -262,84 +261,88 @@ class FinanceAgentService:
         default_acc_match = re.search(r'\[預設帳戶\]：(.*)', system_prompt)
         default_acc = default_acc_match.group(1).strip() if default_acc_match else "現金"
 
-        # 🌟 核心修正 2：直接把 {default_acc} 寫死在範例裡面，讓 AI 連想都不用想，照抄就對了！
+        tw_tz = pytz.timezone('Asia/Taipei')
+        now = datetime.now(tw_tz)
+        today_str = now.strftime('%Y-%m-%d')
+        yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+
         few_shot_prompt = f"""
-你是一個無情的 JSON 轉換機。請將使用者的話轉換為記帳 JSON 格式。
-絕對不要輸出任何解釋或 Markdown 標記。只能輸出 `[` 開頭並以 `]` 結尾的 JSON 陣列。
-如果有多筆記帳，請放在同一個陣列中。日期未指定請用今天。
+        你是一個無情的 JSON 轉換機。
+        只能輸出 `[` 開頭並以 `]` 結尾的 JSON 陣列，禁止任何解釋或 Markdown。
+        今天的日期是：{today_str}（絕對真理！昨天={yesterday_str}，請依此推算所有相對時間）
 
-{user_db_context}
+        {user_db_context}
 
-【轉換範例 1：單筆支出】
-[小主人的話]：我今天吃麥當勞花了 150 元
-[
-  {{
-    "record_type": "expense",
-    "add_note": "麥當勞",
-    "add_amount": 150,
-    "record_date": "2026-04-30",
-    "add_class": "飲食",
-    "add_class_icon": "🍔",
-    "account_name": "{default_acc}",
-    "add_member": "自己",
-    "add_tag": "需要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }}
-]
+        【轉換範例 1：今天的單筆支出】
+        [小主人的話]：我今天吃麥當勞花了 150 元
+        [
+        {{
+            "record_type": "expense",
+            "add_note": "麥當勞",
+            "add_amount": 150,
+            "record_date": "{today_str}",
+            "add_class": "飲食",
+            "add_class_icon": "🍔",
+            "account_name": "{default_acc}",
+            "add_member": "自己",
+            "add_tag": "需要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }}
+        ]
 
-【轉換範例 2：多筆支出】
-[小主人的話]：搭高鐵花 300，然後買書花 400
-[
-  {{
-    "record_type": "expense",
-    "add_note": "高鐵",
-    "add_amount": 300,
-    "record_date": "2026-04-30",
-    "add_class": "交通",
-    "add_class_icon": "🚗",
-    "account_name": "{default_acc}",
-    "add_member": "自己",
-    "add_tag": "需要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }},
-  {{
-    "record_type": "expense",
-    "add_note": "書",
-    "add_amount": 400,
-    "record_date": "2026-04-30",
-    "add_class": "學習",
-    "add_class_icon": "📚",
-    "account_name": "{default_acc}",
-    "add_member": "自己",
-    "add_tag": "想要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }}
-]
+        【轉換範例 2：昨天的多筆支出】
+        [小主人的話]：昨天搭高鐵花 300，然後買書花 400
+        [
+        {{
+            "record_type": "expense",
+            "add_note": "高鐵",
+            "add_amount": 300,
+            "record_date": "{yesterday_str}",
+            "add_class": "交通",
+            "add_class_icon": "🚗",
+            "account_name": "{default_acc}",
+            "add_member": "自己",
+            "add_tag": "需要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }},
+        {{
+            "record_type": "expense",
+            "add_note": "書",
+            "add_amount": 400,
+            "record_date": "{yesterday_str}",
+            "add_class": "學習",
+            "add_class_icon": "📚",
+            "account_name": "{default_acc}",
+            "add_member": "自己",
+            "add_tag": "想要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }}
+        ]
 
-【轉換範例 3：收入與家庭成員】
-[小主人的話]：我媽今天給我 200 元零用錢
-[
-  {{
-    "record_type": "income",
-    "add_note": "零用錢",
-    "add_amount": 200,
-    "record_date": "2026-04-30",
-    "add_class": "其他",
-    "add_class_icon": "💰",
-    "account_name": "{default_acc}",
-    "add_member": "父母",
-    "add_tag": "想要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }}
-]
+        【轉換範例 3：今天的收入】
+        [小主人的話]：我媽今天給我 200 元零用錢
+        [
+        {{
+            "record_type": "income",
+            "add_note": "零用錢",
+            "add_amount": 200,
+            "record_date": "{today_str}",
+            "add_class": "其他",
+            "add_class_icon": "💰",
+            "account_name": "{default_acc}",
+            "add_member": "父母",
+            "add_tag": "想要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }}
+        ]
 
-【現在換你】
-[小主人的話]：{user_message}
-"""
+        【現在換你】
+        [小主人的話]：{user_message}
+        """
         response = llm.invoke(few_shot_prompt)
         
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
