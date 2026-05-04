@@ -17,7 +17,8 @@ INTENT_RULES = [
         "name": "ADVISOR_HARD_PROTECT",
         "priority": 110,
         "type": "hard",
-        "when": lambda c: c.has("advisor_trigger"), 
+        # 🌟 核心修正：如果小主人問「什麼是」、「解釋」、「意思」，代表在問知識，不准攔截！
+        "when": lambda c: c.has("advisor_trigger") and not any(kw in c.text for kw in ["什麼是", "解釋", "意思", "定義"]), 
         "target": "ADVISOR"
     },
     {
@@ -28,15 +29,46 @@ INTENT_RULES = [
         "target": "KNOWLEDGE"
     },
     {
-        "name": "RECORD_VIOLENT_INTERCEPT", # 🌟 妳的核心進化邏輯：暴力攔截
-        "priority": 95,
+        "name": "ABSOLUTE_RECORD_PROTECT",
+        "priority": 98,  # 🌟 優先級極高，幾乎凌駕所有猜測
         "type": "hard",
-        # 條件：如果 ONNX 猜記帳，但符合以下任一條件則降級：
-        # 1. 沒有動作動詞 (not c.has("record_action"))
-        # 2. 沒有具體金額數字 (not c.has("number"))
+        # 🛡️ 鐵律：只要有「數字」+「動作(吃/買/花)」+「金額單位(元/塊)」
+        # 且沒有明確的查詢動詞(查/多少)，就絕對是記帳！
+        "when": lambda c: (
+            c.has("number") and 
+            c.has("record_action") and 
+            c.has("money_unit") and 
+            "多少" not in c.text and 
+            "查" not in c.text
+        ),
+        "target": "RECORD"
+    },
+    # rules.py 節錄 (請替換原本的 RECORD_VIOLENT_INTERCEPT)
+
+    # ---------------------------------------------------------
+    # 🌟 核心進化：將暴力攔截拆分為兩道精密濾網 (Priority 96 與 95)
+    # ---------------------------------------------------------
+
+    {
+        "name": "RECORD_INTERCEPT_TO_QUERY",
+        "priority": 96,  # 優先級 96，比 95 先執行
+        "type": "hard",
+        # 第一道濾網：ONNX 猜記帳，但沒數字。不過有「多少/查/有沒有」等疑問詞！
+        "when": lambda c: c.initial_intent in ["RECORD", "MULTI_RECORD"] and not c.has("number") and (
+            c.has("query_trigger") or c.has("doubt_trigger") or "多少" in c.text or "查" in c.text
+        ),
+        "target": "QUERY"
+    },
+    {
+        "name": "RECORD_INTERCEPT_TO_CHAT",
+        "priority": 95,  # 優先級 95，最後的保底防線
+        "type": "hard",
+        # 第二道濾網：ONNX 猜記帳，沒疑問詞，且 (沒動作 或 沒數字) -> 這才是真正的純閒聊或廢話
         "when": lambda c: c.initial_intent in ["RECORD", "MULTI_RECORD"] and (not c.has("record_action") or not c.has("number")),
         "target": "CHAT"
     },
+
+    # ---------------------------------------------------------
 
     
     
@@ -46,8 +78,15 @@ INTENT_RULES = [
         "name": "SOCIAL_GREETING_RESCUE",
         "priority": 90,
         "type": "soft",
-        # 只有在「不是標準記帳(動詞+數字)」的情況下，招呼語才出來救援 CHAT
-        "when": lambda c: c.has("social_greeting") and not (c.has("record_action") and c.has("number")),
+        # 修改前：只排除了記帳(數字+動詞)，卻忘記排除查詢(多少/有沒有)
+        # "when": lambda c: c.has("social_greeting") and not (c.has("record_action") and c.has("number")),
+        
+        # 🌟 修改後：如果句子有明確的「查詢觸發詞」或「疑問詞」，招呼語就不能加分！
+        "when": lambda c: c.has("social_greeting") and not (
+            (c.has("record_action") and c.has("number")) or 
+            c.has("query_trigger") or 
+            c.has("doubt_trigger")
+        ),
         "target": "CHAT",
         "weight": 2.5
     },

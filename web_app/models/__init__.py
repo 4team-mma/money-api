@@ -26,7 +26,8 @@ from .models import (
     ASRCorrectionLog,
     RagPerformanceLog,
     AddItem,
-    TaskRunLog
+    TaskRunLog,
+    TokenUsageLog
 
 )
 

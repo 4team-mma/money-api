@@ -1,4 +1,4 @@
-# ingest_intents.py
+# python ingest_intents.py
 import os
 import pandas as pd
 from dotenv import load_dotenv
