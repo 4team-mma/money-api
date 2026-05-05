@@ -12,6 +12,24 @@ from .vector_db_tools import VectorDBTools
 
 
 class SQLGeneratorService:
+    
+    # 🛡️ 禁止查詢的敏感資料表（絕對不能碰）
+    FORBIDDEN_TABLES = {
+        "members", "ai_config", "token_usage_logs", 
+        "intent_review_logs", "security_audit_logs", "login_activities"
+    }
+
+    # 🛡️ 禁止出現在 SELECT 區段的敏感欄位
+    FORBIDDEN_COLUMNS = {
+        "password", "api_key", "notion_api_key", "notion_page_id",
+        "secret", "token", "hash", "salt", "refresh_token"
+    }
+
+    # ✅ 只允許查詢這些表
+    ALLOWED_TABLES = {
+        "adds", "add_items", "accounts", "transactions", 
+        "budgets", "savings_goals", "reminders", "cpi_data", "salary_data"
+    }
 
     @classmethod
     def _load_schema_context(cls) -> str:
@@ -24,6 +42,7 @@ class SQLGeneratorService:
 
     @classmethod
     def _self_correction(cls, sql: str, user_id: int) -> str:
+
         sql = sql.strip()
 
         # 1. 先清 SQL 單行註解 -- (會把後面條件整行吃掉)
@@ -52,6 +71,47 @@ class SQLGeneratorService:
         sql = re.sub(r"\s+%'", "%'", sql, flags=re.IGNORECASE)
 
         return sql
+
+
+    @classmethod
+    def _validate_sql_safety(cls, sql: str, user_id: int) -> tuple[bool, str]:
+        """🛡️ SQL 安全驗證器：防止敏感資料外洩與跨用戶查詢"""
+        sql_upper = sql.upper()
+        
+        # 1. 只允許 SELECT
+        if not sql_upper.strip().startswith("SELECT"):
+            return False, "只允許 SELECT 語句"
+        
+        # 2. 禁止危險 DML/DDL 關鍵字
+        FORBIDDEN_KEYWORDS = ["DROP", "DELETE", "UPDATE", "INSERT", 
+                            "ALTER", "TRUNCATE", "EXEC", "UNION"]
+        for kw in FORBIDDEN_KEYWORDS:
+            if kw in sql_upper:
+                return False, f"禁止使用 {kw}"
+        
+        # 3. 禁止查詢敏感資料表
+        for table in cls.FORBIDDEN_TABLES:
+            # 用單字邊界比對，避免誤判 (例如 add_members 裡面有 member)
+            import re as _re
+            if _re.search(rf'\b{table}\b', sql, _re.IGNORECASE):
+                return False, f"禁止查詢敏感資料表：{table}"
+        
+        # 4. 禁止在 SELECT 區段出現敏感欄位
+        # 只取 SELECT ... FROM 中間的部分來驗證
+        select_match = _re.search(r'SELECT\s+(.+?)\s+FROM', sql, _re.IGNORECASE | _re.DOTALL)
+        if select_match:
+            select_part = select_match.group(1).upper()
+            for col in cls.FORBIDDEN_COLUMNS:
+                if col.upper() in select_part:
+                    return False, f"禁止查詢敏感欄位：{col}"
+        
+        # 5. 強制確認 user_id 隔離
+        if str(user_id) not in sql:
+            return False, "缺少 user_id 隔離條件，疑似跨用戶查詢"
+        
+        return True, "OK"
+
+
 
     @classmethod
     async def generate_sql(cls, user_query: str, user_id: int, db: Session) -> tuple[str, bool, dict, str]:
@@ -219,6 +279,12 @@ class SQLGeneratorService:
 
             final_sql = clean_template.format(**time_vars)
             final_sql = cls._self_correction(final_sql, user_id)
+            
+            # 🛡️ 新增：安全驗證關卡
+            is_safe, reason = cls._validate_sql_safety(final_sql, user_id)
+            if not is_safe:
+                print(f"🚫 [SQL 安全攔截] 拒絕執行：{reason} | SQL: {final_sql[:100]}")
+                return "", False, {}, ""  # 直接回傳空字串，不執行
 
             return final_sql, False, sql_usage, clean_template
         except Exception as e:

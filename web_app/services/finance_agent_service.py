@@ -46,6 +46,36 @@ class FinanceAgentService:
         
         # 清除系統指令並轉小寫，並去除頭尾空白
         return re.sub(r'\[系統指令.*?\]', '', latest_msg).strip()
+    
+
+    # 🛡️ 高風險攻擊關鍵字模式
+    _SECURITY_THREAT_PATTERNS = [
+        # Prompt Injection 類
+        (r'忽略.*?指令|ignore.*?(instruction|prompt|rule)', "INJECTION"),
+        (r'你現在是(?!.*?喵)|扮演.*?角色|jailbreak|越獄', "INJECTION"),
+        (r'(system\s*prompt|系統提示詞|角色設定|你的指令)', "PROMPT_EXTRACTION"),
+        # 跨用戶查詢類
+        (r'user_id\s*[=＝]\s*\d+', "CROSS_USER"),
+        (r'其他用戶|別的帳號|查.*?別人', "CROSS_USER"),
+        # 敏感資料套取類
+        (r'密碼|password|api.?key|token|secret', "SENSITIVE_DATA"),
+        (r'admin.*?帳號|root.*?權限|資料庫.*?結構', "PRIVILEGE_ESCALATION"),
+        (r'(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|EXEC)\s+(TABLE|DATABASE|FROM)', "SQL_INJECTION"),
+    ]
+
+    @staticmethod
+    def _security_check(message: str) -> tuple[bool, str]:
+        """
+        🛡️ 輸入安全檢查器
+        回傳 (is_safe, threat_type)
+        is_safe=False 代表偵測到威脅
+        """
+        import re
+        for pattern, threat_type in FinanceAgentService._SECURITY_THREAT_PATTERNS:
+            if re.search(pattern, message, re.IGNORECASE):
+                print(f"🚨 [安全警報] 偵測到 {threat_type} 攻擊：{message[:50]}")
+                return False, threat_type
+        return True, "OK"
 
     @staticmethod
     def analyze_intent(message: str) -> str:
@@ -64,9 +94,21 @@ class FinanceAgentService:
         ) -> dict:
 
         user_id = user.user_id
-
-        # 🛡️ 1. 定義 clean_query (這是給 KNOWLEDGE 或 QUERY 檢索用的)
+        
+        
+        # 1. 定義 clean_query (這是給 KNOWLEDGE 或 QUERY 檢索用的)
+        # 🛡️ 安全檢查：在做任何事情之前先過濾
         clean_query = FinanceAgentService._clean_message(message)
+        is_safe, _ = FinanceAgentService._security_check(clean_query)
+        
+        if not is_safe:
+            # 強制導向 CHAT，讓角色用自然語氣拒絕
+            safe_prompt = CHAT_TEMPLATE.format(
+                today=datetime.now(pytz.timezone('Asia/Taipei')).strftime('%Y-%m-%d %H:%M:%S'),
+                persona=PERSONAS.get(persona_key or "cute", PERSONAS["cute"]),
+                rules=BASE_RULES  # BASE_RULES 裡已有 S1~S4 安全規範
+            )
+            return {"intent": "CHAT", "system_prompt": safe_prompt, "confidence": 1.0}
         
         # 🧠 2. 確定大腦版本並取得意圖
         if override_intent:
@@ -184,10 +226,13 @@ class FinanceAgentService:
                                 )
                             
                             sql_data_found = True
-                            # ✅ 執行成功且有結果，才存快取
+                            # 🛡️ 只有安全的問題才存入快取，攻擊字串的問題直接過濾
                             if sql_template and not is_sql_cached:
-                                VectorDBTools.save_sql_to_cache(clean_query, sql_template)
-                                
+                                is_query_safe, _ = FinanceAgentService._security_check(clean_query)
+                                if is_query_safe:
+                                    VectorDBTools.save_sql_to_cache(clean_query, sql_template)
+                                else:
+                                    print(f"🚫 [快取防護] 問題含攻擊字串，拒絕存入快取：{clean_query[:30]}")
                             
                             
                         else:
