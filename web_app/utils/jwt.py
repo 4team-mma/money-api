@@ -17,7 +17,14 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # JWT 設定
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-keep-it-secret")
+# 1. 移除預設值，強迫必須從環境變數讀取
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+# 2. 嚴格的安全檢查：不允許為空，也不允許使用開發期常見的弱密鑰
+if not SECRET_KEY or SECRET_KEY == "your-secret-key-keep-it-secret":
+    logger.critical("FATAL ERROR: 系統缺少安全的 SECRET_KEY 環境變數！")
+    raise ValueError("正式環境必須設定安全且隨機的 SECRET_KEY，伺服器啟動失敗。")
+
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))

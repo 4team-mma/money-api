@@ -26,10 +26,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from ..utils.email_utils import verify_recaptcha, send_otp_email
 import os
-# ✨ 新增 Model 引入 (用來操作資料庫)
-# 根據你的 models.py 內容，Member 和 Setting 都在這裡
 from ..models.models import Member, Setting,LoginActivity
+import logging
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 # ==================== 守門員與權限 ====================
@@ -39,6 +40,13 @@ router = APIRouter()
 # 1. 初始化 IP 限制器 (每分鐘同一個 IP 只能請求 5 次)
 limiter = Limiter(key_func=get_remote_address)
 
+# 🛡️ 修正：安全的 Email 遮罩函式 (解決 E722 bare except)
+def mask_email(email: str) -> str:
+    try:
+        name, domain = email.split('@')
+        return f"{name[0]}****@{domain}"
+    except Exception:
+        return "****"
 
 # ==================== 忘記密碼邏輯 ====================
 @router.post("/auth/forgot-password/send-otp", summary="🔑 OPT驗證碼發送")
@@ -65,13 +73,12 @@ async def request_password_reset_otp(
         - 實際寄信為**背景執行** (Background Task)，API 回應速度快。
     """
     
-    print(f"\n[DEBUG START] --- 收到發送驗證碼請求 ---")
-    print(f"DEBUG: 目標 Email: {data.email}")
+    logger.info("\n[DEBUG START] --- 收到發送驗證碼請求 ---")
+    logger.info(f"目標 Email: {mask_email(data.email)}") # 使用遮罩保護隱私
     
     # ---檢查debug：Google reCAPTCHA 驗證 ---
-    print("DEBUG: 正在驗證 reCAPTCHA...")
+    logger.debug("正在驗證 reCAPTCHA...")
     recaptcha_ok = verify_recaptcha(data.recaptcha_token)
-    print(f"DEBUG: reCAPTCHA 驗證結果: {recaptcha_ok}")
     
     # --- 第二層：Google reCAPTCHA 驗證 ---
     # 直接判斷變數，不要再呼叫 verify_recaptcha(...) 函式
@@ -82,10 +89,10 @@ async def request_password_reset_otp(
     user = db.query(Member).filter(Member.email == data.email).first()
     if not user:
         # 資安策略：對外統一口徑，不透露使用者是否存在
-        print(f"DEBUG: [WARN] 資料庫找不到此 Email: {data.email}")
+        logger.debug(f"DEBUG: [WARN] 資料庫找不到此 Email: {data.email}")
         return {"msg": "若信箱正確，驗證碼已寄出"}
 
-    print(f"DEBUG: 找到使用者 ID: {user.user_id}")
+    
     
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -99,10 +106,10 @@ async def request_password_reset_otp(
         .count()
     )
 
-    print(f"DEBUG: 該 Email 今日已發送次數: {daily_count}")
+    logger.debug(f"DEBUG: 該 Email 今日已發送次數: {daily_count}")
     
     if daily_count >= 5:
-        print("DEBUG: [FAIL] 已達每日上限")
+        logger.debug("DEBUG: [FAIL] 已達每日上限")
         raise HTTPException(status_code=429, detail="今日發送次數已達上限")
 
     # --- 第四層：60 秒冷卻時間 (你原本寫得很好的邏輯) ---
@@ -115,12 +122,12 @@ async def request_password_reset_otp(
 
     if last_otp and (now - last_otp.created_at).total_seconds() < 60:
         wait = int(60 - (now - last_otp.created_at).total_seconds())
-        print(f"DEBUG: [FAIL] 處於冷卻時間，需等待 {wait}s")
+        logger.debug(f"DEBUG: [FAIL] 處於冷卻時間，需等待 {wait}s")
         raise HTTPException(status_code=429, detail=f"請等待 {wait} 秒後再試")
 
     # --- 第五層：產碼、存檔與「非同步」寄信 ---
     otp = generate_otp()
-    print(f"DEBUG: 產生新 OTP: {otp}")
+    logger.info(f"已為 {mask_email(data.email)} 產生新 OTP 並寫入資料庫")
     new_reset_entry = PasswordReset(
         user_id=user.user_id,
         email=user.email,
@@ -129,17 +136,14 @@ async def request_password_reset_otp(
     )
     db.add(new_reset_entry)
     db.commit()
-    print("DEBUG: OTP 已成功寫入資料庫")
+
 
     # --- 關鍵修正：從背景執行改成同步執行，強制抓出錯誤 ---
-    print(f"DEBUG: 準備進行【同步】寄信測試... 目標: {user.email}")
-    
-    # 🌟 我們暫時不使用 background_tasks.add_task
-    # 🌟 直接呼叫函式，這樣如果有錯，Render 的 Log 會直接炸出來！
+    logger.debug(f"準備進行同步寄信... 目標: {mask_email(user.email)}")
     success = send_otp_email(user.email, otp) 
     
-    print(f"DEBUG: 同步寄信執行結束，結果: {success}")
-    print(f"[DEBUG END] ----------------------------\n")
+    logger.info(f"同步寄信執行結束，結果: {success}")
+    logger.info("[DEBUG END] ----------------------------\n")
 
     if not success:
         # 如果同步寄信失敗，我們回傳 500，讓前端知道
@@ -492,7 +496,12 @@ async def google_auth(data: GoogleAuthRequest,
 
 
 @router.post("/auth/forgot-password/verify-otp", summary="✅ 驗證 OTP 代碼")
-async def verify_otp(data: VerifyOTPRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # 🛡️ 補上這行，每分鐘最多猜 5 次
+async def verify_otp(
+    # pylint: disable=unused-argument
+    request: Request,
+    data: VerifyOTPRequest, 
+    db: Session = Depends(get_db)):
     """
     檢查使用者輸入的驗證碼是否有效。
 
@@ -539,6 +548,8 @@ async def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_d
             PasswordReset.email == data.email,
             PasswordReset.otp_code == data.otp,
             PasswordReset.is_used.is_(False),
+            PasswordReset.expires_at > datetime.now(),
+            
         )
         .first()
     )
