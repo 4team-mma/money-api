@@ -10,6 +10,11 @@ import os
 from .sql_generator_service import SQLGeneratorService
 from ..database import SessionLocal
 from .vector_db_tools import VectorDBTools
+import json
+from pydantic import SecretStr
+from ..schemas.bot_schema import RecordResponseSchema
+from datetime import datetime, timedelta
+
 
 # 🌟 引入所有需要的模板
 from ..prompts.system_prompts import (
@@ -21,7 +26,7 @@ from ..prompts.system_prompts import (
 # 🌟 引入 LangChain 與 Groq 需要的套件
 from langchain_core.output_parsers import PydanticOutputParser
 from ..schemas.bot_schema import RecordResponseSchema
-
+from langchain_groq import ChatGroq
 # 🚀 引入妳新定義的兩顆大腦與 V2 需要的 NLP 引擎
 from .finance_agent_v1_service import FinanceAgentV1Service
 from .finance_agent_mixai_service import FinanceAgentMixAIService
@@ -41,6 +46,36 @@ class FinanceAgentService:
         
         # 清除系統指令並轉小寫，並去除頭尾空白
         return re.sub(r'\[系統指令.*?\]', '', latest_msg).strip()
+    
+
+    # 🛡️ 高風險攻擊關鍵字模式
+    _SECURITY_THREAT_PATTERNS = [
+        # Prompt Injection 類
+        (r'忽略.*?指令|ignore.*?(instruction|prompt|rule)', "INJECTION"),
+        (r'你現在是(?!.*?喵)|扮演.*?角色|jailbreak|越獄', "INJECTION"),
+        (r'(system\s*prompt|系統提示詞|角色設定|你的指令)', "PROMPT_EXTRACTION"),
+        # 跨用戶查詢類
+        (r'user_id\s*[=＝]\s*\d+', "CROSS_USER"),
+        (r'其他用戶|別的帳號|查.*?別人', "CROSS_USER"),
+        # 敏感資料套取類
+        (r'密碼|password|api.?key|token|secret', "SENSITIVE_DATA"),
+        (r'admin.*?帳號|root.*?權限|資料庫.*?結構', "PRIVILEGE_ESCALATION"),
+        (r'(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|EXEC)\s+(TABLE|DATABASE|FROM)', "SQL_INJECTION"),
+    ]
+
+    @staticmethod
+    def _security_check(message: str) -> tuple[bool, str]:
+        """
+        🛡️ 輸入安全檢查器
+        回傳 (is_safe, threat_type)
+        is_safe=False 代表偵測到威脅
+        """
+        import re
+        for pattern, threat_type in FinanceAgentService._SECURITY_THREAT_PATTERNS:
+            if re.search(pattern, message, re.IGNORECASE):
+                print(f"🚨 [安全警報] 偵測到 {threat_type} 攻擊：{message[:50]}")
+                return False, threat_type
+        return True, "OK"
 
     @staticmethod
     def analyze_intent(message: str) -> str:
@@ -59,9 +94,21 @@ class FinanceAgentService:
         ) -> dict:
 
         user_id = user.user_id
-
-        # 🛡️ 1. 定義 clean_query (這是給 KNOWLEDGE 或 QUERY 檢索用的)
+        
+        
+        # 1. 定義 clean_query (這是給 KNOWLEDGE 或 QUERY 檢索用的)
+        # 🛡️ 安全檢查：在做任何事情之前先過濾
         clean_query = FinanceAgentService._clean_message(message)
+        is_safe, _ = FinanceAgentService._security_check(clean_query)
+        
+        if not is_safe:
+            # 強制導向 CHAT，讓角色用自然語氣拒絕
+            safe_prompt = CHAT_TEMPLATE.format(
+                today=datetime.now(pytz.timezone('Asia/Taipei')).strftime('%Y-%m-%d %H:%M:%S'),
+                persona=PERSONAS.get(persona_key or "cute", PERSONAS["cute"]),
+                rules=BASE_RULES  # BASE_RULES 裡已有 S1~S4 安全規範
+            )
+            return {"intent": "CHAT", "system_prompt": safe_prompt, "confidence": 1.0}
         
         # 🧠 2. 確定大腦版本並取得意圖
         if override_intent:
@@ -179,10 +226,13 @@ class FinanceAgentService:
                                 )
                             
                             sql_data_found = True
-                            # ✅ 執行成功且有結果，才存快取
+                            # 🛡️ 只有安全的問題才存入快取，攻擊字串的問題直接過濾
                             if sql_template and not is_sql_cached:
-                                VectorDBTools.save_sql_to_cache(clean_query, sql_template)
-                                
+                                is_query_safe, _ = FinanceAgentService._security_check(clean_query)
+                                if is_query_safe:
+                                    VectorDBTools.save_sql_to_cache(clean_query, sql_template)
+                                else:
+                                    print(f"🚫 [快取防護] 問題含攻擊字串，拒絕存入快取：{clean_query[:30]}")
                             
                             
                         else:
@@ -242,12 +292,6 @@ class FinanceAgentService:
     @staticmethod
     def execute_record_chain(system_prompt: str, user_message: str) -> dict:
         """重構版：使用 8B 小模型 + 動態範例注入 + 陣列暴力淨化器"""
-        import json
-        import re
-        import os
-        from pydantic import SecretStr
-        from langchain_groq import ChatGroq
-        from ..schemas.bot_schema import RecordResponseSchema
 
         groq_api_key = os.getenv("GROQ_API_KEY")
         if not groq_api_key:
@@ -262,84 +306,88 @@ class FinanceAgentService:
         default_acc_match = re.search(r'\[預設帳戶\]：(.*)', system_prompt)
         default_acc = default_acc_match.group(1).strip() if default_acc_match else "現金"
 
-        # 🌟 核心修正 2：直接把 {default_acc} 寫死在範例裡面，讓 AI 連想都不用想，照抄就對了！
+        tw_tz = pytz.timezone('Asia/Taipei')
+        now = datetime.now(tw_tz)
+        today_str = now.strftime('%Y-%m-%d')
+        yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+
         few_shot_prompt = f"""
-你是一個無情的 JSON 轉換機。請將使用者的話轉換為記帳 JSON 格式。
-絕對不要輸出任何解釋或 Markdown 標記。只能輸出 `[` 開頭並以 `]` 結尾的 JSON 陣列。
-如果有多筆記帳，請放在同一個陣列中。日期未指定請用今天。
+        你是一個無情的 JSON 轉換機。
+        只能輸出 `[` 開頭並以 `]` 結尾的 JSON 陣列，禁止任何解釋或 Markdown。
+        今天的日期是：{today_str}（絕對真理！昨天={yesterday_str}，請依此推算所有相對時間）
 
-{user_db_context}
+        {user_db_context}
 
-【轉換範例 1：單筆支出】
-[小主人的話]：我今天吃麥當勞花了 150 元
-[
-  {{
-    "record_type": "expense",
-    "add_note": "麥當勞",
-    "add_amount": 150,
-    "record_date": "2026-04-30",
-    "add_class": "飲食",
-    "add_class_icon": "🍔",
-    "account_name": "{default_acc}",
-    "add_member": "自己",
-    "add_tag": "需要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }}
-]
+        【轉換範例 1：今天的單筆支出】
+        [小主人的話]：我今天吃麥當勞花了 150 元
+        [
+        {{
+            "record_type": "expense",
+            "add_note": "麥當勞",
+            "add_amount": 150,
+            "record_date": "{today_str}",
+            "add_class": "飲食",
+            "add_class_icon": "🍔",
+            "account_name": "{default_acc}",
+            "add_member": "自己",
+            "add_tag": "需要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }}
+        ]
 
-【轉換範例 2：多筆支出】
-[小主人的話]：搭高鐵花 300，然後買書花 400
-[
-  {{
-    "record_type": "expense",
-    "add_note": "高鐵",
-    "add_amount": 300,
-    "record_date": "2026-04-30",
-    "add_class": "交通",
-    "add_class_icon": "🚗",
-    "account_name": "{default_acc}",
-    "add_member": "自己",
-    "add_tag": "需要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }},
-  {{
-    "record_type": "expense",
-    "add_note": "書",
-    "add_amount": 400,
-    "record_date": "2026-04-30",
-    "add_class": "學習",
-    "add_class_icon": "📚",
-    "account_name": "{default_acc}",
-    "add_member": "自己",
-    "add_tag": "想要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }}
-]
+        【轉換範例 2：昨天的多筆支出】
+        [小主人的話]：昨天搭高鐵花 300，然後買書花 400
+        [
+        {{
+            "record_type": "expense",
+            "add_note": "高鐵",
+            "add_amount": 300,
+            "record_date": "{yesterday_str}",
+            "add_class": "交通",
+            "add_class_icon": "🚗",
+            "account_name": "{default_acc}",
+            "add_member": "自己",
+            "add_tag": "需要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }},
+        {{
+            "record_type": "expense",
+            "add_note": "書",
+            "add_amount": 400,
+            "record_date": "{yesterday_str}",
+            "add_class": "學習",
+            "add_class_icon": "📚",
+            "account_name": "{default_acc}",
+            "add_member": "自己",
+            "add_tag": "想要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }}
+        ]
 
-【轉換範例 3：收入與家庭成員】
-[小主人的話]：我媽今天給我 200 元零用錢
-[
-  {{
-    "record_type": "income",
-    "add_note": "零用錢",
-    "add_amount": 200,
-    "record_date": "2026-04-30",
-    "add_class": "其他",
-    "add_class_icon": "💰",
-    "account_name": "{default_acc}",
-    "add_member": "父母",
-    "add_tag": "想要",
-    "from_account": "{default_acc}",
-    "to_account": "{default_acc}"
-  }}
-]
+        【轉換範例 3：今天的收入】
+        [小主人的話]：我媽今天給我 200 元零用錢
+        [
+        {{
+            "record_type": "income",
+            "add_note": "零用錢",
+            "add_amount": 200,
+            "record_date": "{today_str}",
+            "add_class": "其他",
+            "add_class_icon": "💰",
+            "account_name": "{default_acc}",
+            "add_member": "父母",
+            "add_tag": "想要",
+            "from_account": "{default_acc}",
+            "to_account": "{default_acc}"
+        }}
+        ]
 
-【現在換你】
-[小主人的話]：{user_message}
-"""
+        【現在換你】
+        [小主人的話]：{user_message}
+        """
         response = llm.invoke(few_shot_prompt)
         
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
