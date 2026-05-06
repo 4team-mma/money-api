@@ -91,7 +91,7 @@ class GeminiService:
                 error_msg = str(api_err)
                 if "404" in error_msg or "not found" in error_msg.lower():
                     logger.warning(f"⚠️ [Gemini] 找不到精確模型 {target_id}，啟動自動容錯降級...")
-                    fallback_id = "gemini-3-flash-latest" if "flash" in target_id.lower() else "gemini-3-pro-latest"
+                    fallback_id = "gemini-3-flash-preview" if "flash" in target_id.lower() else "gemini-3-pro-latest"
                     
                     logger.info(f"🚀 [Gemini] 重新連線萬用安全模型: {fallback_id}")
                     response = await client.aio.models.generate_content(
