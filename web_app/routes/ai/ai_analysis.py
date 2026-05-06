@@ -33,7 +33,7 @@ async def get_financial_insight(
     final_key: str = str(raw_key)
     result = await GeminiService.chat_async(
         api_key=final_key,
-        model_id="gemini-1.5-flash",
+        model_id="gemini-2.5-flash",
         prompt=prompt,
         system_instruction=SYSTEM_INSTRUCTION
     )

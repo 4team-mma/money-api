@@ -1,8 +1,10 @@
 # monitor.py
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-import httpx, asyncio, time, logging
-
+import httpx
+import asyncio
+import time
+import logging
 from ..database import SessionLocal
 from ..models import CpiData, SalaryBenchmark
 from ..utils.cpi_crawler import fetch_and_update_cpi
@@ -12,6 +14,8 @@ from sqlalchemy import func
 #from datetime import datetime, timedelta
 import os
 from sqlalchemy import text
+from ..routes.ai.siri_voice import siri_session,pending_cache
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -372,3 +376,18 @@ def get_log_summary():
     
     return {"date": today_str, **counts,
             "has_critical": counts["CRITICAL"] > 0}
+    
+    
+# ── 7. Siri 語音服務狀態 ───────────────────────────────────────────────
+@router.get("/siri-status")
+def get_siri_status():
+    """回傳目前正在使用 Siri 語音的活躍人數與待確認任務"""
+    active_count = len(siri_session)
+    pending_count = len(pending_cache)
+    
+    return {
+        "status": "ok",
+        "active_sessions": active_count,
+        "pending_confirmations": pending_count
+    } 
+
