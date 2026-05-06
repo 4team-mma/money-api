@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from web_app.dependencies import get_db, get_current_user
 from web_app.services.gemini_service import GeminiService
 from web_app.services.advisor_tools import FinancialAdvisorService
-from web_app.prompts.ai_analysis_prompts import get_financial_analysis_prompt, SYSTEM_INSTRUCTION
+from web_app.prompts.ai_analysis_prompts import get_financial_analysis_prompt,SYSTEM_INSTRUCTION
 
 router = APIRouter()
 
@@ -13,35 +13,45 @@ async def get_financial_insight(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    # 1. 抓取包含 Z-score 異常偵測的數據
-    # 這裡 financial_data 已經包含了 anomaly_analysis 欄位
+    # 1. 抓取數據 (已確認 Service 內包含 90天/80% 安檢門)
     financial_data = await FinancialAdvisorService.get_ai_context(db, current_user)
-    
-    # 2. 生成 Prompt 
-    # 💡 關鍵：妳的 get_financial_analysis_prompt 函式需要能處理新的資料結構
+
+    # 💡 判斷是否解鎖
+    if not financial_data.get("is_unlocked", False):
+        return {
+            "is_unlocked": False,
+            "ai_insight": financial_data.get("message"),
+            "status": financial_data.get("status"),
+            "metrics": None
+        }
+
+    # 2. 生成分析 Prompt
     prompt = get_financial_analysis_prompt(financial_data)
-    
-    # 3. 呼叫 Gemini
-    env_key = os.getenv("GEMINI_API_KEY")
-    db_key = None
-    raw_key = db_key if (db_key and len(db_key) > 10) else env_key
-    if not raw_key:
+
+    # 3. 呼叫 Gemini (優化 Key 抓取邏輯，刪除重複呼叫)
+    final_key = os.getenv("GEMINI_API_KEY")
+    if not final_key:
+        # 這裡印在後端黑視窗，使用者看不到，只有開發者看得到
+        print("CRITICAL ERROR: Gemini API Key is missing in .env file!")
+        # 這裡回傳給前端
         raise HTTPException(
-            status_code=500, 
-            detail="系統設定異常：找不到有效的 Gemini API Key，請檢查資料庫設定或 .env 檔案。"
+            status_code=500,
+            detail="AI顧問目前有點斷線，請稍後再試或聯繫客服。"
         )
-    final_key: str = str(raw_key)
+
+    # 這裡只呼叫一次就好！刪除原本代碼中重複的 result 賦值
     result = await GeminiService.chat_async(
         api_key=final_key,
         model_id="gemini-1.5-flash",
         prompt=prompt,
         system_instruction=SYSTEM_INSTRUCTION
     )
-    
-    # 4. 回傳給前端
-    # 建議把結構理清楚，方便前端 Vue 
+
+    # 4. 回傳完整分析給前端
     return {
-        "ai_insight": result.get("text", "無法生成分析建議"), # AI 產生的建議文字
-        "metrics": financial_data.get("metrics", {}),# 包含 total_expense, anomaly_analysis
-        "top_categories": financial_data.get("top_categories", [])# 讓前端也能顯示圓餅圖或列表
+        "is_unlocked": True,
+        "ai_insight": result.get("text", "無法生成分析建議"),
+        "metrics": financial_data.get("lifestyle_metrics", {}),
+        "financial_summary": financial_data.get("financial_summary", {}),
+        "consumption_structure": financial_data.get("consumption_structure", {})
     }
