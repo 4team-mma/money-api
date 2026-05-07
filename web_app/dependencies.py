@@ -2,7 +2,7 @@
 # 我是守門員!從http header抓取token,然後用jwt驗證是否偽造過期,
 # 再去資料庫抓user物件,把user物件交給路由。
 
-from fastapi import Depends, HTTPException, status, Query, Request, WebSocketException
+from fastapi import Depends, HTTPException, status, Request, WebSocketException,WebSocket
 from sqlalchemy.orm import Session
 from .database import get_db
 from .models import Member
@@ -46,16 +46,29 @@ def admin_required(current_user: Member = Depends(get_current_user)):
 
 # 專門給 WebSocket 用的驗證守門員
 async def get_current_user_ws(
-    token: str = Query(..., description="WebSocket Token"),
+    websocket: WebSocket, # 改成接收 websocket 物件
     db: Session = Depends(get_db)
 ) -> Member:
     try:
+        # 從 Header 中提取前端傳過來的 Subprotocol (也就是我們的 token)
+        protocols = websocket.headers.get("sec-websocket-protocol")
+        if not protocols:
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+        
+        # 瀏覽器傳過來可能會包含多個值，取第一個並去除空白
+        token = protocols.split(",")[0].strip()
+
         # 沿用你原本的 verify_token
         payload = verify_token(token)
         user_id = payload.get("sub")
         user = db.query(Member).filter(Member.user_id == user_id).first()
+        
         if not user:
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+            
+        # 🌟 重要：把 token 存進 state，下一步路由會用到
+        websocket.state.ws_token = token
+        
         return user
     except Exception:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)

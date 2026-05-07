@@ -33,6 +33,9 @@ SYS_OLLAMA_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "gemma4:e4b")
 SYS_GEMINI_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
 AI_BRAIN_VERSION = os.getenv("AI_BRAIN_VERSION", "v1")
 
+# 🌟 全域變數：輕量級對話狀態鎖 (Format: {user_id: expire_timestamp})
+ADVISOR_STATE_LOCKS = {}
+
 
 def get_sys_default_model(provider: str) -> str:
     """根據 Provider 決定預設模型名稱"""
@@ -228,42 +231,81 @@ async def chat_with_meow(
 
     # 3. 提取指令：只拿最後一句話
     latest_query = req.message.split("小主人：")[-1].strip() if "小主人：" in req.message else req.message
+    
+    
+    # ==========================================
+    # 🌟 狀態鎖檢測：如果被鎖定，直接強制進入 ADVISOR！
+    # ==========================================
+    is_locked = False
+    current_intent = None
+    
+    if current_user.user_id in ADVISOR_STATE_LOCKS:
+        # 檢查鎖是否過期 (設定 3 分鐘 = 180 秒)
+        if time.time() < ADVISOR_STATE_LOCKS[current_user.user_id]:
+            is_locked = True
+            current_intent = "ADVISOR"
+            financial_context_instruction = "【系統訊息】進入連續理財對話模式。"
+            agent_response = {"intent": "ADVISOR", "confidence": 1.0, "is_cached": False}
+            logger.info(f"🔒 [State Lock] 攔截成功！User {current_user.user_id} 強制進入 ADVISOR")
+        else:
+            # 鎖過期了，刪除並正常走意圖判斷
+            del ADVISOR_STATE_LOCKS[current_user.user_id]
+            logger.info(f"🔓 [State Lock] User {current_user.user_id} 鎖定超時，已解除。")
 
-    # 4. 判斷意圖
-    try:
-        agent_response = await FinanceAgentService.get_context(
-            db, current_user, latest_query, req.persona, version=config.brain_version
-        )
-        current_intent = agent_response["intent"]
-        financial_context_instruction = agent_response["system_prompt"]
-        print(f"🎯 [意圖偵測]: {current_intent}")
-    except Exception as e:
-        logger.error(f"FinanceAgent Error: {str(e)}")
-        current_intent = "CHAT"
-        agent_response = {"intent": "CHAT", "confidence": 0.0}
-        financial_context_instruction = "【系統訊息】暫時無法讀取財務資料。"
-
+    # 4. 如果沒有鎖定，才去跑原本的 VectorDB 與 ONNX
+    if not is_locked:
+        try:
+            agent_response = await FinanceAgentService.get_context(
+                db, current_user, latest_query, req.persona, version=config.brain_version
+            )
+            current_intent = agent_response["intent"]
+            financial_context_instruction = agent_response["system_prompt"]
+            print(f"🎯 [意圖偵測]: {current_intent}")
+        except Exception as e:
+            logger.error(f"FinanceAgent Error: {str(e)}")
+            current_intent = "CHAT"
+            agent_response = {"intent": "CHAT", "confidence": 0.0}
+            financial_context_instruction = "【系統訊息】暫時無法讀取財務資料。"
+    
     final_system_prompt = f"{config.system_prompt}\n\n{financial_context_instruction}"
 
     # 初始化回傳變數
     is_json_command = False
     parsed_action = None
     reply = "喵喵不知道該說什麼..."
+    actual_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     actual_model_used = config.model_version
+    
+    actual_provider_used = config.provider
+
 
     # ==========================================
     # 5. 意圖分流處理
     # ==========================================
+    
+    
     if current_intent in ["RECORD", "MULTI_RECORD"]:
         
         # 🌟🌟🌟 全面升級：動態注入分類、標籤、成員 🌟🌟🌟
         user_history = get_user_history_for_prompt(db, current_user.user_id)
         dynamic_rule = (
-            f"\n\n【極度重要：小主人的專屬資料庫】\n"
+            f"\n\n【🚨 極度重要：小主人的專屬資料庫】\n"
             f"1. [專屬分類庫]：{user_history['categories']}\n"
-            f"2. [常用標籤庫]：{user_history['tags']} (若有多個請用 '/' 分隔，如 '需要/爬山')\n"
+            f"2. [常用標籤庫]：{user_history['tags']} (若有多個請用 '/' 分隔)\n"
             f"3. [常用成員庫]：{user_history['members']}\n"
-            f"請務必優先從上述清單挑選。請留意小主人對『標籤(想要/需要等)』與『成員(幫誰花錢)』的明確指示！"
+            f"4. [常用帳戶庫]：{user_history['accounts']}\n"
+            f"5. [預設帳戶]：{user_history['default_account']}\n"
+            
+            f"\n⚠️ [帳戶提取鐵律]：\n"
+            f"- 若對話提到 [常用帳戶庫] 中的任何名稱（如：存入國泰、用中信付），\n"
+            f"  [account_name] 必須強制填入該帳戶名稱！不可使用預設帳戶！\n"
+            f"- 只有當對話完全沒提到任何帳戶時，[account_name] 才可填入「{user_history['default_account']}」。\n"
+            
+            f"\n⚠️ [標籤提取鐵律]：\n"
+            f"- 除非小主人明確說出標籤名稱（如：標記為想要、這筆是旅遊），\n"
+            f"- 否則 [add_tag] 必須保持空字串 \"\"，絕對禁止自行猜測情緒！\n"
+            
+            f"\n請務必優先從清單挑選正確名稱，並僅輸出 JSON 陣列喵！\n"
         )
         record_system_prompt = final_system_prompt + dynamic_rule
         # 🌟🌟🌟 新增結束 🌟🌟🌟
@@ -271,36 +313,90 @@ async def chat_with_meow(
         
         # 🚀 通道 A：記帳 (強制走 Groq)
         try:
-            # ⚠️ 注意這裡：把 final_system_prompt 換成剛組裝好的 record_system_prompt
             groq_result = FinanceAgentService.execute_record_chain(record_system_prompt, latest_query)
             is_json_command = True
+            
+            raw_action_data = groq_result.get("action_data", [])
+            # 建立一個「名字 -> ID」的對照表，方便等等快速轉換
+            user_accounts = db.query(Account).filter(Account.user_id == current_user.user_id).all()
+            account_map = {acc.account_name: acc.account_id for acc in user_accounts}
+            
+            # 取得預設帳戶 ID (保底用)
+            default_acc_id = None
+            if user_accounts:
+                # 拿第一個帳戶當預設 (對應你 get_user_history_for_prompt 的邏輯)
+                default_acc_id = user_accounts[0].account_id
+
+            # 🌟 進行資料補強 (Data Enrichment)
+            for record in raw_action_data:
+                
+                if record.get("record_type") == "income" and record.get("to_account"):
+                    if record["to_account"] in account_map:
+                        record["account_name"] = record["to_account"]
+                
+                # 1. 帳戶轉換：名字變 ID
+                acc_name = record.get("account_name")
+                if acc_name in account_map:
+                    record["account_id"] = account_map[acc_name]
+                else:
+                    record["account_id"] = default_acc_id  # 找不到就用預設
+                
+                # 2. 標籤補強：如果 AI 給空字串或沒給，補上「需要」
+                if not record.get("add_tag") or record["add_tag"].strip() == "":
+                    record["add_tag"] = "需要"
+                
+                # 3. 成員補強：如果沒抓到，補上「自己」
+                if not record.get("add_member"):
+                    record["add_member"] = "自己"
+            
             parsed_action = groq_result.get("action_data", {})
             reply = groq_result.get("reply_text", "已記好囉喵！")
+            
             actual_model_used = "Groq (Llama-Record)"
+            actual_provider_used = "groq"  # 🌟 補上這行：強制標記為 groq
+            # token
+            actual_usage = groq_result.get("usage", actual_usage)
+            
         except Exception as e:
             logger.error(f"Groq 解析 JSON 失敗: {str(e)}")
             reply = "喵喵聽不懂這筆帳，請換個方式說喵！"
             
             
     
-    # 🌟🌟🌟 新增這一段：ADVISOR 專屬通道 🌟🌟🌟
+    # 🌟🌟🌟 ADVISOR 專屬通道 🌟🌟🌟
     elif current_intent == "ADVISOR":
-        #print(f"🚀 [DEBUG] ADVISOR elif 觸發！準備呼叫 LangGraph...")
         try:
-            reply = await analyze_finance_advice(
-                user_message=latest_query,   # ← 補回來
-                db=db,                        # ← 補回來
-                current_user=current_user     # ← 補回來
+            # 🌟 修正點 1：用 advisor_res 來接住字典！
+            advisor_res = await analyze_finance_advice(
+                user_message=latest_query,
+                db=db,
+                current_user=current_user
             )
-            #print(f"✅ [DEBUG] LangGraph 回傳成功: {reply[:50]}")
+            
+            # 🌟 修正點 2：從字典中拆解出對話內容與 Token 帳單
+            reply = advisor_res["content"]
+            actual_usage = advisor_res["usage"]
+            
             is_json_command = False
             actual_model_used = "Groq (LangGraph-Advisor)"
+            actual_provider_used = "groq"
+            
+            # ==========================================
+            # 🌟 判斷是否需要「繼續上鎖」
+            # ==========================================
+            if any(q in reply for q in ["？", "?", "請問", "告訴我", "你的行業是"]):
+                ADVISOR_STATE_LOCKS[current_user.user_id] = time.time() + 180
+            else:
+                if current_user.user_id in ADVISOR_STATE_LOCKS:
+                    del ADVISOR_STATE_LOCKS[current_user.user_id]
+            
         except Exception as e:
-            #print(f"❌ [DEBUG] LangGraph 炸了: {str(e)}")
             import traceback
             traceback.print_exc()
             reply = "喵喵的理財大腦暫時有點打結，請稍後再試喵！"
             actual_model_used = "Error"
+            if current_user.user_id in ADVISOR_STATE_LOCKS:
+                del ADVISOR_STATE_LOCKS[current_user.user_id]
     # 🌟🌟🌟 新增結束 🌟🌟🌟
     
     
@@ -316,61 +412,151 @@ async def chat_with_meow(
             # 🌟 新增：準備一把專用的備用鑰匙
             override_api_key = None 
 
-            if current_intent == "QUERY" and is_on_render:
+            if current_intent in ["QUERY", "MULTI_QUERY"]:
                 active_provider = "groq"
-                active_model = "llama-3.3-70b-versatile"
-                # 🌟 致命修復：既然強制換腦，就必須強制從環境變數拿 Groq 的鑰匙！
-                override_api_key = os.getenv("GROQ_API_KEY") 
-                print(f"🚀 [雲端優化] QUERY 自動切換至 Groq 70B")
+                active_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+                override_api_key = os.getenv("GROQ_API_KEY")
+                print(f"🚀 [速度優化] QUERY 強制切換至 Groq")
+                
+                
+            # ==========================================
+            # 🌟 終極防護：根據「意圖」嚴格派發工具 (動態掛載)
+            # ==========================================
+            from ..services.finance_tools import get_budget_tool, search_manual_tool
+            from ..services.notion_mcp_service import create_notion_tool
+            notion_tool = create_notion_tool(db, current_user)
+            
+            active_tools = [] # 預設空手，什麼工具都不給！
+            
+            # 只有知識查詢，才給手冊工具
+            if current_intent in ["KNOWLEDGE", "MULTI_KNOWLEDGE"]:
+                active_tools.append(search_manual_tool)
+                
+            # 只有財務查詢，才給預算工具
+            elif current_intent in ["QUERY", "MULTI_QUERY"]:
+                active_tools.append(get_budget_tool)
+
+            # 外部 MCP 工具獨立判斷
+            if "notion" in latest_query.lower() or "同步" in latest_query:
+                active_tools.append(notion_tool)
+            # ==========================================
 
             # A. Gemini 處理
             if active_provider == "gemini":
                 env_key = os.getenv("GEMINI_API_KEY") 
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
-                # 如果有 override_api_key 就用它的，不然才用資料庫或環境變數的
                 f_key = override_api_key or db_key or env_key
                 if not f_key: raise Exception("Missing Key")
 
-                from ..services.finance_tools import get_budget_tool, search_manual_tool
                 res = await GeminiService.chat_async(
                     api_key=str(f_key), model_id=active_model,
                     prompt=f"【機密 user_id: {current_user.user_id}】\n問題：{req.message}",
                     system_instruction=final_system_prompt,
-                    tools=[get_budget_tool, search_manual_tool]
+                    # 🌟 這裡修改：如果陣列是空的，就傳 None，直接沒收工具！
+                    tools=active_tools if active_tools else None 
                 )
-                reply, actual_model_used = res["text"], res["actual_model"]
+                reply = res["text"]
+                actual_model_used = res["actual_model"]
+                # 🌟 關鍵：把 Gemini 的帳單交給你的 Token Radar 變數
+                actual_usage = res.get("usage", actual_usage)
+
 
             # B. Groq 處理
             elif active_provider == "groq":
                 env_key = os.getenv("GROQ_API_KEY")
                 db_key = decrypt_api_key(config.api_key) if config.api_key and config.api_key != "none" else None
-                # 🌟 這裡最關鍵：override_api_key 優先權最高！
                 f_key = override_api_key or db_key or env_key
                 if not f_key: raise Exception("Missing Key")
 
-                reply = await GroqService.chat_async(
+                # 🌟 核心修正：用 res 接住字典，並把真實 token 數據挖出來
+                res = await GroqService.chat_async(
                     api_key=str(f_key), model_id=active_model,
                     prompt=req.message, system_instruction=final_system_prompt
                 )
+                reply = res["text"]
                 actual_model_used = active_model
+                actual_usage = res.get("usage", actual_usage)
 
             # C. Ollama 處理
             elif active_provider == "ollama":
                 if is_on_render:
                     reply = "雲端環境暫不支援 Ollama，請手動切換至 Gemini 或 Groq 喵。"
                 else:
-                    # 這裡加上 str() 包裝 config.base_url 消除紅線
                     reply = await OllamaService.chat_async(
                         base_url=str(config.base_url or "http://localhost:11434"),
                         model_id=active_model,
                         prompt=req.message,
-                        system_instruction=final_system_prompt
-                        # 💡 不用傳 timeout_sec，它會自動預設 60 秒！
+                        system_instruction=final_system_prompt,
+                        tools=active_tools if active_tools else None
                     )
 
         except Exception as e:
             logger.error(f"AI Chat Error: {str(e)}", exc_info=True)
             reply = f"連線失敗喵... ({str(e)})"
+            
+            
+
+# 🌟 核心新增：終極物理淨化器！強制消除小模型傲嬌的對話前綴
+    if isinstance(reply, str):
+        import re
+        # 這把正則手術刀，會把開頭所有的「喵喵：」、「喵喵：喵喵：」一次切除得乾乾淨淨
+        reply = re.sub(r"^((喵喵|小助手|Money\s*喵)[：:\s]*)+", "", reply).strip()
+
+
+            
+    # ==========================================
+    # 🌟 核心新增：將消耗數據寫入 Token 監測雷達 (正義喵喵誠實版)
+    # ==========================================
+    try:
+        from ..models import TokenUsageLog
+        
+        # 1. 取得剛剛一路傳過來的快取狀態
+        is_sql_cached = agent_response.get("is_cached", False)
+        sql_usage = agent_response.get("sql_usage", {}) # 🌟 拿到 SQL 引擎傳過來的帳單！
+        
+        # 2. 拿取絕對真實的 API 數據
+        p_tokens = actual_usage.get("prompt_tokens", 0) + sql_usage.get("prompt_tokens", 0)
+        c_tokens = actual_usage.get("completion_tokens", 0) + sql_usage.get("completion_tokens", 0)
+        t_tokens = actual_usage.get("total_tokens", 0) + sql_usage.get("total_tokens", 0)
+        
+        # 3. 🌟 正義審判：徹底刪除造假邏輯！是 0 就是 0！
+        # 並且在 Snippet 前面加上誠實的標籤，讓小主人一眼看穿真相
+        snippet_prefix = ""
+        model_display = actual_model_used or "unknown"
+
+        # 👇 核心補回：就是這兩行被我誤刪了！把背後代工的高難度任務帳單，強制寄給 Groq！
+        if current_intent in ["RECORD", "MULTI_RECORD", "ADVISOR", "QUERY", "MULTI_QUERY"]:
+            actual_provider_used = "groq"
+
+        if is_sql_cached:
+            # 真實的快取命中：保證 0 消耗
+            p_tokens, c_tokens, t_tokens = 0, 0, 0
+            snippet_prefix = "⚡[快取命中] "
+            model_display = "1.5F Semantic Cache" # 在雷達上自豪地秀出這是快取的功勞！
+        elif t_tokens == 0:
+            # 沒命中快取，但 Token 卻是 0：老實承認 API 沒回傳或斷線
+            snippet_prefix = "⚠️[API未回傳] "
+
+        # 4. 寫入資料庫 (絕無假帳)
+        token_log = TokenUsageLog(
+            user_id=current_user.user_id,
+            provider=actual_provider_used,
+            model_version=model_display,
+            intent_type=current_intent,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=t_tokens,
+            latency_ms=int((time.time() - start_time) * 1000),
+            is_cached=is_sql_cached,
+            request_snippet=f"{snippet_prefix}[User {current_user.user_id}] {latest_query}"[:500] 
+        )
+        db.add(token_log)
+        db.commit()
+    except Exception as e:
+        logger.error(f"❌ Token 雷達紀錄失敗: {str(e)}")
+        db.rollback()
+    # ==========================================
+    # ==========================================
 
     # ==========================================
     # 5. 收尾工作：更新任務與回傳
@@ -418,7 +604,7 @@ async def chat_with_meow(
     return {
         "reply": reply,
         "duration": duration,
-        "provider": provider_display,
+        "provider": provider_display, # 👈 這裡依然回傳原本的設定給 Vue
         "is_command": is_json_command,
         "action_data": parsed_action,
         "intent": current_intent,  # 🌟 新增：傳給前端

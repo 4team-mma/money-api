@@ -25,7 +25,10 @@ from .models import (
     IntentReviewLog,
     ASRCorrectionLog,
     RagPerformanceLog,
-    AddItem
+    AddItem,
+    TaskRunLog,
+    TokenUsageLog,
+    CategoryMapping
 
 )
 

@@ -27,7 +27,10 @@ from web_app.routes import (
     ws,
     integrations,
     admin_ai_helper,
-    chat_langgraph_test
+    chat_langgraph_test,
+    monitor,
+    token_radar,
+    categories
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -48,10 +51,11 @@ from slowapi.errors import RateLimitExceeded
 import logging
 from datetime import datetime,timedelta
 from typing import AsyncGenerator
-
+from web_app.utils.task_log_cleanup import cleanup_old_task_logs
 from web_app.middlewares.security_logger import SecurityAuditMiddleware
 from web_app.utils.ai_security_analyst import run_daily_security_audit
 from web_app.utils.ai_warmup import warmup_ai_systems
+
 from ingest_knowledge import ingest_data as ingest_knowledge_data
 from ingest_intents import ingest_intents as ingest_intents_data
 from web_app.services.vector_db_tools import VectorDBTools
@@ -103,14 +107,20 @@ async def init_vector_db():
     """在背景執行緒重建語意資料庫，避免阻塞 FastAPI 主執行緒導致伺服器啟動超時"""
     logging.info("🧠 啟動背景任務：開始重建 AI 語意資料庫 (1樓警衛室 與 2樓圖書館)...")
     try:
-        # 使用 asyncio.to_thread 讓耗時的 I/O 與向量運算在背景執行
+        # 1. 執行重建指令
         await asyncio.to_thread(ingest_knowledge_data)
         await asyncio.to_thread(ingest_intents_data)
         
-        # 👇 核心修復：重建完成後，立刻通知 VectorDB 丟掉舊連線！ 👇
+        # 2. 清空舊的連線
         VectorDBTools.clear_caches()
         
-        logging.info("✅ AI 語意資料庫重建完成！AI 大腦已更新至最新狀態。")
+        # 🌟 3. 核心修復：重建完成後，立刻在背景「預熱 (Warm-up)」把它們載入記憶體！
+        logging.info("🔥 開始預熱語意資料庫 (將模型載入記憶體)...")
+        await asyncio.to_thread(VectorDBTools.get_intent_store)  # 喚醒 1 樓
+        await asyncio.to_thread(VectorDBTools.get_manual_store)  # 喚醒 2 樓
+        # 注意：不要喚醒 1.5 樓跟 B1，因為那只有特定情況才用到，不要浪費 RAM
+        
+        logging.info("✅ AI 語意資料庫重建與預熱完成！AI 大腦已準備就緒。")
     except Exception as e:
         logging.error(f"❌ AI 語意資料庫重建失敗，請檢查日誌: {e}", exc_info=True)
 
@@ -221,8 +231,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         id="daily_login_activity_cleanup",
         replace_existing=True
     )
-
+    app.state.scheduler = scheduler   # ← 新增這行
     #  CPI(6號) & 薪資(20號) 自動更新中,自動刪除超過 30 天以上的登入記錄
+    
+    
+        
+    # ==========================
+    # 任務 6: task_log_資料每月1號清理
+    # ==========================
+    scheduler.add_job(
+    cleanup_old_task_logs,
+    "cron",
+    day=1,  # 每月1號清一次就夠，爬蟲紀錄不像登入那麼多
+    hour=5,
+    minute=0,
+    id="monthly_task_log_cleanup",
+    replace_existing=True
+    )
+    app.state.scheduler = scheduler
+    
+    
     scheduler.start()
     logging.info("🚀 APScheduler 已啟動 - 各項爬蟲與清理任務自動更新中")
 
@@ -468,6 +496,12 @@ app.include_router(ai.router,
 app.include_router(integrations.router, prefix="/api/integrations", tags=["google行事曆串接"])
 
 app.include_router(chat_langgraph_test.router, prefix="/api/langgraph", tags=["laghGraph測試"])
+
+app.include_router(token_radar.router, prefix="/api/token-radar", tags=["Token 檢測"])
+
+app.include_router(monitor.router, prefix="/api/monitor", tags=["監控中心"])
+
+app.include_router(categories.router, prefix="/api/categories", tags=["支出分類設定"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():

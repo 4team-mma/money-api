@@ -1,7 +1,7 @@
 # gemini_service.py
 import logging
 import re
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Dict, Any, Sequence, cast
 from google import genai
 from google.genai import types
 import os
@@ -10,99 +10,111 @@ logger = logging.getLogger(__name__)
 
 class GeminiService:
     @staticmethod
-    async def chat_async(api_key: str, model_id: str, prompt: str, system_instruction: str, tools: Optional[List[Callable]] = None):
-        """處理 Gemini 對話，並統一回傳字典格式 {"text": ..., "actual_model": ...}"""
+    async def chat_async(
+        api_key: str, 
+        model_id: str, 
+        prompt: str, 
+        system_instruction: str, 
+        tools: Optional[Sequence[Callable]] = None
+    ) -> Dict[str, Any]:
+        """處理 Gemini 對話，保留 100% 降級與報錯邏輯，並整合 Token 監測"""
+        
+        # 建立空帳單保底 (避免 try 區塊外報錯)
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+        def extract_usage(resp) -> Dict[str, int]:
+            """內部工具：從 Gemini 3 的回應中挖出 Token 收據"""
+            if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+                return {
+                    "prompt_tokens": resp.usage_metadata.prompt_token_count or 0,
+                    "completion_tokens": resp.usage_metadata.candidates_token_count or 0,
+                    "total_tokens": resp.usage_metadata.total_token_count or 0
+                }
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
         try:
             client = genai.Client(api_key=api_key)
-
-            # 1. 取得前端指定的精確模型名稱
             target_id = model_id.replace("models/", "") if model_id.startswith("models/") else model_id
-            logger.info(f"🚀 [Gemini] 第一次嘗試連線指定模型: {target_id}")
+            logger.info(f"🚀 [Gemini 3] 第一次嘗試連線指定模型: {target_id}")
 
-            # 🌟 解決 Pylance 紅線：嚴格區分有工具跟沒工具的 Config 設定
-            if tools:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.15,
-                    top_p=0.15,
-                    tools=tools
-                )
-            else:
-                config = types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.15,
-                    top_p=0.15
-                )
+            # 🌟 修正點 2：將 Sequence 轉為 List 以符合 SDK 預期，解決 ArgumentType 紅線
+            tool_list = list(tools) if tools else None
+
+            config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.15,
+                top_p=0.15,
+                tools=tool_list # type: ignore[arg-type]
+            )
 
             try:
-                # 🎯 第一次嘗試：尊重前端選單，發送精確模型名稱
+                # 🎯 第一次嘗試：發送精確模型名稱
                 response = await client.aio.models.generate_content(
                     model=target_id,
                     contents=prompt,
                     config=config
                 )
+                
+                # 🌟 擷取收據
+                usage = extract_usage(response)
 
                 # ==========================================
-                # 🌟 原生 Tool Calling 攔截器
+                # 🌟 原生 Tool Calling 攔截器 (保留原本所有邏輯)
                 # ==========================================
                 if response.function_calls:
                     call = response.function_calls[0]
                     func_name = call.name
-
-                    # 🌟 解決 Pylance 紅線：確保 args 絕對是 dict，不會是 None
+                    # 確保 args 絕對是 dict
                     call_args: dict = call.args if isinstance(call.args, dict) else {}
 
                     if tools:
-                        for tool in tools:
-                            if tool.__name__ == func_name:
+                        for t in tools:
+                            if t.__name__ == func_name:
                                 try:
-                                    # 安全地傳入參數執行
-                                    tool_result = tool(**call_args)
+                                    tool_result = t(**call_args)
                                     return {
                                         "text": f"🛠️ **【系統自動查詢】**\n我幫你使用了 `{func_name}` 工具喵！\n\n**查詢結果：**\n{tool_result}",
-                                        "actual_model": f"{target_id} (Tool Mode)"
+                                        "actual_model": f"{target_id} (Tool Mode)",
+                                        "usage": usage  # 🌟 帶上帳單
                                     }
                                 except Exception as e:
                                     logger.error(f"執行工具 {func_name} 失敗: {str(e)}")
-                                    return {"text": f"喵... 試著執行工具 `{func_name}` 時發生錯誤了喵。", "actual_model": target_id}
+                                    return {"text": f"喵... 試著執行工具 `{func_name}` 時發生錯誤了喵。", "actual_model": target_id, "usage": usage}
 
-                    return {"text": f"喵... 模型想呼叫 `{func_name}`，但找不到這個工具喵。", "actual_model": target_id}
-                # ==========================================
+                    return {"text": f"喵... 模型想呼叫 `{func_name}`，但找不到這個工具喵。", "actual_model": target_id, "usage": usage}
 
                 reply_text = response.text or "喵... 剛剛腦袋一片空白..."
-                return {"text": reply_text, "actual_model": target_id}
+                return {"text": reply_text, "actual_model": target_id, "usage": usage}
 
             except Exception as api_err:
+                # 🛡️ 你的防彈機制：404 自動降級 (保留原本所有邏輯)
                 error_msg = str(api_err)
-                # 🛡️ 防彈機制：如果發生 404，自動降級！
                 if "404" in error_msg or "not found" in error_msg.lower():
                     logger.warning(f"⚠️ [Gemini] 找不到精確模型 {target_id}，啟動自動容錯降級...")
-
-                    fallback_id = "gemini-pro-latest" if "pro" in target_id.lower() else "gemini-flash-latest"
+                    fallback_id = "gemini-3-flash-preview" if "flash" in target_id.lower() else "gemini-3-pro-latest"
+                    
                     logger.info(f"🚀 [Gemini] 重新連線萬用安全模型: {fallback_id}")
-
-                    # 🎯 第二次嘗試：使用萬用代號
                     response = await client.aio.models.generate_content(
                         model=fallback_id,
                         contents=prompt,
                         config=config
                     )
+                    usage = extract_usage(response) # 降級後也要拿收據
 
-                    # 降級後的 Tool 攔截
                     if response.function_calls:
                         call = response.function_calls[0]
-                        call_args: dict = call.args if isinstance(call.args, dict) else {}
+                        call_args_fb: dict = call.args if isinstance(call.args, dict) else {}
                         if tools:
-                            for tool in tools:
-                                if tool.__name__ == call.name:
-                                    tool_result = tool(**call_args)
-                                    return {"text": f"🛠️ **【系統查詢】**\n結果：\n{tool_result}", "actual_model": f"{fallback_id} (Tool Mode)"}
+                            for t in tools:
+                                if t.__name__ == call.name:
+                                    res = t(**call_args_fb)
+                                    return {"text": f"🛠️ **【系統查詢】**\n結果：\n{res}", "actual_model": f"{fallback_id} (Tool Mode)", "usage": usage}
 
-                    reply_text = response.text or "喵... 降級後還是想不出答案喵。"
-                    return {"text": reply_text, "actual_model": fallback_id}
+                    return {"text": response.text or "喵... 降級後還是想不出答案喵。", "actual_model": fallback_id, "usage": usage}
 
                 # 如果不是 404 錯誤，丟給外層處理
                 raise api_err
+
 
         except Exception as e:
             error_msg = str(e)

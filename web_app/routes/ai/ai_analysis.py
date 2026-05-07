@@ -42,7 +42,7 @@ async def get_financial_insight(
     # 這裡只呼叫一次就好！刪除原本代碼中重複的 result 賦值
     result = await GeminiService.chat_async(
         api_key=final_key,
-        model_id="gemini-1.5-flash",
+        model_id="gemini-2.5-flash",
         prompt=prompt,
         system_instruction=SYSTEM_INSTRUCTION
     )

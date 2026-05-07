@@ -2,7 +2,7 @@ import random
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status,Query
 from sqlalchemy import case, extract, func, text
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from ..models import (Account, AchCard, AddRecord, AIConfig, Budget, Checkin,
                     Notification, PasswordReset, SavingsGoal, Setting,
                     Transaction)
 from ..utils.password import get_password_hash
+from ..services.vector_db_tools import VectorDBTools
 
 router = APIRouter(dependencies=[Depends(admin_required)])
 
@@ -617,3 +618,39 @@ async def get_dashboard_summary(db: Session = Depends(get_db)):
         "avg_activity": f"{avg_activity:.1f}%",
         "avg_coverage": f"{avg_coverage:.1f}%"
     }
+
+
+##### 刪除快取區域 ########
+
+@router.delete("/cache/sql/query", summary="🗑️ 刪除單筆 SQL 快取")
+async def delete_single_cache(
+    query: str = Query(..., description="要刪除的查詢語句，例如：我上個月買衣服花了多少"),
+):
+    """刪除單筆語意相似的 SQL 快取（已透過 router 層的 admin_required 保護）"""
+    deleted = VectorDBTools.delete_cached_sql(query)
+    if deleted:
+        return {"message": f"✅ 已刪除快取：{query}"}
+    return {"message": f"⚠️ 找不到相似快取：{query}"}
+
+@router.delete("/cache/sql/all", summary="🗑️ 清空全部 SQL 快取")
+async def clear_all_cache():
+    """清空全部 SQL 快取"""
+    count = VectorDBTools.clear_all_sql_cache()
+    return {"message": f"✅ 已清空 {count} 筆 SQL 快取"}
+
+@router.get("/cache/sql/list", summary="📋 列出所有 SQL 快取")
+async def list_cache():
+    """列出目前所有 SQL 快取內容"""
+    try:
+        collection = VectorDBTools._get_sql_cache_collection()
+        all_items = collection.get(include=["metadatas", "documents"])
+        result = []
+        for i, doc_id in enumerate(all_items["ids"]):
+            result.append({
+                "id": doc_id,
+                "query": all_items["documents"][i] if all_items["documents"] else "",
+                "sql": all_items["metadatas"][i].get("sql_template", "") if all_items["metadatas"] else ""
+            })
+        return {"total": len(result), "items": result}
+    except Exception as e:
+        return {"error": str(e)}

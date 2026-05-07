@@ -1,6 +1,6 @@
 # web_app/utils/ws_manager.py
 from fastapi import WebSocket
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 class ConnectionManager:
     def __init__(self):
@@ -8,8 +8,10 @@ class ConnectionManager:
         # 這樣如果同一個用戶開了多個網頁，都能收到通知
         self.active_connections: Dict[int, List[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, user_id: int):
-        await websocket.accept()
+    # 🌟 將型別標註為 Optional[str] = None，解決 "None" is not assignable to "str" 的錯
+    async def connect(self, websocket: WebSocket, user_id: int, subprotocol: Optional[str] = None):
+        await websocket.accept(subprotocol=subprotocol)
+        
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
         self.active_connections[user_id].append(websocket)

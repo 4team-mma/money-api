@@ -55,8 +55,10 @@ class Member(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)
     points: Mapped[int] = mapped_column(Integer, default=0)
     job: Mapped[str] = mapped_column(String(100), default="一般民眾")
-    # --- 新增這個欄位 ---
+    # --- 新增欄位 ---
     line_user_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, unique=True)
+    notion_api_key: Mapped[Optional[str]] = mapped_column(String(500),nullable=True)
+    notion_page_id: Mapped[Optional[str]] = mapped_column(String(100),nullable=True)
     # ------------------
     #記錄登入失敗次數與鎖定時間
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -789,6 +791,7 @@ class AddItem(Base):
     # 建立與主記帳表 (AddRecord) 的關聯，方便查詢時一併撈出明細
     # 這裡的 "AddRecord" 對應到你上面第 3 點的 class 名稱
     add_record = relationship("AddRecord", backref="items")
+<<<<<<< HEAD
 
 # 23.  支出類型分類表 (category_mappings)  ---
 class CategoryMapping(Base):
@@ -801,3 +804,92 @@ class CategoryMapping(Base):
     cate_created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     user_id: Mapped[Optional[int]] = mapped_column(
     Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=True)
+=======
+    
+    
+    
+# 25. 歷史執行紀錄
+class TaskRunLog(Base):
+    __tablename__ = "task_run_logs"
+
+    log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_name: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # ok / skip / fail
+    status: Mapped[str] = mapped_column(String(10), nullable=False)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rows_added: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rows_updated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    message: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    ran_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+# 26.育育的表格(他自己會補)
+
+
+# 27. Token 流量監測表 (Token Radar Lab)
+class TokenUsageLog(Base):
+    __tablename__ = "token_usage_logs"
+
+    log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
+    # 廠商與模型
+    provider: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    model_version: Mapped[str] = mapped_column(String(80), nullable=False)
+
+    # 意圖分類
+    intent_type: Mapped[str] = mapped_column(
+        String(20), server_default="UNKNOWN", index=True,
+        comment="QUERY / SUGGESTION / RECORD / CHAT / UNKNOWN"
+    )
+    # Token 細項
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 效能
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # 除錯輔助
+    is_cached: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    request_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+    user = relationship("Member")
+    
+    
+
+# 28. 項目支出分類映射表 (category_mappings)
+class CategoryMapping(Base):
+    __tablename__ = "category_mappings"
+
+    cate_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="分類對應表的唯一識別碼"
+    )    
+    # 允許為 NULL，代表系統全域設定
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, 
+        ForeignKey("members.user_id", ondelete="CASCADE"), 
+        nullable=True, 
+        comment="關聯的使用者ID (NULL 代表系統全局設定)"
+    )
+    user_input: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="使用者輸入的原始消費項目名稱"
+    )
+    dimension: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="對應的財務維度 (growth, needs, wants, social, other)"
+    )
+    is_ai_generated: Mapped[bool] = mapped_column(
+        Boolean, server_default="1", comment="是否為 AI 自動生成的結果"
+    )
+    cate_created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), comment="建立時間"
+    )
+    # 設定複合唯一鍵 (user_id + user_input)
+    __table_args__ = (
+        UniqueConstraint("user_id", "user_input", name="idx_user_input_unique"),
+    )
+    # 建立與 Member 的關聯 (可選，方便從 CategoryMapping 反查 User)
+    user = relationship("Member")
+>>>>>>> def1ca7691dcbbf0cb1b820c78ef944adbff6865
