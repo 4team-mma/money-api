@@ -29,7 +29,8 @@ from web_app.routes import (
     admin_ai_helper,
     chat_langgraph_test,
     monitor,
-    token_radar
+    token_radar,
+    categories
 )
 from web_app.routes.setting import router as setting_router
 from web_app.routes.planning import router as planning_router
@@ -499,6 +500,8 @@ app.include_router(chat_langgraph_test.router, prefix="/api/langgraph", tags=["l
 app.include_router(token_radar.router, prefix="/api/token-radar", tags=["Token 檢測"])
 
 app.include_router(monitor.router, prefix="/api/monitor", tags=["監控中心"])
+
+app.include_router(categories.router, prefix="/api/categories", tags=["支出分類設定"])
 
 @app.get("/favicon.ico", tags=["api圖標"])
 async def favicon():

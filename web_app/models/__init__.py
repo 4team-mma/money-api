@@ -27,7 +27,8 @@ from .models import (
     RagPerformanceLog,
     AddItem,
     TaskRunLog,
-    TokenUsageLog
+    TokenUsageLog,
+    CategoryMapping
 
 )
 

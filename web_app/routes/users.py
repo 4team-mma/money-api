@@ -19,7 +19,8 @@ from ..models import (
     LoginActivity,
     SavingsGoal,
     AIConfig,
-    Budget
+    Budget,
+    CategoryMapping
 )
 from ..schemas.member import MemberResponse, MemberUpdate, MemberPasswordChange
 from ..dependencies import get_current_user
@@ -141,18 +142,24 @@ async def delete_my_account(
     db.query(Budget).filter(Budget.user_id == uid).delete()
 
     # --- 2. 清除原本舊有的基礎功能 ---
+    # 必須「先」刪除依賴 Account 的子表
     db.query(AddRecord).filter(AddRecord.user_id == uid).delete()
+    db.query(Transaction).filter(Transaction.user_id == uid).delete()     
+    # 子表都清空後，「再」刪除 Account
     db.query(Account).filter(Account.user_id == uid).delete()
-    db.query(Transaction).filter(Transaction.user_id == uid).delete()
     db.query(Notification).filter(Notification.user_id == uid).delete()
     db.query(Feedback).filter(Feedback.user_id == uid).delete()
     db.query(PasswordReset).filter(PasswordReset.user_id == uid).delete()
+    
+    # 清除全域分類與個人分類的映射
+    db.query(CategoryMapping).filter(CategoryMapping.user_id == uid).delete()
 
     # --- 3. 最後刪除使用者本身 ---
     db.delete(current_user)
     db.commit()
 
     return None
+
 
 # 6. 取得特定用戶資料 (為了解決前端獲取等級的問題)
 @router.get("/{user_id}", response_model=MemberResponse, summary="🔍 取得特定用戶資料")
@@ -173,7 +180,3 @@ def get_member_by_id(
         raise HTTPException(status_code=404, detail="找不到該使用者")
 
     return user
-
-
-
-

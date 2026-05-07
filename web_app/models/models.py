@@ -843,3 +843,38 @@ class TokenUsageLog(Base):
     )
 
     user = relationship("Member")
+    
+    
+
+# 28. 項目支出分類映射表 (category_mappings)
+class CategoryMapping(Base):
+    __tablename__ = "category_mappings"
+
+    cate_id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="分類對應表的唯一識別碼"
+    )    
+    # 允許為 NULL，代表系統全域設定
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, 
+        ForeignKey("members.user_id", ondelete="CASCADE"), 
+        nullable=True, 
+        comment="關聯的使用者ID (NULL 代表系統全局設定)"
+    )
+    user_input: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="使用者輸入的原始消費項目名稱"
+    )
+    dimension: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="對應的財務維度 (growth, needs, wants, social, other)"
+    )
+    is_ai_generated: Mapped[bool] = mapped_column(
+        Boolean, server_default="1", comment="是否為 AI 自動生成的結果"
+    )
+    cate_created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), comment="建立時間"
+    )
+    # 設定複合唯一鍵 (user_id + user_input)
+    __table_args__ = (
+        UniqueConstraint("user_id", "user_input", name="idx_user_input_unique"),
+    )
+    # 建立與 Member 的關聯 (可選，方便從 CategoryMapping 反查 User)
+    user = relationship("Member")
