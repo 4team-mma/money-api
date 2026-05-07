@@ -791,20 +791,6 @@ class AddItem(Base):
     # 建立與主記帳表 (AddRecord) 的關聯，方便查詢時一併撈出明細
     # 這裡的 "AddRecord" 對應到你上面第 3 點的 class 名稱
     add_record = relationship("AddRecord", backref="items")
-<<<<<<< HEAD
-
-# 23.  支出類型分類表 (category_mappings)  ---
-class CategoryMapping(Base):
-    __tablename__ = "category_mappings"
-
-    cate_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_input: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    dimension: Mapped[str] = mapped_column(String(50), nullable=False)
-    is_ai_generated: Mapped[bool] = mapped_column(Boolean, server_default="1")
-    cate_created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
-    user_id: Mapped[Optional[int]] = mapped_column(
-    Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=True)
-=======
     
     
     
@@ -892,4 +878,3 @@ class CategoryMapping(Base):
     )
     # 建立與 Member 的關聯 (可選，方便從 CategoryMapping 反查 User)
     user = relationship("Member")
->>>>>>> def1ca7691dcbbf0cb1b820c78ef944adbff6865
