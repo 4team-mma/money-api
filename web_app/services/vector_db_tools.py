@@ -12,20 +12,13 @@ IS_CLOUD = os.getenv("IS_CLOUD", "false").lower() == "true"
 
 
 def get_embeddings():
-    """雲端用 Google API（零記憶體佔用），地端用 FastEmbed"""
-    if IS_CLOUD:
-        from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        print("🌐 [VectorDB] 雲端模式：使用 gemini-embedding-001")
-        return GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001"
-            # GEMINI_API_KEY 會自動被偵測，不需要額外傳入
-        )
-    else:
-        print("💻 [VectorDB] 地端模式：使用 FastEmbed bge-small-zh-v1.5")
-        return FastEmbedEmbeddings(
-            model_name="BAAI/bge-small-zh-v1.5",
-            cache_dir="./web_app/models/fastembed_cache"
-        )
+    # 雲端地端都用 FastEmbed，統一、零地區限制
+    cache = "/tmp/fastembed_cache" if IS_CLOUD else "./web_app/models/fastembed_cache"
+    print(f"{'🌐 雲端' if IS_CLOUD else '💻 地端'} FastEmbed bge-small-zh-v1.5")
+    return FastEmbedEmbeddings(
+        model_name="BAAI/bge-small-zh-v1.5",
+        cache_dir=cache
+    )
 
 
 class BaseVectorStore:
