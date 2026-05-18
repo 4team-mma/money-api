@@ -603,6 +603,7 @@ async def chat_with_meow(
 
     return {
         "reply": reply,
+        "model_name": actual_model_used, # 給rag表格檢測用
         "duration": duration,
         "provider": provider_display, # 👈 這裡依然回傳原本的設定給 Vue
         "is_command": is_json_command,

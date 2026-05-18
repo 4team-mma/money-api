@@ -28,7 +28,7 @@ class SQLGeneratorService:
     # ✅ 只允許查詢這些表
     ALLOWED_TABLES = {
         "adds", "add_items", "accounts", "transactions", 
-        "budgets", "savings_goals", "reminders", "cpi_data", "salary_data"
+        "budgets", "savings_goals", "notifications", "cpi_data", "salary_benchmarks"
     }
 
     @classmethod

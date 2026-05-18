@@ -878,3 +878,64 @@ class CategoryMapping(Base):
     )
     # 建立與 Member 的關聯 (可選，方便從 CategoryMapping 反查 User)
     user = relationship("Member")
+
+
+
+# 29. RAG 問答品質評估表
+class RagEvalLog(Base):
+    __tablename__ = "rag_eval_logs"
+
+    eval_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("members.user_id", ondelete="CASCADE"), nullable=False
+    )
+    # 測試輸入
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    test_category: Mapped[str] = mapped_column(String(30), server_default="RAG")
+
+    # 🆕 模型與路由資訊
+    model_name: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, comment="實際呼叫的模型: llama-4-scout / gemma3:27b 等"
+    )
+    route_channel: Mapped[Optional[str]] = mapped_column(
+        String(30), nullable=True,
+        comment="QUERY_PIPELINE / RAG_PIPELINE / CHAT_PIPELINE / SECURITY_PIPELINE"
+    )
+    prompt_version: Mapped[str] = mapped_column(
+        String(20), server_default="v1.0", comment="Prompt 版本號"
+    )
+    retrieval_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="RAG 實際檢索到的 chunk 數量 (top_k)"
+    )
+    # 意圖路由評估
+    expected_intent: Mapped[str] = mapped_column(String(20), nullable=False)
+    actual_intent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    is_intent_correct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # 工具使用評估
+    expected_tool: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    actual_tool: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    is_tool_correct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # RAG 檢索評估
+    retrieved_sources: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_relevance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # 回答品質
+    ai_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_answer_correct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    has_hallucination: Mapped[int] = mapped_column(Integer, server_default="0")
+
+    # 效能
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # 人工評審
+    human_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    human_notes: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    is_reviewed: Mapped[int] = mapped_column(Integer, server_default="0")
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user = relationship("Member")
+
