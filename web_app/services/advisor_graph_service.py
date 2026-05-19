@@ -2,7 +2,8 @@
 import json
 import re
 import asyncio
-import httpx
+import os
+import logging
 # 🌟 新增 cast，用來安撫 Pylance 的嚴格型別檢查
 from typing import Annotated, Optional, cast
 from typing_extensions import TypedDict
@@ -163,6 +164,23 @@ tools = [
 # ------------------------------------------
 llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0.2)
 llm_with_tools = llm.bind_tools(tools)
+advisor_logger = logging.getLogger("advisor_tool_debug")
+
+def advisor_tool_debug_enabled() -> bool:
+    return os.getenv("ADVISOR_DEBUG_TOOLS", "false").lower() in ("1", "true", "yes", "on")
+
+
+def log_tool_calls_from_ai_message(ai_message) -> None:
+    if not advisor_tool_debug_enabled():
+        return
+
+    tool_calls = getattr(ai_message, "tool_calls", []) or []
+    for call in tool_calls:
+        advisor_logger.info(
+            "[AdvisorToolCall] name=%s args=%s",
+            call.get("name"),
+            call.get("args"),
+        )
 
 # ------------------------------------------
 # 🤖 定義決策節點 (Chatbot Node)
@@ -214,6 +232,9 @@ def chatbot_node(state: State, config: RunnableConfig):
     
     messages = [SystemMessage(content=full_sys_prompt)] + clean_messages
     response = llm_with_tools.invoke(messages)
+    log_tool_calls_from_ai_message(response)
+
+    
     return {"messages": [response]}
 
 # ==========================================
@@ -232,6 +253,42 @@ advisor_graph = graph_builder.compile(checkpointer=memory)
 
 # 全域鎖
 groq_semaphore = asyncio.Semaphore(5)
+
+# debug helper
+def collect_tool_debug(messages: list) -> dict:
+    tool_calls = []
+    tool_results = []
+
+    for msg in messages:
+        # AIMessage: 模型決定呼叫哪些工具
+        for call in getattr(msg, "tool_calls", []) or []:
+            tool_calls.append({
+                "id": call.get("id"),
+                "name": call.get("name"),
+                "args": call.get("args"),
+            })
+
+        # ToolMessage: 工具實際回傳結果
+        if msg.__class__.__name__ == "ToolMessage":
+            content = getattr(msg, "content", "")
+            parsed_content = content
+
+            try:
+                parsed_content = json.loads(content)
+            except Exception:
+                pass
+
+            tool_results.append({
+                "tool_call_id": getattr(msg, "tool_call_id", None),
+                "name": getattr(msg, "name", None),
+                "content": parsed_content,
+            })
+
+    return {
+        "tool_calls": tool_calls,
+        "tool_results": tool_results,
+    }
+
 
 # ==========================================
 # 4. 給外部 API (Router) 呼叫的進入點
@@ -253,6 +310,8 @@ async def analyze_finance_advice(user_message: str, db: Session, current_user: M
             )
             # 🌟 把 AIMessage 整包拿出來
             ai_message = result["messages"][-1]
+            # debug helper
+            debug_data = collect_tool_debug(result["messages"])
             
             # 🌟 挖出 Langchain 隱藏的 Token 收據
             usage_data = getattr(ai_message, "usage_metadata", {})
@@ -265,7 +324,7 @@ async def analyze_finance_advice(user_message: str, db: Session, current_user: M
             # 🌟 改成回傳字典，把對話跟帳單一起送回去
             return {
                 "content": ai_message.content,
-                "usage": converted_usage
+                "usage": converted_usage                
             }
         finally:
             groq_semaphore.release()
