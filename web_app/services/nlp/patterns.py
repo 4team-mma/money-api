@@ -19,8 +19,11 @@ INTENT_PATTERNS = {
     "doubt_trigger": re.compile(r'(為什麼|怎算的|算錯|不對|為啥|不是吧|提醒|繳費|行事曆|忘記|預算)'),
     "social_greeting": re.compile(r'(你好|早安|午安|下午好|晚安|早上好|謝謝|妙妙|喵|回來了|哈囉|hi|hello|再見|拜拜|辛苦了)'),
     
+    # 🌟 新增：金融與股市專屬特徵
+    "investment_trigger": re.compile(r'(存股|殖利率|本益比|股息|配息|投資|大盤|etf|走勢|看盤|牛市|熊市|股價)'),
+    "stock_keyword": re.compile(r'(台積電|股票|台股|美股|證券)'),
     
-    # 🌟 新增這裡：把 Notion 觸發詞補上！
+    #  Notion 觸發詞！
     "notion_trigger": re.compile(r'(notion|筆記|同步|寫入|整理到)')
     
 }

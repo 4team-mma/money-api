@@ -28,6 +28,22 @@ INTENT_RULES = [
         "when": lambda c: c.has("knowledge_trigger") and not c.has("social_greeting"),
         "target": "KNOWLEDGE"
     },
+    
+    # 🌟 新增：投資顧問專屬硬攔截
+    {
+        "name": "INVESTMENT_HARD_PROTECT",
+        "priority": 105,
+        "type": "hard",
+        # 🛡️ 雙重精密濾網：
+        # 1. 只要出現強烈分析意圖 (存股/殖利率/本益比) -> 絕對是理財顧問
+        # 2. 出現股票實體名詞 (台積電)，且帶有查詢/諮詢意味 (幫我看/建議/查) -> 理財顧問
+        # 這樣寫能完美放行「我今天買股票花了五萬」這類句子進入下方的 RECORD 防線
+        "when": lambda c: c.has("investment_trigger") or (
+            c.has("stock_keyword") and (c.has("advisor_trigger") or c.has("query_trigger") or "看" in c.text)
+        ),
+        "target": "ADVISOR"
+    },
+    
     {
         "name": "ABSOLUTE_RECORD_PROTECT",
         "priority": 98,  # 🌟 優先級極高，幾乎凌駕所有猜測
