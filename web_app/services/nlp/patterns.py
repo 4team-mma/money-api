@@ -24,6 +24,9 @@ INTENT_PATTERNS = {
     "stock_keyword": re.compile(r'(台積電|股票|台股|美股|證券)'),
     
     #  Notion 觸發詞！
-    "notion_trigger": re.compile(r'(notion|筆記|同步|寫入|整理到)')
+    "notion_trigger": re.compile(r'(notion|筆記|同步|寫入|整理到)'),
+    
+    # 🌟 新增：系統與理財的邊界守門員 (Domain Whitelist)
+    "domain_keyword": re.compile(r'(系統|手冊|成就|預算|卡牌|等級|任務|理財|記帳|帳戶|設定|介面|Money|喵喵|APP)')
     
 }
