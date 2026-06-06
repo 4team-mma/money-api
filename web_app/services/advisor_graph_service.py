@@ -2,7 +2,8 @@
 import json
 import re
 import asyncio
-
+import os
+import logging
 # 🌟 新增 cast，用來安撫 Pylance 的嚴格型別檢查
 from typing import Annotated, Optional, cast
 from typing_extensions import TypedDict
@@ -22,6 +23,7 @@ from web_app.models.models import Member
 from web_app.routes.analysis import get_cpi_comparison, get_salary_comparison
 from web_app.services.advisor_tools import FinancialAdvisorService
 from web_app.prompts.ai_analysis_prompts import SYSTEM_INSTRUCTION
+from web_app.services.stock_api_service import StockApiService
 
 # ==========================================
 # 1. 定義狀態 (State)
@@ -135,12 +137,26 @@ async def tool_get_global_financial_overview(config: RunnableConfig) -> str:
     except Exception as e:
         return f"全局數據獲取失敗：{str(e)}"
 
+
+
+@tool
+async def tool_get_market_stock_info(tickers: list[str]) -> str:
+    """
+    [外部投資工具]：當使用者詢問「投資建議」、「股票」、「高股息 ETF」、「殖利率」、「台積電」或具體股票代號 (如 0056, 00878, 2330) 時呼叫。
+    傳入感興趣的股票/ETF代號清單 (例如 ["0056", "00878", "2330"])。
+    """
+    # 💡 直接呼叫 Service，Tool 節點保持絕對乾淨
+    result_dict = await StockApiService.get_market_snapshot(tickers)
+    return json.dumps(result_dict, ensure_ascii=False)
+
+
 # 打包所有工具
 tools = [
     tool_get_cpi_comparison, 
     tool_get_salary_benchmark, 
     tool_get_advanced_anomaly_analysis, 
-    tool_get_global_financial_overview
+    tool_get_global_financial_overview,
+    tool_get_market_stock_info
 ]
 
 # ------------------------------------------
@@ -148,6 +164,23 @@ tools = [
 # ------------------------------------------
 llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0.2)
 llm_with_tools = llm.bind_tools(tools)
+advisor_logger = logging.getLogger("advisor_tool_debug")
+
+def advisor_tool_debug_enabled() -> bool:
+    return os.getenv("ADVISOR_DEBUG_TOOLS", "false").lower() in ("1", "true", "yes", "on")
+
+
+def log_tool_calls_from_ai_message(ai_message) -> None:
+    if not advisor_tool_debug_enabled():
+        return
+
+    tool_calls = getattr(ai_message, "tool_calls", []) or []
+    for call in tool_calls:
+        advisor_logger.info(
+            "[AdvisorToolCall] name=%s args=%s",
+            call.get("name"),
+            call.get("args"),
+        )
 
 # ------------------------------------------
 # 🤖 定義決策節點 (Chatbot Node)
@@ -176,11 +209,22 @@ def chatbot_node(state: State, config: RunnableConfig):
     現在正在為小主人「{current_user.name}」進行深度財務諮詢。
     [系統當前時間]：{current_year} 年 {current_month} 月。
     
+    【⚠️ 工具呼叫鐵律 (CRITICAL)】
+    1. 你是系統的超級大腦，所有的工具（Tools）都是由你「親自呼叫」來獲取數據。
+    2. 絕對禁止叫使用者自己去用工具！（例如：嚴禁說出「建議您使用全局財務工具」這種話）。
+    3. 不知道數據時，立刻呼叫工具，不准瞎猜。
+    
     【操作準則】：
     1. 若使用者詢問具體數據，請優先使用『全局財務視角整合工具』。
     2. 若使用者感到不安或數據異常，請使用『進階分析 Z-Score 工具』。
     3. ⚠️ 若需呼叫 CPI 或薪資工具，且使用者未指定時間，請務必直接代入系統當前時間 ({current_year}, {current_month}) 作為參數！
-    4. 回答必須溫暖、專業，結尾記得帶「喵！」。
+    4.若使用者尋求「投資建議」或「股票資訊」，請先評估其財務狀況（必要時呼叫『全局財務視角整合工具』），接著呼叫『外部投資工具』獲取最新市場殖利率與本益比。
+    5. 回答必須溫暖、專業，結尾記得帶「喵！」。
+    
+    【投資推演邏輯】：
+    - 結合小主人的「可用資金/淨資產」與「股票殖利率」，給出具體的投資比例建議。
+    - 務必明確說明「資料來源」與「殖利率口徑」（例如：這是官方盤後資料，還是 Yahoo 近一年估算）。
+    - 務必提醒投資理財有賺有賠的風險。
     
     「風格限制」：
     「【輸出風格】：請將數據融合成一段流暢、自然的綜合建議。絕對不要像機器人一樣重複相同的句型（例如一直重複『屬於平穩狀態』），請挑出漲跌幅最明顯的 1~2 項重點提醒即可。」
@@ -188,6 +232,9 @@ def chatbot_node(state: State, config: RunnableConfig):
     
     messages = [SystemMessage(content=full_sys_prompt)] + clean_messages
     response = llm_with_tools.invoke(messages)
+    log_tool_calls_from_ai_message(response)
+
+    
     return {"messages": [response]}
 
 # ==========================================
@@ -206,6 +253,42 @@ advisor_graph = graph_builder.compile(checkpointer=memory)
 
 # 全域鎖
 groq_semaphore = asyncio.Semaphore(5)
+
+# debug helper
+def collect_tool_debug(messages: list) -> dict:
+    tool_calls = []
+    tool_results = []
+
+    for msg in messages:
+        # AIMessage: 模型決定呼叫哪些工具
+        for call in getattr(msg, "tool_calls", []) or []:
+            tool_calls.append({
+                "id": call.get("id"),
+                "name": call.get("name"),
+                "args": call.get("args"),
+            })
+
+        # ToolMessage: 工具實際回傳結果
+        if msg.__class__.__name__ == "ToolMessage":
+            content = getattr(msg, "content", "")
+            parsed_content = content
+
+            try:
+                parsed_content = json.loads(content)
+            except Exception:
+                pass
+
+            tool_results.append({
+                "tool_call_id": getattr(msg, "tool_call_id", None),
+                "name": getattr(msg, "name", None),
+                "content": parsed_content,
+            })
+
+    return {
+        "tool_calls": tool_calls,
+        "tool_results": tool_results,
+    }
+
 
 # ==========================================
 # 4. 給外部 API (Router) 呼叫的進入點
@@ -227,6 +310,8 @@ async def analyze_finance_advice(user_message: str, db: Session, current_user: M
             )
             # 🌟 把 AIMessage 整包拿出來
             ai_message = result["messages"][-1]
+            # debug helper
+            debug_data = collect_tool_debug(result["messages"])
             
             # 🌟 挖出 Langchain 隱藏的 Token 收據
             usage_data = getattr(ai_message, "usage_metadata", {})
@@ -239,7 +324,7 @@ async def analyze_finance_advice(user_message: str, db: Session, current_user: M
             # 🌟 改成回傳字典，把對話跟帳單一起送回去
             return {
                 "content": ai_message.content,
-                "usage": converted_usage
+                "usage": converted_usage                
             }
         finally:
             groq_semaphore.release()

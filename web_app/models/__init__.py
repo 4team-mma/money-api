@@ -28,7 +28,8 @@ from .models import (
     AddItem,
     TaskRunLog,
     TokenUsageLog,
-    CategoryMapping
+    CategoryMapping,
+    RagEvalLog
 
 )
 

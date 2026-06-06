@@ -578,7 +578,8 @@ async def chat_with_meow(
     conf_val = agent_response.get("confidence", 1.0)
     
     # 只有信心度低於 0.8 (代表 AI 不太確定) 才自動觸發紀錄
-    if conf_val < 0.8:
+    # 但因為意圖分類預處理層（硬規則防護）過度強勢，掩蓋了底層 ONNX 模型對未知領域的「不確定性」，所以先改成<=1.0每筆都記錄
+    if conf_val <= 1.0:
         try:
             from ..models import IntentReviewLog
             from decimal import Decimal
@@ -593,7 +594,8 @@ async def chat_with_meow(
             )
             db.add(new_review_log)
             db.commit() 
-            print(f"⚠️ [觸發紀錄] 信心度 {conf_val} < 0.8，已寫入審核日誌！")
+            # print(f"⚠️ [觸發紀錄] 信心度 {conf_val} < 0.8，已寫入審核日誌！")
+            print(f"⚠️ [測試紀錄] 信心度 {conf_val} <= 1.0，已寫入審核日誌！")
         except Exception as log_err:
             logger.error(f"❌ 寫入對話審核日誌失敗: {str(log_err)}")
             db.rollback()
@@ -603,6 +605,7 @@ async def chat_with_meow(
 
     return {
         "reply": reply,
+        "model_name": actual_model_used, # 給rag表格檢測用
         "duration": duration,
         "provider": provider_display, # 👈 這裡依然回傳原本的設定給 Vue
         "is_command": is_json_command,

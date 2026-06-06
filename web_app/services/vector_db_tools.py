@@ -5,6 +5,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+import jieba
 load_dotenv()
 
 CHROMA_PERSIST_DIR = "./.chromadb"
@@ -80,7 +81,75 @@ class VectorDBTools:
 
     @classmethod
     def _get_reranker(cls):
-        return None  # 暫時停用，架構保留等以後有空訓練onnx模型再接
+        """🌟 回傳 'hybrid' 作為輕量級規則排序器的標識"""
+        return "hybrid"
+    
+    @staticmethod
+    def _hybrid_rerank(query: str, docs_with_scores):
+        """
+        🚀 輕量級規則排序：加入 jieba 中文切詞與 Min-Max 分數正規化
+        """
+        stopwords = {"的", "了", "是", "我", "想", "請問", "怎麼", "如何", "可以", "幫我", "一下"}
+        # 1. 🌟 中文切詞 (解決 .split() 對中文無效的問題)
+        query_terms = {
+            t.strip()
+            for t in jieba.lcut(query.lower())
+            if len(t.strip()) > 1 and t.strip() not in stopwords
+}
+        
+        # 2. 🌟 提取所有距離，進行 Min-Max 正規化準備
+        distances = [dist for _, dist in docs_with_scores]
+        min_dist = min(distances) if distances else 0
+        max_dist = max(distances) if distances else 0
+        if not docs_with_scores:
+            return []
+
+        scored_results = []
+        for doc, dist in docs_with_scores:
+            text = doc.page_content.lower()
+            
+            # 💡 Embedding 分數轉換：將 Chroma 距離 (越小越好) 轉為 0~1 的分數 (越大越好)
+            if max_dist > min_dist:
+                emb_score = (max_dist - dist) / (max_dist - min_dist)
+            else:
+                emb_score = 1.0  # 如果全部距離一樣，就給滿分
+            
+            # 💡 關鍵字重合度 (過濾掉長度小於2的贅字，如"的"、"了")
+            overlap_count = sum(1 for t in query_terms if t in text)
+            overlap_score = overlap_count / max(len(query_terms), 1)
+            
+            # 💡 長度懲罰
+            length_penalty = min(len(text) / 1000.0, 1.0)
+            
+            # 組合最終分數
+            final_score = (emb_score * 0.6) + (overlap_score * 0.3) - (length_penalty * 0.1)
+            scored_results.append((doc, final_score))
+
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        return scored_results
+    
+    
+    @staticmethod
+    def _core_search(query: str, k: int = 3, fetch_k: int = 10):
+        """
+        🔧 核心檢索引擎：負責把粗撈跟 Rerank 做完，回傳帶分數的文件 List
+        這樣其他對外方法就不會寫重複的 Code。
+        """
+        vectorstore = VectorDBTools.get_manual_store()
+        docs_and_scores = vectorstore.similarity_search_with_score(query, k=max(fetch_k, k))
+
+        if not docs_and_scores:
+            return []
+
+        reranker = VectorDBTools._get_reranker()
+        if reranker == "hybrid":
+            sorted_docs_scores = VectorDBTools._hybrid_rerank(query, docs_and_scores)
+        else:
+            sorted_docs_scores = [(doc, max(0, 1-dist)) for doc, dist in docs_and_scores]
+
+        return sorted_docs_scores[:k]
+    
+    
 
     @classmethod
     def get_manual_store(cls):
@@ -135,40 +204,19 @@ class VectorDBTools:
 
     @staticmethod
     def search_manual(query: str, k: int = 3) -> str:
-        """在地端搜尋手冊知識2F (移除會報 401 的 Cohere Rerank)"""
+        """
+        ✅ 給 LLM (FinanceAgentService) 專用的純文字回傳
+        完全維持你原本的格式，保證不會與現有 Prompt 衝突。
+        """
         try:
-            vectorstore = VectorDBTools.get_manual_store()
-
-            # 1️⃣ 粗撈
-            docs = vectorstore.similarity_search(query, k=10)
-
-            if not docs:
+            best_docs_scores = VectorDBTools._core_search(query, k)
+            if not best_docs_scores:
                 return "喵喵在手冊裡找不到相關的說明喵..."
-
-            # 2️⃣ rerank（如果可用）
-            reranker = VectorDBTools._get_reranker()
-
-            if reranker:
-                documents = [doc.page_content for doc in docs]
-                
-                # FastEmbed TextCrossEncoder 的呼叫方式
-                scores = list(reranker.rerank(query, documents))
-                
-                docs = [
-                    doc for doc, _ in sorted(
-                        zip(docs, scores),
-                        key=lambda x: x[1],
-                        reverse=True
-                    )
-                ]
-
-            best_docs = docs[:k]
 
             context_text = "\n\n".join([
                 f"【參考段落 {i+1}】\n{doc.page_content}"
-                for i, doc in enumerate(best_docs)
+                for i, (doc, _) in enumerate(best_docs_scores)
             ])
-
             return context_text
 
         except Exception as e:
@@ -235,6 +283,41 @@ class VectorDBTools:
             print(f"✅ [SQL Cache Saved] 已將查詢存入快取金庫！")
         except Exception as e:
             print(f"❌ SQL 快取儲存失敗: {e}")
+
+
+    @staticmethod
+    def search_manual_with_sources(query: str, k: int = 3) -> dict:
+        """
+        ✅ 給 API Endpoint / 前端 UI 用的結構化回傳
+        回傳 Python Dict，API 層再 jsonify，前端可以直接 render sources 列表。
+        """
+        try:
+            best_docs_scores = VectorDBTools._core_search(query, k)
+            if not best_docs_scores:
+                return {"context": "找不到相關的說明喵...", "sources": []}
+
+            sources = []
+            context_texts = []
+            
+            for i, (doc, score) in enumerate(best_docs_scores):
+                source_file = doc.metadata.get("source", f"chunk_{i}")
+                chunk_text = doc.page_content
+                
+                context_texts.append(f"【參考來源: {source_file} (關聯度: {score:.2f})】\n{chunk_text}")
+                sources.append({
+                    "source": source_file,
+                    "score": round(score, 3),
+                    "chunk": chunk_text[:50] + "..." # 截斷以保護 Payload 大小
+                })
+
+            return {
+                "context": "\n\n".join(context_texts),
+                "sources": sources
+            }
+
+        except Exception as e:
+            print(f"search error: {e}")
+            return {"error": "資料庫查詢失敗喵！", "sources": []}
 
 
 
